@@ -29,3 +29,21 @@
 .button-cancel{height:39px;white-space:nowrap;color:#ffc0b9;border-color:rgba(245,130,119,.35);background:rgba(105,35,35,.22)}
 .button-cancel:hover{background:rgba(150,45,45,.28);border-color:rgba(245,130,119,.55)}
 @media(max-width:1080px){.button-cancel{padding:0 9px}.search-input-row{flex-wrap:wrap}.query-input-wrap{flex-basis:60%}.progress-meta{font-size:9px}}
+
+
+/* 检索进度条、取消按钮与结果虚拟列表 */
+.progress-wrap{margin-top:15px;padding:12px 12px 2px;border:1px solid #293b38;background:rgba(12,27,25,.42);border-radius:6px}
+.progress-meta{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px;color:#9db5ad;font-size:10px}
+.progress-track{height:5px;overflow:hidden;border-radius:99px;background:#26332f}
+.progress-bar{height:100%;min-width:0;border-radius:99px;background:linear-gradient(90deg,#53c99a,#a0ffd5);box-shadow:0 0 12px rgba(134,247,197,.24);transition:width .2s ease}
+.button-cancel{height:39px;white-space:nowrap;color:#ffc0b9;border-color:rgba(245,130,119,.35);background:rgba(105,35,35,.22)}
+.button-cancel:hover{background:rgba(150,45,45,.28);border-color:rgba(245,130,119,.55)}
+.result-list{height:420px;max-height:420px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.result-spacer{width:1px;pointer-events:none;flex:0 0 auto}
+.result-list .result-row{height:42px;min-height:42px;padding:0 12px;align-items:center;overflow:hidden}
+.result-list .result-row code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
+.result-list .row-chevron{flex-shrink:0}
+.result-list::-webkit-scrollbar{width:8px}
+.result-list::-webkit-scrollbar-thumb{background:#354151;border-radius:8px}
+.result-list::-webkit-scrollbar-track{background:#111722}
+@media(max-width:1080px){.button-cancel{padding:0 9px}.search-input-row{flex-wrap:wrap}.query-input-wrap{flex-basis:60%}.progress-meta{font-size:9px}}

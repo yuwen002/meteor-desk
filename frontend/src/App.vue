@@ -17,6 +17,18 @@ const errorMessage = ref('')
 const response = ref<LogSearchResponse | null>(null)
 const searchProgress = ref<LogSearchProgress | null>(null)
 const currentSearchID = ref('')
+const resultListScrollTop = ref(0)
+const resultRowHeight = 42
+const virtualStart = computed(() => Math.max(0, Math.floor(resultListScrollTop.value / resultRowHeight) - 3))
+const visibleMatches = computed(() => {
+  const all = response.value?.matches ?? []
+  return all.slice(virtualStart.value, virtualStart.value + 24)
+})
+const virtualTopSpace = computed(() => virtualStart.value * resultRowHeight)
+const virtualBottomSpace = computed(() => Math.max(
+  0,
+  ((response.value?.matches.length ?? 0) - virtualStart.value - visibleMatches.value.length) * resultRowHeight,
+))
 let progressTimer: number | undefined
 
 const fileName = computed(() => filePath.value.split(/[\\/]/).filter(Boolean).pop() || '')
@@ -50,6 +62,7 @@ async function chooseFile() {
       filePath.value = selected
       response.value = null
       searchProgress.value = null
+      resultListScrollTop.value = 0
     }
   } catch (error) {
     errorMessage.value = String(error)
@@ -90,6 +103,7 @@ async function runSearch() {
   currentSearchID.value = searchID
   cancelRequested.value = false
   response.value = null
+  resultListScrollTop.value = 0
   searchProgress.value = {
     searchId: searchID, bytesScanned: 0, fileSizeBytes: 0, scannedLines: 0,
     matchesFound: 0, percent: 0, running: true, canceled: false,
@@ -110,6 +124,11 @@ async function runSearch() {
     busy.value = false
     cancelRequested.value = false
   }
+}
+
+function updateResultsScroll(event: Event) {
+  const element = event.target
+  if (element instanceof HTMLElement) resultListScrollTop.value = element.scrollTop
 }
 
 function setPage(page: PageKey) {
@@ -177,7 +196,11 @@ onBeforeUnmount(() => stopProgressPolling())
 
             <div v-if="errorMessage" class="notice notice-error"><span>!</span>{{ errorMessage }}</div>
             <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{ response.matches.length }}</span></h3><p>{{ response ? `已扫描 ${response.scannedLines.toLocaleString()} 行 · ${fileSize}` : '检索结果会显示在这里。' }}</p></div><div v-if="response" class="results-actions"><span v-if="response.resultLimitReached" class="limit-pill">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span> 已完成</span></div></div>
-            <div v-if="response && response.matches.length" class="result-list"><div v-for="(match, index) in response.matches" :key="match.lineNumber" class="result-row"><span class="line-number">{{ String(match.lineNumber).padStart(5, '0') }}</span><span class="result-marker" :class="{ first: index === 0 }"></span><code>{{ match.content }}<span v-if="match.contentClipped" class="clipped-note"> [内容过长，已截断预览]</span></code><span class="row-chevron"><ChevronDown :size="14" /></span></div></div>
+            <div v-if="response && response.matches.length" class="result-list" @scroll="updateResultsScroll">
+              <div class="result-spacer" :style="{ height: `${virtualTopSpace}px` }"></div>
+              <div v-for="(match, index) in visibleMatches" :key="match.lineNumber" class="result-row" :title="match.content"><span class="line-number">{{ String(match.lineNumber).padStart(5, '0') }}</span><span class="result-marker" :class="{ first: virtualStart + index === 0 }"></span><code>{{ match.content }}<span v-if="match.contentClipped" class="clipped-note"> [内容过长，已截断预览]</span></code><span class="row-chevron"><ChevronDown :size="14" /></span></div>
+              <div class="result-spacer" :style="{ height: `${virtualBottomSpace}px` }"></div>
+            </div>
             <div v-else-if="response" class="empty-results"><div class="empty-icon"><Search :size="20" /></div><strong>没有找到匹配内容</strong><span>尝试更换关键字，或启用正则表达式。</span></div>
             <div v-else class="empty-results initial-empty"><div class="empty-illustration"><div class="empty-orbit orbit-one"></div><div class="empty-orbit orbit-two"></div><div class="empty-center"><FileSearch :size="24" /></div><span class="orbit-dot dot-a"></span><span class="orbit-dot dot-b"></span></div><strong>准备就绪</strong><span>选择本地日志文件并输入搜索内容，即可开始分析。</span></div>
             <div class="panel-footer"><span><span class="footer-led"></span> 日志内容仅在本机处理</span><span>流式检索 <span class="footer-divider">/</span> 单行预览最多 8 KiB</span></div>

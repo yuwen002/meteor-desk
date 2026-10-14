@@ -105,7 +105,7 @@ func (a *App) SearchLogs(searchID, path, query string, useRegex bool, maxResults
 			current.progress.ScannedLines = response.ScannedLines
 		}
 		current.progress.MatchesFound = len(response.Matches)
-		current.progress.Percent = calcPercent(current.progress.BytesScanned, current.progress.FileSizeBytes, true, response.Canceled || err != nil)
+		current.progress.Percent = calcPercent(current.progress.BytesScanned, current.progress.FileSizeBytes, false, response.Canceled || err != nil)
 	}
 	a.mu.Unlock()
 	cancel()
