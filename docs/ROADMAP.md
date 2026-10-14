@@ -1,53 +1,57 @@
-# MeteorDesk Roadmap
+# MeteorDesk 项目路线图
 
-The roadmap is intentionally MVP-first. Prefer a narrow, reliable workflow over adding many half-finished utilities.
+路线图以可用的最小版本为优先，先打磨关键工作流，再逐步扩展功能。
 
-## Phase 0 — Project foundation
+## 阶段 0：工程基础
 
-- [x] Initialize Wails v2 + Go module.
-- [x] Add Vue 3 + TypeScript + Vite frontend.
-- [x] Add the dark desktop shell and navigation.
-- [x] Add a basic streaming file-search implementation and unit tests.
-- [x] Create a domain boundary for process management.
-- [ ] Run the full build on Windows, macOS, and Linux.
-- [ ] Set up CI for Go tests and frontend type-check/build.
+- [x] 初始化 Wails v2 与 Go 模块。
+- [x] 接入 Vue 3、TypeScript 和 Vite。
+- [x] 建立暗色桌面工作台与中文导航。
+- [x] 实现原生文件选择和基础日志检索。
+- [x] 增加检索任务进度、取消接口及单元测试。
+- [ ] 在 Windows、macOS、Linux 上完成真实构建验证。
+- [ ] 建立自动化检查流程（Go 测试、前端类型检查和构建）。
 
-## Phase 1 — Log Explorer
+## 阶段 1：日志分析
 
-- [x] Native file picker.
-- [x] Literal and Go regular-expression search.
-- [x] Line numbers and bounded match previews.
-- [ ] Chunk-safe matching for exceptionally long lines.
-- [ ] Cancellation and progress updates for long scans.
-- [ ] Better file encoding handling.
-- [ ] Context lines and next/previous match navigation.
-- [ ] Virtualized results and incremental result events.
-- [ ] JSON / NDJSON pretty view and field filtering.
-- [ ] Search history and saved queries.
+- [x] 通过系统文件选择器打开日志。
+- [x] 普通文本检索与 Go 正则表达式检索。
+- [x] 返回行号，并限制结果数量和预览长度。
+- [x] 普通文本关键字跨读取缓冲区边界匹配。
+- [x] 进度查询和取消任务的后端机制。
+- [x] 对正则模式设置单行大小上限，保护内存。
+- [ ] 在真实桌面界面验证进度条和取消操作。
+- [ ] 增加检索耗时统计、进度状态和异常恢复体验。
+- [ ] 增加上下文行、上一条/下一条匹配导航。
+- [ ] 增加虚拟列表和增量结果呈现。
+- [ ] 增加 JSON / NDJSON 格式化、字段筛选。
+- [ ] 增加检索历史和已保存的查询条件。
+- [ ] 补充文件编码识别、超长行及超大文件基准测试。
 
-## Phase 2 — Process Manager
+## 阶段 2：本地进程管理
 
-- [ ] Saved process profiles (executable, args, working directory, environment).
-- [ ] Start, stop, restart, and lifecycle state.
-- [ ] Separate stdout/stderr streaming per process.
-- [ ] Batch actions and dependency-aware startup groups.
-- [ ] Graceful shutdown and OS-specific process-tree termination.
-- [ ] Environment value masking in UI.
+- [x] 定义进程配置与生命周期状态。
+- [ ] 保存可执行文件、参数、工作目录和环境变量。
+- [ ] 启动、停止、重启进程并展示运行状态。
+- [ ] 分别聚合标准输出和标准错误。
+- [ ] 支持批量启动和依赖关系编排。
+- [ ] 处理优雅退出和不同操作系统的进程树终止。
+- [ ] 在界面中遮蔽敏感环境变量。
 
-## Phase 3 — Developer Toolkit
+## 阶段 3：开发工具箱
 
-- [ ] Timestamp and timezone conversion.
-- [ ] JSON formatting, minifying, and diff.
-- [ ] Base64 encode/decode.
-- [ ] JWT claims inspection (decode only; no signature verification).
-- [ ] URL and query-string utilities.
+- [ ] 时间戳与时区转换。
+- [ ] JSON 格式化、压缩和对比。
+- [ ] Base64 编码与解码。
+- [ ] JWT 载荷查看，并明确说明不验证签名。
+- [ ] URL 与查询字符串处理。
 
-## Engineering principles
+## 工程原则
 
-- Local-first, no telemetry by default.
-- Never load an entire large file just to search it.
-- Bound result counts and UI preview sizes.
-- Keep potentially expensive work cancellable.
-- Do not interpret arbitrary command strings as shell scripts implicitly.
-- Never send log content to remote services.
-- Document platform-specific behavior.
+- 默认本地运行，不默认启用遥测。
+- 不为了搜索而一次性读取完整日志文件。
+- 限制结果数量和单条预览长度。
+- 耗时任务必须能够查询进度并取消。
+- 不默认将任意命令字符串当作 Shell 脚本执行。
+- 不向远程服务发送日志内容。
+- 如有操作系统差异，应在实现和文档中明确说明。
