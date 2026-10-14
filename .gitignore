@@ -1,0 +1,22 @@
+# Go
+/bin/
+/build/
+/dist/
+/*.syso
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/*
+!/frontend/dist/.gitkeep
+/frontend/*.tsbuildinfo
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local configuration
+.env
+.env.*
+!.env.example
