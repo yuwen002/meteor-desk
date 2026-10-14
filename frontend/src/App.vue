@@ -156,7 +156,7 @@ onBeforeUnmount(() => stopProgressPolling())
       <div class="workspace-label">运行方式</div>
       <div class="local-card"><div class="local-icon"><ShieldCheck :size="16" /></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
       <div class="sidebar-bottom">
-        <div class="version-row"><span>早期版本</span><span class="version-tag">v0.1.0</span></div>
+        <div class="version-row"><span>早期版本</span><span class="version-tag">v0.2.0</span></div>
         <div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon" /></div>
       </div>
     </aside>
