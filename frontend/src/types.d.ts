@@ -22,5 +22,6 @@ declare global {
     StartProcess:(id:string)=>Promise<void>; StopProcess:(id:string)=>Promise<void>; RestartProcess:(id:string)=>Promise<void>;
     StartProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>; StopProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>;
     GetProcessLogs:(id:string,after:number)=>Promise<ProcessOutput[]>;
+    ExportProcessConfigs:(redactSensitive:boolean)=>Promise<string>; ImportProcessConfigs:()=>Promise<ProcessView[]>;
   }}}}
 }

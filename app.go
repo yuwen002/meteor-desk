@@ -123,6 +123,40 @@ func (a *App) RestartProcess(id string)error{if a.startupErr!=nil{return a.start
 func (a *App) StartProcesses(ids []string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StartBatch(ids)}
 func (a *App) StopProcesses(ids []string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StopBatch(ids)}
 
+func (a *App) ExportProcessConfigs(redactSensitive bool) (string, error) {
+	if a.ctx == nil { return "", errors.New("桌面运行环境尚未就绪") }
+	if a.startupErr != nil { return "", a.startupErr }
+	if a.processes == nil { return "", errors.New("进程管理器尚未初始化") }
+	data, err := a.processes.ExportConfig(redactSensitive)
+	if err != nil { return "", err }
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title: "导出服务配置", DefaultFilename: "meteordesk-processes.json",
+		Filters: []runtime.FileFilter{{DisplayName: "JSON 配置", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" { return "", err }
+	if err := os.WriteFile(path, data, 0600); err != nil { return "", err }
+	_ = os.Chmod(path, 0600)
+	if redactSensitive { return "已导出脱敏服务配置；敏感环境变量值为空，请导入后检查并补齐。", nil }
+	return "已导出完整配置，文件包含真实环境变量值，请妥善保管。", nil
+}
+
+func (a *App) ImportProcessConfigs() ([]process.View, error) {
+	if a.ctx == nil { return nil, errors.New("桌面运行环境尚未就绪") }
+	if a.startupErr != nil { return nil, a.startupErr }
+	if a.processes == nil { return nil, errors.New("进程管理器尚未初始化") }
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "导入服务配置",
+		Filters: []runtime.FileFilter{{DisplayName: "JSON 配置", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" { return []process.View{}, err }
+	info, err := os.Stat(path)
+	if err != nil { return nil, err }
+	if info.Size() > 1<<20 { return nil, errors.New("导入文件过大，最大支持 1024 KiB") }
+	data, err := os.ReadFile(path)
+	if err != nil { return nil, err }
+	return a.processes.ImportConfig(data)
+}
+
 func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Logs(id,after),nil}
 func (a *App) updateSearchProgress(id string,p logx.Progress){
 	a.mu.Lock();defer a.mu.Unlock();job,ok:=a.searches[id];if !ok{return}

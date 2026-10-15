@@ -20,6 +20,8 @@ import (
 
 const maxOutputLines = 1500
 const maxOutputLineBytes = 64 * 1024
+const maxConfigImportBytes = 1 << 20
+const maxServiceConfigs = 500
 
 type OutputLine struct {
 	Sequence int64 `json:"sequence"`
@@ -79,20 +81,146 @@ func (m *Manager) List() []View {
 	return items
 }
 
-func (m *Manager) Save(spec Spec) (View, error) {
-	spec.Name, spec.Executable, spec.WorkingDir = strings.TrimSpace(spec.Name), strings.TrimSpace(spec.Executable), strings.TrimSpace(spec.WorkingDir)
-	if spec.Name == "" { return View{}, errors.New("服务名称不能为空") }
-	if spec.Executable == "" { return View{}, errors.New("可执行文件不能为空") }
-	if len(spec.Args) > 128 || len(spec.Env) > 128 || len(spec.DependsOn) > 64 { return View{}, errors.New("参数最多 128 个、环境变量最多 128 个、依赖最多 64 个") }
-	if strings.ContainsRune(spec.Executable, 0) { return View{}, errors.New("可执行文件路径包含非法字符") }
-	for _, arg := range spec.Args { if strings.ContainsRune(arg, 0) { return View{}, errors.New("命令参数包含非法字符") } }
-	for key, value := range spec.Env {
-		if strings.TrimSpace(key) == "" || strings.ContainsAny(key, "=\x00") || strings.ContainsRune(value, 0) { return View{}, fmt.Errorf("环境变量名称或值无效：%q", key) }
+
+ // ExportConfig serializes service definitions. Sensitive environment values
+ // are blanked when redaction is requested; the keys are retained for editing.
+func (m *Manager) ExportConfig(redactSensitive bool) ([]byte, error) {
+	m.mu.RLock()
+	specs := make([]Spec, 0, len(m.specs))
+	for _, spec := range m.specs { specs = append(specs, cloneSpec(spec)) }
+	m.mu.RUnlock()
+	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
+	if redactSensitive {
+		for i := range specs {
+			for key := range specs[i].Env {
+				if isSensitiveEnvKey(key) { specs[i].Env[key] = "" }
+			}
+		}
 	}
-	if spec.ID == "" { spec.ID = newID() }
+	return json.MarshalIndent(specs, "", "  ")
+}
+
+// ImportConfig merges definitions as new, stopped services. IDs are regenerated
+// and dependency references within the import file are rewritten.
+func (m *Manager) ImportConfig(data []byte) ([]View, error) {
+	if len(data) == 0 { return nil, errors.New("导入文件为空") }
+	if len(data) > maxConfigImportBytes {
+		return nil, fmt.Errorf("导入文件过大，最大支持 %d KiB", maxConfigImportBytes/1024)
+	}
+	var incoming []Spec
+	if err := json.Unmarshal(data, &incoming); err != nil {
+		return nil, fmt.Errorf("解析服务配置失败：%w", err)
+	}
+	if len(incoming) > maxServiceConfigs {
+		return nil, fmt.Errorf("单次最多导入 %d 个服务配置", maxServiceConfigs)
+	}
+	if len(incoming) == 0 { return []View{}, nil }
+	sourceIDs := make(map[string]struct{}, len(incoming))
+	for i := range incoming {
+		incoming[i].ID = strings.TrimSpace(incoming[i].ID)
+		if incoming[i].ID == "" { return nil, fmt.Errorf("第 %d 个服务缺少配置 ID", i+1) }
+		if _, exists := sourceIDs[incoming[i].ID]; exists {
+			return nil, fmt.Errorf("导入文件中存在重复服务 ID：%s", incoming[i].ID)
+		}
+		sourceIDs[incoming[i].ID] = struct{}{}
+		if err := normalizeSpec(&incoming[i]); err != nil {
+			return nil, fmt.Errorf("服务“%s”配置无效：%w", incoming[i].Name, err)
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.specs)+len(incoming) > maxServiceConfigs {
+		return nil, fmt.Errorf("导入后服务配置总数不能超过 %d 个", maxServiceConfigs)
+	}
+	idMap := make(map[string]string, len(incoming))
+	for _, spec := range incoming { idMap[spec.ID] = newID() }
+	for i := range incoming {
+		sourceID := incoming[i].ID
+		incoming[i].ID = idMap[sourceID]
+		for j, dependencyID := range incoming[i].DependsOn {
+			if mappedID, exists := idMap[dependencyID]; exists {
+				incoming[i].DependsOn[j] = mappedID
+				continue
+			}
+			if _, exists := m.specs[dependencyID]; !exists {
+				return nil, fmt.Errorf("服务“%s”依赖的服务 ID 不存在：%s", incoming[i].Name, dependencyID)
+			}
+		}
+	}
+	importedIDs := make([]string, 0, len(incoming))
+	batchIDs := make(map[string]struct{}, len(incoming))
+	for _, spec := range incoming {
+		batchIDs[spec.ID] = struct{}{}
+		importedIDs = append(importedIDs, spec.ID)
+	}
+	for _, spec := range incoming {
+		for _, dependencyID := range spec.DependsOn {
+			if dependencyID == spec.ID { return nil, fmt.Errorf("服务“%s”不能依赖自身", spec.Name) }
+			if _, exists := m.specs[dependencyID]; !exists {
+				if _, inBatch := batchIDs[dependencyID]; !inBatch {
+					return nil, fmt.Errorf("服务“%s”依赖的服务不存在：%s", spec.Name, dependencyID)
+				}
+			}
+		}
+	}
+	for _, spec := range incoming { m.specs[spec.ID] = cloneSpec(spec) }
+	rollback := func() { for _, id := range importedIDs { delete(m.specs, id) } }
+	if _, err := m.dependencyOrderLocked(importedIDs, true); err != nil {
+		rollback()
+		return nil, err
+	}
+	if err := m.persistLocked(); err != nil {
+		rollback()
+		return nil, err
+	}
+	views := make([]View, 0, len(incoming))
+	for _, spec := range incoming {
+		views = append(views, View{Spec: cloneSpec(spec), Status: Snapshot{ID:spec.ID, Name:spec.Name, State:StateStopped}})
+	}
+	return views, nil
+}
+
+func normalizeSpec(spec *Spec) error {
+	spec.ID = strings.TrimSpace(spec.ID)
+	spec.Name = strings.TrimSpace(spec.Name)
+	spec.Executable = strings.TrimSpace(spec.Executable)
+	spec.WorkingDir = strings.TrimSpace(spec.WorkingDir)
+	if spec.Name == "" { return errors.New("服务名称不能为空") }
+	if spec.Executable == "" { return errors.New("可执行文件不能为空") }
+	if strings.ContainsRune(spec.ID, 0) { return errors.New("服务 ID 包含非法字符") }
+	if len(spec.Args) > 128 || len(spec.Env) > 128 || len(spec.DependsOn) > 64 {
+		return errors.New("参数最多 128 个、环境变量最多 128 个、依赖最多 64 个")
+	}
+	if strings.ContainsRune(spec.Executable, 0) { return errors.New("可执行文件路径包含非法字符") }
+	for _, arg := range spec.Args {
+		if strings.ContainsRune(arg, 0) { return errors.New("命令参数包含非法字符") }
+	}
+	for key, value := range spec.Env {
+		if strings.TrimSpace(key) == "" || strings.ContainsAny(key, "=\x00") || strings.ContainsRune(value, 0) {
+			return fmt.Errorf("环境变量名称或值无效：%q", key)
+		}
+	}
 	spec.Args = append([]string(nil), spec.Args...)
 	spec.DependsOn = uniqueIDs(spec.DependsOn)
 	if spec.Env == nil { spec.Env = map[string]string{} }
+	return nil
+}
+
+func isSensitiveEnvKey(key string) bool {
+	normalized := strings.NewReplacer("_", "", "-", "", ".", "").Replace(strings.ToLower(key))
+	for _, fragment := range []string{"password", "passwd", "pwd", "secret", "token", "apikey", "accesskey", "privatekey", "credential", "authorization", "cookie", "signingkey", "clientsecret", "dsn"} {
+		if strings.Contains(normalized, fragment) { return true }
+	}
+	return false
+}
+
+func (m *Manager) Save(spec Spec) (View, error) {
+	if err := normalizeSpec(&spec); err != nil {
+		return View{}, err
+	}
+	if spec.ID == "" {
+		spec.ID = newID()
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -140,6 +268,7 @@ func (m *Manager) startOne(id string) error {
 	if instance := m.instances[id]; instance != nil && isActive(instance.snapshot.State) { m.mu.Unlock(); return errors.New("该服务已经运行或正在启停") }
 	// 直接传递可执行文件和参数，绝不隐式拼接或执行 Shell 字符串。
 	cmd := exec.Command(spec.Executable, spec.Args...)
+	configureProcess(cmd)
 	if spec.WorkingDir != "" { cmd.Dir = spec.WorkingDir }
 	cmd.Env = mergeEnv(os.Environ(), spec.Env)
 	stdout, err := cmd.StdoutPipe()
@@ -192,21 +321,30 @@ func (m *Manager) stopOne(id string) error {
 		return nil
 	}
 	instance.snapshot.State = StateStopping
-	proc, done := instance.cmd.Process, instance.done
+	cmd, done := instance.cmd, instance.done
 	m.mu.Unlock()
 
-	if err := proc.Signal(os.Interrupt); err != nil {
-		_ = proc.Kill()
+	if err := requestProcessStop(cmd); err != nil {
+		select { case <-done: return nil; default: }
+		m.appendOutput(id, "system", "停止进程树请求失败，将尝试强制结束："+err.Error())
+		if killErr := forceStopProcess(cmd); killErr != nil {
+			select { case <-done: return nil; case <-time.After(500 * time.Millisecond):
+				return fmt.Errorf("停止进程树失败：%w（请求停止错误：%v）", killErr, err)
+			}
+		}
 	}
 	timer := time.NewTimer(1500 * time.Millisecond)
 	defer timer.Stop()
 	select {
-	case <-done:
-		return nil
+	case <-done: return nil
 	case <-timer.C:
-		_ = proc.Kill()
-		<-done
-		return nil
+		m.appendOutput(id, "system", "进程未在宽限期内退出，正在强制结束进程树")
+		if err := forceStopProcess(cmd); err != nil {
+			select { case <-done: return nil; case <-time.After(500 * time.Millisecond): return fmt.Errorf("强制结束进程树失败：%w", err) }
+		}
+		forceTimer := time.NewTimer(2 * time.Second)
+		defer forceTimer.Stop()
+		select { case <-done: return nil; case <-forceTimer.C: return errors.New("已发送强制结束请求，但进程输出管道仍未关闭") }
 	}
 }
 

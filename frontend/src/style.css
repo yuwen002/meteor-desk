@@ -79,3 +79,19 @@
 .dependency-item small{color:#6e7d91;font:8px ui-monospace,monospace;overflow-wrap:anywhere}
 .dependency-empty{grid-column:1/-1;color:#6f7f93;font-size:9px;padding:8px 2px}
 @media(max-width:1050px){.process-heading-actions{max-width:100%}.dependency-list{grid-template-columns:1fr}}
+
+
+/* v0.5.1: service configuration transfer and masked environment values */
+.process-config-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 15px;padding:12px 14px;border:1px solid #29313f;border-radius:8px;background:rgba(15,21,31,.78)}
+.process-config-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.process-config-copy strong{font-size:10px;color:#d7e1ec}
+.process-config-copy span{font-size:9px;line-height:1.6;color:#7b899c}
+.process-config-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.process-config-actions .button{height:31px;padding:0 9px;font-size:9px;white-space:nowrap}
+.notice-success{border-color:rgba(134,247,197,.22)!important;background:rgba(30,83,63,.18)!important;color:#a0edc9!important}
+.env-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:11px}
+.env-editor-heading .field-label{margin:0}
+.env-toggle{height:26px;padding:0 8px;font-size:9px}
+.env-preview{margin:0;padding:10px;border:1px solid #303a49;border-radius:5px;background:#101721;color:#a7b6c6;font-size:10px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.env-editor-help{margin:7px 0 0;color:#dbbd83;font-size:9px;line-height:1.6}
+@media(max-width:1100px){.process-config-toolbar{align-items:flex-start;flex-direction:column}.process-config-actions{justify-content:flex-start}}
