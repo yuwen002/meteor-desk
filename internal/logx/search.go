@@ -46,9 +46,12 @@ type Progress struct {
 	FileSizeBytes int64 `json:"fileSizeBytes"`
 	ScannedLines int64 `json:"scannedLines"`
 	MatchesFound int `json:"matchesFound"`
+	// Matches 只包含自上次进度通知后新出现的匹配，避免反复复制整个结果集。
+	Matches []Match `json:"matches,omitempty"`
 }
 
 // SearchOptions 是一次检索的可选参数。
+// ContextLines 会被限制在 0 到 10 之间，超过上限的值按 10 处理。
 type SearchOptions struct {
 	ContextLines int `json:"contextLines"`
 }
@@ -70,11 +73,15 @@ func SearchFile(path, query string, useRegex bool, maxResults int) (SearchRespon
 }
 
 // SearchFileContext 支持取消和进度回调，但不附加上下文行。
+//
+// onProgress 的 Matches 是自上一次通知后的增量结果；如需最终完整上下文，
+// 仍应使用 SearchResponse.Matches。
 func SearchFileContext(ctx context.Context, path, query string, useRegex bool, maxResults int, onProgress func(Progress)) (SearchResponse, error) {
 	return SearchFileWithOptions(ctx, path, query, useRegex, maxResults, SearchOptions{}, onProgress)
 }
 
 // SearchFileWithOptions 使用固定大小的读取缓冲区扫描文件。
+// onProgress 在扫描达到进度步长或搜索结束时调用，新发现的 Match 会随 Progress.Matches 增量发送。
 // 普通文本匹配只需保留关键字长度相关的边界字节，不拼接整行；结果预览和上下文窗口有界。
 // 正则模式按整行匹配，单行最多允许 4 MiB，避免异常日志造成不受控的内存占用。
 func SearchFileWithOptions(ctx context.Context, path, query string, useRegex bool, maxResults int, options SearchOptions, onProgress func(Progress)) (SearchResponse, error) {
@@ -135,6 +142,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	var lineBytes int64
 	var bytesScanned int64
 	var lastProgressBytes int64
+	var reportedMatchCount int
 	var preview []byte
 	var regexLine []byte
 	var carry []byte
@@ -153,11 +161,21 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 			return
 		}
 		lastProgressBytes = bytesScanned
+		// 上报自上次通知以来新增的匹配；拷贝上下文切片，避免后续行继续补齐
+		// ContextAfter 时修改已经交给调用方的快照。
+		matchUpdates := make([]Match, len(response.Matches)-reportedMatchCount)
+		for i, match := range response.Matches[reportedMatchCount:] {
+			match.ContextBefore = append([]LineContext(nil), match.ContextBefore...)
+			match.ContextAfter = append([]LineContext(nil), match.ContextAfter...)
+			matchUpdates[i] = match
+		}
+		reportedMatchCount = len(response.Matches)
 		onProgress(Progress{
 			BytesScanned: bytesScanned,
 			FileSizeBytes: info.Size(),
 			ScannedLines: response.ScannedLines,
 			MatchesFound: len(response.Matches),
+			Matches: matchUpdates,
 		})
 	}
 

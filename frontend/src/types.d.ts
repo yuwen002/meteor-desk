@@ -16,7 +16,7 @@ declare global {
   interface Window { go?:{main?:{App?:{
     SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
     SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number)=>Promise<LogSearchResponse>;
-    GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; CancelLogSearch:(id:string)=>Promise<boolean>;
+    GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; GetLogSearchMatches:(id:string,afterIndex:number)=>Promise<LogMatch[]>; CancelLogSearch:(id:string)=>Promise<boolean>;
     GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
     GetProcesses:()=>Promise<ProcessView[]>; SaveProcess:(spec:ProcessSpec)=>Promise<ProcessView>; DeleteProcess:(id:string)=>Promise<void>;
     StartProcess:(id:string)=>Promise<void>; StopProcess:(id:string)=>Promise<void>; RestartProcess:(id:string)=>Promise<void>;

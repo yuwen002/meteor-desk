@@ -73,6 +73,36 @@ func TestSearchFileCanCancelAndReportProgress(t *testing.T) {
 	if got.BytesScanned >= got.FileSizeBytes { t.Fatalf("取消后不应扫描完整文件：%+v", got) }
 }
 
+func TestSearchFileEmitsMatchesBeforeScanCompletes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "incremental.log")
+	content := "MATCH first line\n" + strings.Repeat("ordinary log line without the target\n", 20000)
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	gotMatchBeforeEnd := false
+	got, err := SearchFileContext(ctx, path, "MATCH", false, 20, func(p Progress) {
+		if len(p.Matches) > 0 {
+			gotMatchBeforeEnd = true
+			cancel()
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotMatchBeforeEnd {
+		t.Fatal("应在整个文件扫描结束前上报匹配结果")
+	}
+	if !got.Canceled || len(got.Matches) == 0 || got.Matches[0].Content != "MATCH first line" {
+		t.Fatalf("取消后应保留已找到的增量结果：%+v", got)
+	}
+	if got.BytesScanned >= got.FileSizeBytes {
+		t.Fatalf("增量测试应在扫描结束前取消：%+v", got)
+	}
+}
+
 func TestSearchFileRejectsOversizedRegexLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "regex-long.log")
 	if err := os.WriteFile(path, []byte(strings.Repeat("x", maxRegexLineBytes+1)), 0600); err != nil { t.Fatal(err) }

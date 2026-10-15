@@ -28,6 +28,8 @@ const parsedJSON=computed(()=>{if(!selectedMatch.value||selectedMatch.value.cont
 const prettyJSON=computed(()=>parsedJSON.value===null?'':JSON.stringify(parsedJSON.value,null,2))
 const jsonFields=computed(()=>{const out:JsonField[]=[];const add=(v:unknown,path:string,depth:number)=>{if(out.length>=300||depth>8)return;if(Array.isArray(v)){if(!v.length)out.push({path,value:[]});v.forEach((x,i)=>add(x,path+'['+i+']',depth+1))}else if(v&&typeof v==='object'){const e=Object.entries(v as Record<string,unknown>);if(!e.length)out.push({path,value:{}});for(const [k,x] of e)add(x,path==='$'?k:path+'.'+k,depth+1)}else out.push({path,value:v})};if(parsedJSON.value!==null)add(parsedJSON.value,'$',0);const q=jsonFilter.value.trim().toLowerCase();return q?out.filter(x=>x.path.toLowerCase().includes(q)||JSON.stringify(x.value).toLowerCase().includes(q)):out})
 let progressTimer:number|undefined, processTimer:number|undefined, dropTimer:number|undefined
+let partialMatchCursor=0
+let progressPollInFlight=false
 
 function api(){return window.go?.main?.App}
 function clearTimer(which:'progress'|'process'|'drop'){if(which==='progress'&&progressTimer!==undefined){clearInterval(progressTimer);progressTimer=undefined}if(which==='process'&&processTimer!==undefined){clearInterval(processTimer);processTimer=undefined}if(which==='drop'&&dropTimer!==undefined){clearInterval(dropTimer);dropTimer=undefined}}
@@ -36,13 +38,35 @@ function addRecent(path:string){if(!path)return;appSettings.value.recentFiles=[p
 async function loadSettings(){const a=api();if(!a)return;try{appSettings.value=await a.GetAppSettings();contextLines.value=appSettings.value.contextLines??2;resultLimit.value=appSettings.value.resultLimit??500;if(appSettings.value.recentFiles.length)filePath.value=appSettings.value.recentFiles[0]}catch(e){errorMessage.value='读取设置失败：'+String(e)}}
 async function chooseFile(){errorMessage.value='';const a=api();if(!a){errorMessage.value='请通过 Wails 桌面应用运行，才能使用系统文件选择器。';return}try{const p=await a.SelectLogFile();if(p){filePath.value=p;response.value=null;selectedMatch.value=null;scrollTop.value=0;addRecent(p)}}catch(e){errorMessage.value=String(e)}}
 async function pollDrop(){const a=api();if(!a)return;try{const paths=await a.PollDroppedFiles();if(paths.length){filePath.value=paths[0];response.value=null;selectedMatch.value=null;scrollTop.value=0;addRecent(paths[0]);if(paths.length>1)errorMessage.value='已打开第一个文件；本次共拖入 '+paths.length+' 个文件。'}}catch{/* 等待桌面运行时就绪 */}}
-async function pollProgress(id:string){const a=api();if(!a)return;try{const p=await a.GetLogSearchProgress(id);if(searchID.value===id)searchProgress.value=p}catch{/* 刚创建任务时可能尚未登记，下一轮重试 */}}
+// 每轮只追加尚未展示的匹配项，并同步进度元数据；不重复拉取完整结果集。
+async function pollProgress(id:string){
+ const a=api()
+ if(!a||progressPollInFlight)return
+ progressPollInFlight=true
+ try{
+  const p=await a.GetLogSearchProgress(id)
+  if(searchID.value!==id)return
+  searchProgress.value=p
+  if(response.value){
+   response.value={...response.value,fileSizeBytes:p.fileSizeBytes||response.value.fileSizeBytes,bytesScanned:p.bytesScanned,scannedLines:p.scannedLines,canceled:p.canceled}
+  }
+  const cursor=partialMatchCursor
+  const updates=await a.GetLogSearchMatches(id,cursor)
+  if(searchID.value!==id||cursor!==partialMatchCursor||!updates.length)return
+  partialMatchCursor+=updates.length
+  const current=response.value
+  if(current){
+   response.value={...current,fileSizeBytes:p.fileSizeBytes||current.fileSizeBytes,bytesScanned:p.bytesScanned,scannedLines:p.scannedLines,matches:[...current.matches,...updates]}
+  }
+ }catch{/* 刚创建任务时可能尚未登记，下一轮重试 */}
+ finally{progressPollInFlight=false}
+}
 async function cancelSearch(){const a=api();if(!a||!searchID.value)return;cancelRequested.value=true;try{await a.CancelLogSearch(searchID.value)}catch(e){errorMessage.value='取消检索失败：'+String(e)}}
 async function runSearch(){errorMessage.value='';if(!filePath.value){errorMessage.value='请先选择日志文件。';return}if(!query.value){errorMessage.value='请输入关键字或正则表达式。';return}const a=api();if(!a){errorMessage.value='未检测到桌面桥接服务，请通过 wails dev 启动。';return}
- clearTimer('progress');const id=Date.now()+'-'+Math.random().toString(16).slice(2);searchID.value=id;cancelRequested.value=false;busy.value=true;response.value=null;selectedMatch.value=null;scrollTop.value=0
+ clearTimer('progress');const id=Date.now()+'-'+Math.random().toString(16).slice(2);searchID.value=id;cancelRequested.value=false;busy.value=true;partialMatchCursor=0;response.value={filePath:filePath.value,fileSizeBytes:0,bytesScanned:0,scannedLines:0,matches:[],resultLimitReached:false,canceled:false};selectedMatch.value=null;scrollTop.value=0
  searchProgress.value={searchId:id,bytesScanned:0,fileSizeBytes:0,scannedLines:0,matchesFound:0,percent:0,running:true,canceled:false}
  progressTimer=window.setInterval(()=>void pollProgress(id),250)
- try{response.value=await a.SearchLogsAdvanced(id,filePath.value,query.value,useRegex.value,resultLimit.value,contextLines.value);await pollProgress(id);if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:query.value,path:filePath.value,useRegex:useRegex.value,contextLines:contextLines.value,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines))].slice(0,30);addRecent(filePath.value);await persistSettings()}}
+ try{response.value=await a.SearchLogsAdvanced(id,filePath.value,query.value,useRegex.value,resultLimit.value,contextLines.value);partialMatchCursor=response.value.matches.length;await pollProgress(id);if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:query.value,path:filePath.value,useRegex:useRegex.value,contextLines:contextLines.value,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines))].slice(0,30);addRecent(filePath.value);await persistSettings()}}
  catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false}}
 function applyHistory(r:SearchRecord){filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;activePage.value='logs';selectedMatch.value=null}
 function updateScroll(e:Event){if(e.target instanceof HTMLElement)scrollTop.value=e.target.scrollTop}
@@ -133,7 +157,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer(
    <button class="nav-item" :class="{active:activePage==='toolkit'}" @click="setPage('toolkit')"><Wrench :size="17"/><span>开发工具</span><kbd>3</kbd></button>
   </nav>
   <div class="sidebar-divider"></div><div class="workspace-label">运行方式</div><div class="local-card"><div class="local-icon"><ShieldCheck :size="16"/></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
-  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.5</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
+  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.6</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
  </aside>
  <main class="main-content">
   <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><div class="shortcut-hint"><Command :size="13"/><span>K</span></div></div></header>
