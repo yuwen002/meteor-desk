@@ -27,6 +27,12 @@ type LogSearchProgress struct {
 	Canceled bool `json:"canceled"`
 	Error string `json:"error,omitempty"`
 }
+type SearchMatchesEvent struct {
+	SearchID string `json:"searchId"`
+	Progress LogSearchProgress `json:"progress"`
+	Matches []logx.Match `json:"matches,omitempty"`
+}
+
 type searchJob struct {
 	cancel context.CancelFunc
 	progress LogSearchProgress
@@ -43,6 +49,7 @@ const (
 // App 是 Wails 暴露给前端的后端桥接对象；公开方法即本地桌面接口。
 type App struct {
 	ctx context.Context
+	eventsEnabled bool
 	mu sync.RWMutex
 	settingsSaveMu sync.Mutex
 	searches map[string]*searchJob
@@ -54,6 +61,7 @@ type App struct {
 func NewApp() *App { return &App{searches:map[string]*searchJob{},settings:config.DefaultSettings()} }
 func (a *App) startup(ctx context.Context) {
 	a.ctx=ctx
+	a.eventsEnabled=true
 	if settings,err:=config.LoadSettings();err==nil{a.settings=settings}
 	a.processes,a.startupErr=process.NewManager()
 	runtime.OnFileDrop(ctx,func(x,y int,paths []string){
@@ -230,12 +238,33 @@ func (a *App) ImportProcessConfigs() ([]process.View, error) {
 func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Logs(id,after),nil}
 // updateSearchProgress 在锁内更新进度快照，并按到达顺序缓存新发现的匹配项。
 func (a *App) updateSearchProgress(id string,p logx.Progress){
-	a.mu.Lock();defer a.mu.Unlock();job,ok:=a.searches[id];if !ok{return}
-	job.progress.BytesScanned=p.BytesScanned;job.progress.FileSizeBytes=p.FileSizeBytes;job.progress.ScannedLines=p.ScannedLines;job.progress.MatchesFound=p.MatchesFound
+	a.mu.Lock()
+	job,ok:=a.searches[id]
+	if !ok {
+		a.mu.Unlock()
+		return
+	}
+	job.progress.BytesScanned=p.BytesScanned
+	job.progress.FileSizeBytes=p.FileSizeBytes
+	job.progress.ScannedLines=p.ScannedLines
+	job.progress.MatchesFound=p.MatchesFound
 	if len(p.Matches) > 0 {
 		job.matches = append(job.matches, p.Matches...)
 	}
 	job.progress.Percent=calcPercent(p.BytesScanned,p.FileSizeBytes,job.progress.Running,false)
+	event := SearchMatchesEvent{
+		SearchID: id,
+		Progress: job.progress,
+		Matches: append([]logx.Match(nil), p.Matches...),
+	}
+	ctx, enabled := a.ctx, a.eventsEnabled
+	a.mu.Unlock()
+
+	// Keep the polling API as a compatibility/fallback path. Events are only
+	// emitted after Wails startup, never from unit tests or detached contexts.
+	if enabled && ctx != nil {
+		runtime.EventsEmit(ctx, "log-search:update", event)
+	}
 }
 // finishSearchJob publishes the final snapshot and releases successful-search deltas.
 // Canceled jobs retain their bounded incremental results so a late poll can still
