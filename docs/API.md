@@ -87,7 +87,8 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `SearchFileContext(ctx, path, query, useRegex, maxResults, onProgress)`：支持取消与进度/增量匹配回调。
 - `SearchFileWithOptions(ctx, path, query, useRegex, maxResults, SearchOptions, onProgress)`：支持上下文行配置的核心流式搜索入口。
 - `Progress.Matches`：每次进度通知中新增的匹配增量，不会重复包含此前已通知的结果。匹配对象的前后文可能尚未收集完整；结束时应使用函数最终返回的 `SearchResponse` 作为权威快照。
-- `SearchOptions.MultiLineJSON`：启用多行 JSON 文档检索；对象/数组以括号深度识别，字符串中的括号与转义引号不会结束文档，单个文档限制 4 MiB。混合日志中的普通行仍按行匹配。\n- `SearchOptions.Encoding`：接受 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；最终识别结果通过 `SearchResponse.Encoding` 返回。自动模式先检查 BOM，再尝试 UTF-8/无 BOM UTF-16 特征，最后对非 UTF-8 文本按 GB18030 解码。
+- `SearchOptions.MultiLineJSON`：启用多行 JSON 文档检索；对象/数组以括号深度识别，字符串中的括号与转义引号不会结束文档，单个文档限制 4 MiB。混合日志中的普通行仍按行匹配。
+- `SearchOptions.Encoding`：接受 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；最终识别结果通过 `SearchResponse.Encoding` 返回。自动模式先检查 BOM，再尝试 UTF-8/无 BOM UTF-16 特征，最后对非 UTF-8 文本按 GB18030 解码。
 
 约束：普通文本按固定缓冲区流式扫描；结果上限为 5,000；结果预览 8 KiB；上下文预览 1 KiB；正则模式单行限制 4 MiB。
 
