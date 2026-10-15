@@ -20,7 +20,7 @@ const virtualBottom=computed(()=>Math.max(0,((response.value?.matches.length??0)
 const selectedIndex=computed(()=>response.value?.matches.findIndex(m=>m.lineNumber===selectedMatch.value?.lineNumber)??-1)
 const fileName=computed(()=>filePath.value.split(/[\\/]/).filter(Boolean).pop()||'')
 const selectedProcess=computed(()=>processes.value.find(p=>p.spec.id===selectedPID.value)||null)
-const isSensitiveEnvKey=(key:string)=>{const normalized=key.toLowerCase().replace(/[_\\-.]/g,'');return ['password','passwd','pwd','secret','token','apikey','accesskey','privatekey','credential','authorization','cookie','signingkey','clientsecret','dsn'].some(part=>normalized.includes(part))}
+const isSensitiveEnvKey=(key:string)=>{const normalized=key.toLowerCase().replaceAll('_','').replaceAll('-','').replaceAll('.','');return ['password','passwd','pwd','secret','token','apikey','accesskey','privatekey','credential','authorization','cookie','signingkey','clientsecret','dsn'].some(part=>normalized.includes(part))}
 const maskedProcEnvPreview=computed(()=>{try{const value:unknown=JSON.parse(procEnv.value);if(value===null||Array.isArray(value)||typeof value!=='object'||!Object.values(value).every(item=>typeof item==='string'))return '环境变量 JSON 无效，请进入编辑模式修正。';const masked=Object.fromEntries(Object.entries(value as Record<string,string>).map(([key,item])=>[key,isSensitiveEnvKey(key)&&item!==''?'••••••••':item]));return JSON.stringify(masked,null,2)}catch{return '环境变量 JSON 无效，请进入编辑模式修正。'}})
 const fmtBytes=(bytes:number)=>{if(bytes<1024)return bytes+' B';const u=['KB','MB','GB','TB'];let v=bytes/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v>=100?0:1)+' '+u[i]}
 const fileSize=computed(()=>fmtBytes(response.value?.fileSizeBytes??0))
