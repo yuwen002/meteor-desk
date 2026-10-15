@@ -4,6 +4,7 @@ import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, C
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
+import { appendJSONPath } from './utils/jsonPath'
 import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
 type PageKey='logs'|'processes'|'toolkit'
@@ -45,7 +46,7 @@ const fmtBytes=(bytes:number)=>{if(bytes<1024)return bytes+' B';const u=['KB','M
 const fileSize=computed(()=>fmtBytes(response.value?.fileSizeBytes??0))
 const parsedJSON=computed(()=>{if(!selectedMatch.value||selectedMatch.value.contentClipped)return null;try{const v=JSON.parse(selectedMatch.value.content);return v!==null&&typeof v==='object'?v:null}catch{return null}})
 const prettyJSON=computed(()=>parsedJSON.value===null?'':JSON.stringify(parsedJSON.value,null,2))
-const jsonFields=computed(()=>{const out:JsonField[]=[];const add=(v:unknown,path:string,depth:number)=>{if(out.length>=300||depth>8)return;if(Array.isArray(v)){if(!v.length)out.push({path,value:[]});v.forEach((x,i)=>add(x,path+'['+i+']',depth+1))}else if(v&&typeof v==='object'){const e=Object.entries(v as Record<string,unknown>);if(!e.length)out.push({path,value:{}});for(const [k,x] of e)add(x,path==='$'?k:path+'.'+k,depth+1)}else out.push({path,value:v})};if(parsedJSON.value!==null)add(parsedJSON.value,'$',0);const q=jsonFilter.value.trim().toLowerCase();return q?out.filter(x=>x.path.toLowerCase().includes(q)||JSON.stringify(x.value).toLowerCase().includes(q)):out})
+const jsonFields=computed(()=>{const out:JsonField[]=[];const add=(v:unknown,path:string,depth:number)=>{if(out.length>=300||depth>8)return;if(Array.isArray(v)){if(!v.length)out.push({path,value:[]});v.forEach((x,i)=>add(x,path+'['+i+']',depth+1))}else if(v&&typeof v==='object'){const e=Object.entries(v as Record<string,unknown>);if(!e.length)out.push({path,value:{}});for(const [k,x] of e)add(x,appendJSONPath(path,k),depth+1)}else out.push({path,value:v})};if(parsedJSON.value!==null)add(parsedJSON.value,'$',0);const q=jsonFilter.value.trim().toLowerCase();return q?out.filter(x=>x.path.toLowerCase().includes(q)||JSON.stringify(x.value).toLowerCase().includes(q)):out})
 let progressTimer:number|undefined, dropTimer:number|undefined
 let partialMatchCursor=0
 let progressPollInFlight=false
