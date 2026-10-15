@@ -11,8 +11,9 @@ permissions:
 
 jobs:
   validate:
-    name: Go 测试、性能基准与前端构建
+    name: Go 测试、1 GiB 日志基准与前端构建
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - name: 检出源码
         uses: actions/checkout@v4
@@ -37,23 +38,7 @@ jobs:
       - name: GB 级大文件检索基准测试（1 GiB）
         env:
           METEORDESK_BENCH_SIZE_MB: 1024
-        run: go test ./internal/logx -run '^
-
-      - name: 安装 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package.json
-
-      - name: 安装前端依赖
-        working-directory: frontend
-        run: npm install
-
-      - name: 检查类型并构建前端
-        working-directory: frontend
-        run: npm run build
- -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
+        run: go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
