@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, Eye, EyeOff, FileDown, FileSearch, FileUp, FolderOpen, Gauge, HardDrive, History, Layers3, Play, Plus, RefreshCw, Regex, Save, Search, ShieldCheck, Square, TerminalSquare, Trash2, Wrench, X } from 'lucide-vue-next'
+import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, FileSearch, FolderOpen, Gauge, HardDrive, History, Layers3, Regex, Search, ShieldCheck, TerminalSquare, Wrench, X } from 'lucide-vue-next'
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
+import ProcessManagement from './components/ProcessManagement.vue'
 
 type PageKey='logs'|'processes'|'toolkit'
-type ProcAction='start'|'stop'|'restart'
 const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex=ref(false), contextLines=ref(2), resultLimit=ref(500), encodingMode=ref('auto')
 const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), searchProgress=ref<LogSearchProgress|null>(null), searchID=ref('')
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
-const processes=ref<ProcessView[]>([]), selectedPID=ref(''), processLogs=ref<ProcessOutput[]>([]), outputCursor=ref(0), processError=ref(''), processBusy=ref(false)
-const batchResults=ref<ProcessBatchResult[]>([]), processMessage=ref(''), showProcEnvEditor=ref(false)
-const editingID=ref(''), procName=ref(''), procExecutable=ref(''), procArgs=ref('[]'), procCwd=ref(''), procEnv=ref('{}'), procDependsOn=ref<string[]>([])
+
+
+
 const rowHeight=42
 const virtualStart=computed(()=>Math.max(0,Math.floor(scrollTop.value/rowHeight)-3))
 const visibleMatches=computed(()=>(response.value?.matches??[]).slice(virtualStart.value,virtualStart.value+24))
@@ -19,21 +19,19 @@ const virtualTop=computed(()=>virtualStart.value*rowHeight)
 const virtualBottom=computed(()=>Math.max(0,((response.value?.matches.length??0)-virtualStart.value-visibleMatches.value.length)*rowHeight))
 const selectedIndex=computed(()=>response.value?.matches.findIndex(m=>m.lineNumber===selectedMatch.value?.lineNumber)??-1)
 const fileName=computed(()=>filePath.value.split(/[\\/]/).filter(Boolean).pop()||'')
-const selectedProcess=computed(()=>processes.value.find(p=>p.spec.id===selectedPID.value)||null)
-const isSensitiveEnvKey=(key:string)=>{const normalized=key.toLowerCase().replaceAll('_','').replaceAll('-','').replaceAll('.','');return ['password','passwd','pwd','secret','token','apikey','accesskey','privatekey','credential','authorization','cookie','signingkey','clientsecret','dsn','databaseurl','dburl','redisurl','mongouri','postgresurl','mysqlurl','jdbcurl','connectionstring','connectionuri','webhook'].some(part=>normalized.includes(part))}
-const maskedProcEnvPreview=computed(()=>{try{const value:unknown=JSON.parse(procEnv.value);if(value===null||Array.isArray(value)||typeof value!=='object'||!Object.values(value).every(item=>typeof item==='string'))return '环境变量 JSON 无效，请进入编辑模式修正。';const masked=Object.fromEntries(Object.entries(value as Record<string,string>).map(([key,item])=>[key,isSensitiveEnvKey(key)&&item!==''?'••••••••':item]));return JSON.stringify(masked,null,2)}catch{return '环境变量 JSON 无效，请进入编辑模式修正。'}})
+
 const fmtBytes=(bytes:number)=>{if(bytes<1024)return bytes+' B';const u=['KB','MB','GB','TB'];let v=bytes/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v>=100?0:1)+' '+u[i]}
 const fileSize=computed(()=>fmtBytes(response.value?.fileSizeBytes??0))
 const parsedJSON=computed(()=>{if(!selectedMatch.value||selectedMatch.value.contentClipped)return null;try{const v=JSON.parse(selectedMatch.value.content);return v!==null&&typeof v==='object'?v:null}catch{return null}})
 const prettyJSON=computed(()=>parsedJSON.value===null?'':JSON.stringify(parsedJSON.value,null,2))
 const jsonFields=computed(()=>{const out:JsonField[]=[];const add=(v:unknown,path:string,depth:number)=>{if(out.length>=300||depth>8)return;if(Array.isArray(v)){if(!v.length)out.push({path,value:[]});v.forEach((x,i)=>add(x,path+'['+i+']',depth+1))}else if(v&&typeof v==='object'){const e=Object.entries(v as Record<string,unknown>);if(!e.length)out.push({path,value:{}});for(const [k,x] of e)add(x,path==='$'?k:path+'.'+k,depth+1)}else out.push({path,value:v})};if(parsedJSON.value!==null)add(parsedJSON.value,'$',0);const q=jsonFilter.value.trim().toLowerCase();return q?out.filter(x=>x.path.toLowerCase().includes(q)||JSON.stringify(x.value).toLowerCase().includes(q)):out})
-let progressTimer:number|undefined, processTimer:number|undefined, dropTimer:number|undefined
+let progressTimer:number|undefined, dropTimer:number|undefined
 let partialMatchCursor=0
 let progressPollInFlight=false
 let completedSearchID=''
 
 function api(){return window.go?.main?.App}
-function clearTimer(which:'progress'|'process'|'drop'){if(which==='progress'&&progressTimer!==undefined){clearInterval(progressTimer);progressTimer=undefined}if(which==='process'&&processTimer!==undefined){clearInterval(processTimer);processTimer=undefined}if(which==='drop'&&dropTimer!==undefined){clearInterval(dropTimer);dropTimer=undefined}}
+function clearTimer(which:'progress'|'drop'){if(which==='progress'&&progressTimer!==undefined){clearInterval(progressTimer);progressTimer=undefined}if(which==='drop'&&dropTimer!==undefined){clearInterval(dropTimer);dropTimer=undefined}}
 async function persistSettings(){const a=api();if(!a)return;const settings:AppSettings={recentFiles:appSettings.value.recentFiles.slice(0,12),searchHistory:appSettings.value.searchHistory.slice(0,30),contextLines:contextLines.value,resultLimit:resultLimit.value};appSettings.value=settings;try{await a.SaveAppSettings(settings)}catch(e){errorMessage.value='保存本地设置失败：'+String(e)}}
 function addRecent(path:string){if(!path)return;appSettings.value.recentFiles=[path,...appSettings.value.recentFiles.filter(x=>x.toLowerCase()!==path.toLowerCase())].slice(0,12);void persistSettings()}
 async function loadSettings(){const a=api();if(!a)return;try{appSettings.value=await a.GetAppSettings();contextLines.value=appSettings.value.contextLines??2;resultLimit.value=appSettings.value.resultLimit??500;if(appSettings.value.recentFiles.length)filePath.value=appSettings.value.recentFiles[0]}catch(e){errorMessage.value='读取设置失败：'+String(e)}}
@@ -93,70 +91,10 @@ async function moveMatch(delta:number){
  if(resultListElement.value)resultListElement.value.scrollTop=Math.max(0,target*rowHeight-3*rowHeight)
 }
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
-async function loadProcesses(){const a=api();if(!a)return;try{processes.value=await a.GetProcesses();if(!selectedPID.value&&processes.value.length)selectedPID.value=processes.value[0].spec.id;if(selectedPID.value&&!processes.value.some(x=>x.spec.id===selectedPID.value))selectedPID.value=processes.value[0]?.spec.id??''}catch(e){processError.value=String(e)}}
-async function pollProcessLogs(){const a=api();if(!a||!selectedPID.value)return;try{const lines=await a.GetProcessLogs(selectedPID.value,outputCursor.value);if(lines.length){processLogs.value=[...processLogs.value,...lines].slice(-1500);outputCursor.value=lines[lines.length-1].sequence}}catch(e){processError.value=String(e)}}
-async function refreshProcesses(){await loadProcesses();if(selectedPID.value)await pollProcessLogs()}
-function selectProcess(p:ProcessView){showProcEnvEditor.value=false;selectedPID.value=p.spec.id;editingID.value=p.spec.id;procName.value=p.spec.name;procExecutable.value=p.spec.executable;procArgs.value=JSON.stringify(p.spec.args??[],null,2);procCwd.value=p.spec.workingDir??'';procEnv.value=JSON.stringify(p.spec.env??{},null,2);procDependsOn.value=[...(p.spec.dependsOn??[])];processLogs.value=[];outputCursor.value=0;void pollProcessLogs()}
-function newProcess(){showProcEnvEditor.value=false;editingID.value='';selectedPID.value='';procName.value='';procExecutable.value='';procArgs.value='[]';procCwd.value='';procEnv.value='{}';procDependsOn.value=[];processLogs.value=[];outputCursor.value=0}
-async function saveProcess(){const a=api();if(!a)return;processError.value='';let args:string[],env:Record<string,string>;try{const p:unknown=JSON.parse(procArgs.value),e:unknown=JSON.parse(procEnv.value);if(!Array.isArray(p)||!p.every(x=>typeof x==='string'))throw new Error('参数必须是 JSON 字符串数组，例如 ["run","dev"]');if(e===null||Array.isArray(e)||typeof e!=='object'||!Object.values(e).every(x=>typeof x==='string'))throw new Error('环境变量必须是 JSON 字符串对象');args=p;env=e as Record<string,string>}catch(e){processError.value='配置格式错误：'+String(e);return}processBusy.value=true;try{const saved=await a.SaveProcess({id:editingID.value,name:procName.value,executable:procExecutable.value,args,workingDir:procCwd.value,env,autoStart:false,dependsOn:procDependsOn.value});await loadProcesses();selectProcess(saved)}catch(e){processError.value=String(e)}finally{processBusy.value=false}}
-async function processAction(action:ProcAction){const a=api();if(!a||!selectedProcess.value)return;processBusy.value=true;processError.value='';try{if(action==='start')await a.StartProcess(selectedPID.value);else if(action==='stop')await a.StopProcess(selectedPID.value);else await a.RestartProcess(selectedPID.value);await refreshProcesses()}catch(e){processError.value=String(e)}finally{processBusy.value=false}}
-async function batchProcessAction(action:'start'|'stop'){
- const a=api()
- if(!a||!processes.value.length)return
- processBusy.value=true;processError.value='';batchResults.value=[]
- try{
-  const ids=processes.value.map(item=>item.spec.id)
-  batchResults.value=action==='start'?await a.StartProcesses(ids):await a.StopProcesses(ids)
-  const failed=batchResults.value.filter(item=>!item.success)
-  const success=batchResults.value.length-failed.length
-  if(failed.length)processError.value='批量'+(action==='start'?'启动':'停止')+'完成：成功 '+success+' 个，失败 '+failed.length+' 个。请查看批量操作结果。'
-  await refreshProcesses()
- }catch(e){processError.value=String(e)}
- finally{processBusy.value=false}
-}
-async function exportProcessConfigs(redactSensitive:boolean){
- const a=api();if(!a)return
- processError.value='';processMessage.value=''
- if(!redactSensitive&&!confirm('完整导出会包含真实环境变量值（可能有密码、Token 或密钥）。请仅保存到可信位置。确定继续？'))return
- processBusy.value=true
- try{const message=await a.ExportProcessConfigs(redactSensitive);if(message)processMessage.value=message}
- catch(e){processError.value='导出服务配置失败：'+String(e)}
- finally{processBusy.value=false}
-}
-async function importProcessConfigs(){
- const a=api();if(!a)return
- if(!confirm('导入文件中的服务会作为新配置添加，不会覆盖当前配置，也不会自动启动。请只导入可信配置。继续？'))return
- processBusy.value=true;processError.value='';processMessage.value=''
- try{const imported=await a.ImportProcessConfigs();if(imported.length){await loadProcesses();selectProcess(imported[0]);processMessage.value='已导入 '+imported.length+' 个服务配置。启动前请检查可执行文件、工作目录及已脱敏的环境变量。'}}
- catch(e){processError.value='导入服务配置失败：'+String(e)}
- finally{processBusy.value=false}
-}
-async function deleteProcess(){const a=api();if(!a||!selectedProcess.value)return;if(!confirm('确定删除服务配置“'+selectedProcess.value.spec.name+'”？运行中的服务必须先停止。'))return;try{await a.DeleteProcess(selectedPID.value);newProcess();await loadProcesses()}catch(e){processError.value=String(e)}}
-function stateName(s:ProcessStatus['state']){return ({stopped:'已停止',starting:'启动中',running:'运行中',stopping:'停止中',failed:'异常退出'} as Record<ProcessStatus['state'],string>)[s]}
-function exitReasonName(reason?:ProcessStatus['exitReason']){
- if(!reason)return ''
- return ({normal:'正常退出',nonzero:'非零退出',signal:'信号终止','manual-stop':'手动停止','start-error':'启动失败'} as Record<NonNullable<ProcessStatus['exitReason']>,string>)[reason]
-}
-function processStatusSummary(status:ProcessStatus){
- const label=exitReasonName(status.exitReason)
- if(!label)return ''
- if(status.state==='failed')return label+'：'+(status.error||'未提供错误信息')
- return '最近一次：'+label
-}
-function formatLocalTime(value?:string){if(!value)return '—';const date=new Date(value);return Number.isNaN(date.getTime())?'—':date.toLocaleString()}
-function formatRunDuration(status:ProcessStatus){
- const start=status.startedAt?Date.parse(status.startedAt):NaN
- const active=status.state==='running'||status.state==='starting'||status.state==='stopping'
- const elapsed=active&&Number.isFinite(start)?Math.max(0,Date.now()-start):(status.durationMs??0)
- const totalSeconds=Math.floor(elapsed/1000),hours=Math.floor(totalSeconds/3600),minutes=Math.floor((totalSeconds%3600)/60),seconds=totalSeconds%60
- if(hours>0)return hours+'小时 '+String(minutes).padStart(2,'0')+'分 '+String(seconds).padStart(2,'0')+'秒'
- if(minutes>0)return minutes+'分 '+String(seconds).padStart(2,'0')+'秒'
- return totalSeconds+'秒'
-}
 function setPage(p:PageKey){activePage.value=p}
 function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key.toLowerCase();if(k==='o'){e.preventDefault();void chooseFile()}else if(k==='k'){e.preventDefault();setPage('logs');void nextTick(()=>inputRef.value?.focus())}else if(e.key==='Enter'&&activePage.value==='logs'){e.preventDefault();if(!busy.value)void runSearch()}else if(k==='1'){e.preventDefault();setPage('logs')}else if(k==='2'){e.preventDefault();setPage('processes')}else if(k==='3'){e.preventDefault();setPage('toolkit')}}
-onMounted(()=>{window.addEventListener('keydown',shortcuts);void loadSettings();void loadProcesses();dropTimer=window.setInterval(()=>void pollDrop(),300);processTimer=window.setInterval(()=>{if(activePage.value==='processes')void refreshProcesses()},1000)})
-onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer('progress');clearTimer('process');clearTimer('drop')})
+onMounted(()=>{window.addEventListener('keydown',shortcuts);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
+onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer('progress');clearTimer('drop')})
 </script>
 
 <template>
@@ -169,7 +107,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer(
    <button class="nav-item" :class="{active:activePage==='toolkit'}" @click="setPage('toolkit')"><Wrench :size="17"/><span>开发工具</span><kbd>3</kbd></button>
   </nav>
   <div class="sidebar-divider"></div><div class="workspace-label">运行方式</div><div class="local-card"><div class="local-icon"><ShieldCheck :size="16"/></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
-  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.7</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
+  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.8</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
  </aside>
  <main class="main-content">
   <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><div class="shortcut-hint"><Command :size="13"/><span>K</span></div></div></header>
@@ -206,42 +144,9 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer(
     <div class="bottom-note"><Braces :size="15"/><span>快捷键：Ctrl/⌘+O 打开文件，Ctrl/⌘+K 聚焦搜索，Ctrl/⌘+Enter 检索。</span><button @click="setPage('processes')">管理本地服务 <ArrowRight :size="13"/></button></div>
    </section>
 
-   <section v-else-if="activePage==='processes'" class="page-content process-page">
-    <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>本地运行时 / 服务编排</div><h1>进程管理<span class="title-period">。</span></h1><p class="page-subtitle">按依赖顺序启动本地服务；停止依赖时，会先停止依赖它的服务。</p></div><div class="process-heading-actions"><button class="button button-secondary" :disabled="processBusy||!processes.length" @click="batchProcessAction('start')"><Play :size="14"/>全部启动</button><button class="button button-secondary" :disabled="processBusy||!processes.length" @click="batchProcessAction('stop')"><Square :size="13"/>全部停止</button><button class="button button-primary" @click="newProcess"><Plus :size="15"/>新建服务</button></div></div>
-    <div v-if="processError" class="notice notice-error process-notice"><span>!</span>{{processError}}</div>
-    <div v-if="processMessage" class="notice notice-success process-notice"><span>✓</span>{{processMessage}}</div>
-    <div class="process-config-toolbar">
-     <div class="process-config-copy"><strong>服务配置迁移</strong><span>导入会创建新配置，不覆盖现有服务，也不会自动启动。</span></div>
-     <div class="process-config-actions">
-      <button class="button button-secondary" :disabled="processBusy" @click="importProcessConfigs"><FileUp :size="14"/>导入配置</button>
-      <button class="button button-secondary" :disabled="processBusy" @click="exportProcessConfigs(true)"><FileDown :size="14"/>导出脱敏配置</button>
-      <button class="button button-quiet" :disabled="processBusy" @click="exportProcessConfigs(false)"><ShieldCheck :size="14"/>导出完整配置</button>
-     </div>
-    </div>
-    <div v-if="batchResults.length" class="batch-results">
-     <div class="batch-results-header"><strong>最近一次批量操作</strong><span>成功 {{batchResults.filter(item=>item.success).length}} / {{batchResults.length}}</span></div>
-     <div v-for="item in batchResults" :key="item.action+'-'+item.id" class="batch-result-row" :class="{failed:!item.success}"><span class="batch-result-mark">{{item.success?'✓':'!'}}</span><strong>{{item.name}}</strong><span>{{item.message}}</span></div>
-    </div>
-    <div class="process-layout">
-     <section class="process-panel"><div class="process-panel-heading"><div><h2>服务列表</h2><p>{{processes.length}} 个已保存的服务配置</p></div><button class="icon-button" @click="refreshProcesses"><RefreshCw :size="15"/></button></div><div v-if="processes.length" class="process-list"><button v-for="p in processes" :key="p.spec.id" class="process-item" :class="{selected:selectedPID===p.spec.id}" @click="selectProcess(p)"><span class="process-state-dot" :class="p.status.state"></span><span class="process-item-main"><strong>{{p.spec.name}}</strong><small>{{p.spec.executable}}</small><small v-if="p.status.exitReason" class="process-item-diagnostic" :class="{failed:p.status.state==='failed'}">{{processStatusSummary(p.status)}}</small><em>{{stateName(p.status.state)}}<template v-if="p.status.pid"> · PID {{p.status.pid}}</template></em></span><ChevronRight :size="14"/></button></div><div v-else class="process-empty"><TerminalSquare :size="25"/><strong>还没有服务配置</strong><span>创建一条命令配置，即可开始管理本地服务。</span><button class="button button-secondary" @click="newProcess"><Plus :size="14"/>创建第一个服务</button></div></section>
-     <section class="process-panel"><div class="process-panel-heading"><div><h2>{{editingID?'服务配置':'新增服务配置'}}</h2><p>参数使用 JSON 数组，不会拼接执行为 Shell 命令。</p></div><span class="safe-pill"><ShieldCheck :size="13"/>显式参数</span></div>
-      <form class="process-form" @submit.prevent="saveProcess"><label class="field-label">服务名称</label><input v-model="procName" class="text-field" placeholder="例如：后端 API" required/><label class="field-label">可执行文件</label><input v-model="procExecutable" class="text-field mono-field" placeholder="例如：go、npm 或程序绝对路径" required/><label class="field-label">命令参数（JSON 字符串数组）</label><textarea v-model="procArgs" class="text-area mono-field" rows="3" spellcheck="false"></textarea><label class="field-label">工作目录</label><input v-model="procCwd" class="text-field mono-field" placeholder="可选，项目目录"/><div class="env-editor-heading"><label class="field-label">环境变量（JSON 字符串对象）</label><button type="button" class="button button-quiet env-toggle" @click="showProcEnvEditor=!showProcEnvEditor"><EyeOff v-if="showProcEnvEditor" :size="13"/><Eye v-else :size="13"/>{{showProcEnvEditor?'隐藏编辑内容':'编辑环境变量'}}</button></div><textarea v-if="showProcEnvEditor" v-model="procEnv" class="text-area mono-field" rows="4" spellcheck="false"></textarea><p v-if="showProcEnvEditor" class="env-editor-help">编辑模式会显示真实环境变量值。保存后退出编辑模式；导出时建议使用脱敏选项。</p><pre v-else class="env-preview mono-field">{{maskedProcEnvPreview}}</pre>
-       <label class="field-label">启动前置依赖</label>
-       <div class="dependency-list">
-        <label v-for="candidate in processes.filter(item=>item.spec.id!==editingID)" :key="candidate.spec.id" class="dependency-item">
-         <input v-model="procDependsOn" type="checkbox" :value="candidate.spec.id" :disabled="processBusy"/>
-         <span><strong>{{candidate.spec.name}}</strong><small>{{candidate.spec.id}}</small></span>
-        </label>
-        <span v-if="!processes.some(item=>item.spec.id!==editingID)" class="dependency-empty">先保存其他服务，再选择它们作为启动依赖。</span>
-       </div>
-       <div class="process-form-actions"><button type="submit" class="button button-primary" :disabled="processBusy"><Save :size="15"/>保存配置</button><button type="button" class="button button-secondary" @click="newProcess">清空表单</button><button v-if="editingID" type="button" class="button button-danger" @click="deleteProcess"><Trash2 :size="14"/>删除配置</button></div></form>
-      <div v-if="selectedProcess" class="process-runtime"><div class="runtime-heading"><div><h3>进程控制</h3><p>{{stateName(selectedProcess.status.state)}}<template v-if="selectedProcess.status.pid"> · PID {{selectedProcess.status.pid}}</template><template v-if="selectedProcess.status.exitCode!==undefined"> · 退出码 {{selectedProcess.status.exitCode}}</template></p><div v-if="selectedProcess.status.startedAt || selectedProcess.status.finishedAt" class="process-lifecycle-meta"><span v-if="selectedProcess.status.startedAt">开始：<code>{{formatLocalTime(selectedProcess.status.startedAt)}}</code></span><span v-if="selectedProcess.status.finishedAt">结束：<code>{{formatLocalTime(selectedProcess.status.finishedAt)}}</code></span><span v-if="selectedProcess.status.startedAt">运行时长：<strong>{{formatRunDuration(selectedProcess.status)}}</strong></span></div></div><div class="runtime-actions"><button class="button button-primary" :disabled="processBusy||selectedProcess.status.state==='running'||selectedProcess.status.state==='starting'" @click="processAction('start')"><Play :size="13"/>启动</button><button class="button button-secondary" :disabled="processBusy||selectedProcess.status.state!=='running'" @click="processAction('stop')"><Square :size="13"/>停止</button><button class="button button-secondary" :disabled="processBusy||selectedProcess.status.state==='running'||selectedProcess.status.state==='starting'" @click="processAction('restart')"><RefreshCw :size="13"/>重启</button></div></div><p v-if="selectedProcess.status.error" class="process-error-text">{{selectedProcess.status.error}}</p><div class="log-stream-heading"><span><Activity :size="14"/>运行输出</span><span>{{processLogs.length}} 条缓存记录</span></div><div class="process-log-output"><div v-for="line in processLogs" :key="line.sequence" class="process-log-line" :class="line.stream"><span>{{line.time}}</span><b>{{line.stream==='stdout'?'OUT':line.stream==='stderr'?'ERR':'SYS'}}</b><code>{{line.text}}</code></div><div v-if="!processLogs.length" class="process-log-empty">启动服务后，标准输出和错误输出会显示在这里。</div></div></div>
-     </section>
-    </div>
-    <div class="bottom-note"><ShieldCheck :size="15"/><span>配置保存在本机用户目录；全部启动会按依赖排序，停止某项服务会先停止依赖它的下游服务。</span></div>
-   </section>
+   <ProcessManagement :active="activePage==='processes'" />
 
-   <DeveloperToolkit v-else />
+   <DeveloperToolkit v-if="activePage==='toolkit'" />
   </div>
   <footer class="app-footer"><span>METEORDESK <span class="footer-divider">/</span>本地开发与运维工作台</span><span>专注效率 <span class="footer-divider">·</span>数据留在本机</span></footer>
  </main>

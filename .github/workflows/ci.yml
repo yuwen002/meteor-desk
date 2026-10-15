@@ -54,6 +54,10 @@ jobs:
         working-directory: frontend
         run: npm install
 
+      - name: 运行前端单元与交互测试
+        working-directory: frontend
+        run: npm test
+
       - name: 检查类型并构建前端
         working-directory: frontend
         run: npm run build
