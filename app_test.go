@@ -118,6 +118,19 @@ func TestConcurrentSearchPollingIsSafe(t *testing.T) {
 			}
 		}()
 	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			app.updateSearchProgress("poll", logx.Progress{
+				BytesScanned: int64(i),
+				FileSizeBytes: 100,
+				ScannedLines: int64(i),
+				MatchesFound: i + 1,
+				Matches: []logx.Match{{LineNumber: int64(i + 2), Content: "incremental"}},
+			})
+		}
+	}()
 	wg.Wait()
 }
 
