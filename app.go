@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/yuwen002/meteor-desk/internal/config"
@@ -30,7 +31,14 @@ type searchJob struct {
 	cancel context.CancelFunc
 	progress LogSearchProgress
 	matches []logx.Match
+	completedAt time.Time
 }
+
+const (
+	searchJobRetention = 10 * time.Minute
+	maxRetainedSearchJobs = 32
+	targetRetainedSearchJobs = 24
+)
 
 // App 是 Wails 暴露给前端的后端桥接对象；公开方法即本地桌面接口。
 type App struct {
@@ -98,23 +106,8 @@ func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxRes
 	a.searches[searchID]=&searchJob{cancel:cancel,progress:LogSearchProgress{SearchID:searchID,Running:true}}
 	a.mu.Unlock()
 	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
-	a.mu.Lock()
-	if current,ok:=a.searches[searchID];ok{
-		current.cancel=nil;current.progress.Running=false;current.progress.Canceled=response.Canceled
-		if err!=nil{current.progress.Error=err.Error()}
-		if response.FileSizeBytes>0{current.progress.FileSizeBytes=response.FileSizeBytes}
-		if response.BytesScanned>current.progress.BytesScanned{current.progress.BytesScanned=response.BytesScanned}
-		if response.ScannedLines>current.progress.ScannedLines{current.progress.ScannedLines=response.ScannedLines}
-		current.progress.MatchesFound=len(response.Matches)
-		current.progress.Percent=calcPercent(current.progress.BytesScanned,current.progress.FileSizeBytes,false,response.Canceled||err!=nil)
-		// Complete SearchResponse now owns the full result set. Release the live
-		// delta buffer so completed searches do not retain thousands of previews.
-		current.matches=nil
-	}
-	if err==nil&&!response.Canceled&&path!=""{config.AddRecentFile(&a.settings,path)}
-	a.mu.Unlock()
+	a.finishSearchJob(searchID, path, response, err)
 	cancel()
-	if err==nil&&!response.Canceled{_ = a.persistCurrentSettings()}
 	return response,err
 }
 // GetLogSearchProgress 返回任务当前的字节数、行数、匹配数和运行状态。
@@ -244,7 +237,73 @@ func (a *App) updateSearchProgress(id string,p logx.Progress){
 	}
 	job.progress.Percent=calcPercent(p.BytesScanned,p.FileSizeBytes,job.progress.Running,false)
 }
-func (a *App) pruneSearchesLocked(){if len(a.searches)<32{return};for id,job:=range a.searches{if !job.progress.Running{delete(a.searches,id)};if len(a.searches)<24{return}}}
+// finishSearchJob publishes the final snapshot and releases successful-search deltas.
+// Canceled jobs retain their bounded incremental results so a late poll can still
+// retrieve matches discovered before cancellation.
+func (a *App) finishSearchJob(id, path string, response logx.SearchResponse, searchErr error) {
+	a.mu.Lock()
+	if current, ok := a.searches[id]; ok {
+		current.cancel = nil
+		current.completedAt = time.Now()
+		current.progress.Running = false
+		current.progress.Canceled = response.Canceled
+		if searchErr != nil {
+			current.progress.Error = searchErr.Error()
+		}
+		if response.FileSizeBytes > 0 {
+			current.progress.FileSizeBytes = response.FileSizeBytes
+		}
+		if response.BytesScanned > current.progress.BytesScanned {
+			current.progress.BytesScanned = response.BytesScanned
+		}
+		if response.ScannedLines > current.progress.ScannedLines {
+			current.progress.ScannedLines = response.ScannedLines
+		}
+		current.progress.MatchesFound = len(response.Matches)
+		current.progress.Percent = calcPercent(current.progress.BytesScanned, current.progress.FileSizeBytes, false, response.Canceled || searchErr != nil)
+		if !response.Canceled || searchErr != nil {
+			current.matches = nil
+		}
+	}
+	if searchErr == nil && !response.Canceled && path != "" {
+		config.AddRecentFile(&a.settings, path)
+	}
+	a.mu.Unlock()
+
+	if searchErr == nil && !response.Canceled {
+		_ = a.persistCurrentSettings()
+	}
+}
+
+// pruneSearchesLocked expires old completed tasks and then bounds retained task metadata.
+// Running tasks are never evicted, because doing so would break cancellation and polling.
+func (a *App) pruneSearchesLocked() {
+	now := time.Now()
+	for id, job := range a.searches {
+		if !job.progress.Running && !job.completedAt.IsZero() && now.Sub(job.completedAt) >= searchJobRetention {
+			delete(a.searches, id)
+		}
+	}
+	if len(a.searches) <= maxRetainedSearchJobs {
+		return
+	}
+	for len(a.searches) > targetRetainedSearchJobs {
+		var oldestID string
+		var oldest time.Time
+		for id, job := range a.searches {
+			if job.progress.Running || job.completedAt.IsZero() {
+				continue
+			}
+			if oldestID == "" || job.completedAt.Before(oldest) {
+				oldestID, oldest = id, job.completedAt
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(a.searches, oldestID)
+	}
+}
 func calcPercent(scanned,total int64,running,canceled bool)int{
 	if total<=0{if !running&&!canceled{return 100};return 0};percent:=int(float64(scanned)*100/float64(total));if percent>100{percent=100};if running&&percent>=100{return 99};return percent
 }
