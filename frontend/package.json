@@ -2,7 +2,7 @@
   "name": "meteor-desk-frontend",
   "description": "MeteorDesk 本地开发与运维工作台桌面界面",
   "private": true,
-  "version": "0.5.17",
+  "version": "0.5.18",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
