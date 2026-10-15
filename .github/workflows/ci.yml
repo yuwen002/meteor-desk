@@ -54,6 +54,29 @@ jobs:
         working-directory: frontend
         run: npm install
 
+      - name: 前端依赖安全审计（输出漏洞基线）
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm audit --json > "$RUNNER_TEMP/meteor-desk-npm-audit.json" || true
+          node - "$RUNNER_TEMP/meteor-desk-npm-audit.json" <<'NODE'
+          const fs = require('node:fs')
+          let report
+          try { report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')) } catch {
+            console.log('npm audit 未返回可解析报告；请检查 npm registry 连接。')
+            process.exit(0)
+          }
+          const summary = report.metadata?.vulnerabilities
+          if (!summary) {
+            console.log(report.error?.summary || 'npm audit 未返回漏洞摘要。')
+            process.exit(0)
+          }
+          console.log('npm audit 漏洞摘要:', JSON.stringify(summary))
+          for (const [name, item] of Object.entries(report.vulnerabilities || {})) {
+            console.log(JSON.stringify({ name, severity: item.severity, isDirect: item.isDirect, range: item.range, fixAvailable: item.fixAvailable, via: item.via.map(v => typeof v === 'string' ? v : { title: v.title, url: v.url, range: v.range }) }))
+          }
+          NODE
+
       - name: 运行前端单元与交互测试
         working-directory: frontend
         run: npm test
