@@ -33,6 +33,7 @@ type Snapshot struct {
 	PID       int    `json:"pid,omitempty"`
 	StartedAt string `json:"startedAt,omitempty"`
 	Error     string `json:"error,omitempty"`
+	ExitCode  *int   `json:"exitCode,omitempty"`
 }
 
 // BatchResult 描述批量操作中单个服务的执行结果。

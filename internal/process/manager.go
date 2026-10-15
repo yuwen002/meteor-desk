@@ -287,8 +287,16 @@ func (m *Manager) startOne(id string) error {
 	go func(){
 		readers.Wait()
 		waitErr := cmd.Wait()
+		var exitCode *int
+		if cmd.ProcessState != nil {
+			code := cmd.ProcessState.ExitCode()
+			if code >= 0 {
+				exitCode = &code
+			}
+		}
 		m.mu.Lock()
 		if current := m.instances[id]; current == instance {
+			current.snapshot.ExitCode = exitCode
 			if current.snapshot.State == StateStopping || waitErr == nil { current.snapshot.State=StateStopped; current.snapshot.Error="" } else { current.snapshot.State=StateFailed; current.snapshot.Error=waitErr.Error() }
 		}
 		m.mu.Unlock()

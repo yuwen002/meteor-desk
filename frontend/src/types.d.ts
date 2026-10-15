@@ -9,7 +9,7 @@ declare global {
   interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number }
   interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean; dependsOn:string[] }
   interface ProcessBatchResult { id:string; name:string; action:'start'|'stop'; success:boolean; message:string }
-  interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; error?:string }
+  interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; exitCode?:number; error?:string }
   interface ProcessView { spec:ProcessSpec; status:ProcessStatus }
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
   interface JsonField { path:string; value:unknown }

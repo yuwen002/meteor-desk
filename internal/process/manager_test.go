@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"encoding/json"
 	"os/exec"
+	"strconv"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,11 @@ func TestProcessHelper(t *testing.T) {
 	if os.Getenv("METEORDESK_PROCESS_HELPER") != "1" { return }
 	fmt.Println("helper-output-ready")
 	fmt.Fprintln(os.Stderr, "helper-error-ready")
+	if raw := os.Getenv("METEORDESK_PROCESS_HELPER_EXIT_CODE"); raw != "" {
+		if code, err := strconv.Atoi(raw); err == nil {
+			os.Exit(code)
+		}
+	}
 	if os.Getenv("METEORDESK_PROCESS_TREE_PARENT") == "1" {
 		marker := os.Getenv("METEORDESK_PROCESS_TREE_MARKER")
 		child := exec.Command(os.Args[0], "-test.run=TestProcessTreeGrandchild")
@@ -67,6 +73,45 @@ func TestManagerStartsCollectsAndStopsProcess(t *testing.T) {
 	}
 	if err := manager.Stop(view.Spec.ID); err != nil { t.Fatal(err) }
 	if manager.List()[0].Status.State != StateStopped { t.Fatalf("服务停止后状态异常：%+v", manager.List()[0].Status) }
+}
+
+
+func TestManagerRecordsNonzeroExitCode(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := manager.Save(Spec{
+		Name: "非零退出码测试",
+		Executable: os.Args[0],
+		Args: []string{"-test.run=TestProcessHelper"},
+		Env: map[string]string{
+			"METEORDESK_PROCESS_HELPER": "1",
+			"METEORDESK_PROCESS_HELPER_EXIT_CODE": "7",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(view.Spec.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		status := manager.List()[0].Status
+		if status.State == StateFailed {
+			if status.ExitCode == nil {
+				t.Fatal("进程失败后应记录退出码")
+			}
+			if *status.ExitCode != 7 {
+				t.Fatalf("退出码=%d，期望 7", *status.ExitCode)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("等待进程退出超时")
 }
 
 func TestReadOutputTruncatesVeryLongLine(t *testing.T) {
