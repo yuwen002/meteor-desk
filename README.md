@@ -71,7 +71,8 @@ MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具�
 
 ## 文档
 
-- [使用手册](docs/USER_GUIDE.md)：启动方式、日志检索、本地服务管理、配置迁移和常见问题。
+- [使用手册](docs/USER_GUIDE.md)
+- [性能基线与真实日志测试](docs/PERFORMANCE.md)：启动方式、日志检索、本地服务管理、配置迁移和常见问题。
 - [接口与代码 API](docs/API.md)：Wails 前后端桥接方法、数据结构和 Go 包入口。
 - [项目路线图](docs/ROADMAP.md)：已完成和计划中的工作。
 - [架构说明](docs/ARCHITECTURE.md)：后端/前端边界、检索数据流和内存约束。
