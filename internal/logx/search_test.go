@@ -399,3 +399,30 @@ func TestSearchFileMultiLineJSONRejectsOversizedDocument(t *testing.T) {
 		t.Fatalf("超过 4 MiB 的 JSON 文档应返回明确错误，实际：%v", err)
 	}
 }
+
+
+func TestSearchFileMultiLineJSONCancellationPreservesIncrementalMatches(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cancel-multiline.json")
+	content := "{\n  \"message\": \"cancel-target\"\n}\n" + strings.Repeat("INFO heartbeat\\n", 40000)
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelOnMatch := func(p Progress) {
+		if p.MatchesFound > 0 {
+			cancel()
+		}
+	}
+	got, err := SearchFileWithOptions(ctx, path, "cancel-target", false, 10, SearchOptions{MultiLineJSON: true}, cancelOnMatch)
+	if err != nil {
+		t.Fatalf("取消检索不应作为错误返回：%v", err)
+	}
+	if !got.Canceled {
+		t.Fatal("触发取消后应标记 Canceled")
+	}
+	if len(got.Matches) != 1 || !strings.Contains(got.Matches[0].Content, "cancel-target") {
+		t.Fatalf("取消检索应保留已找到的增量结果：%+v", got.Matches)
+	}
+}
