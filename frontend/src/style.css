@@ -95,3 +95,8 @@
 .env-preview{margin:0;padding:10px;border:1px solid #303a49;border-radius:5px;background:#101721;color:#a7b6c6;font-size:10px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
 .env-editor-help{margin:7px 0 0;color:#dbbd83;font-size:9px;line-height:1.6}
 @media(max-width:1100px){.process-config-toolbar{align-items:flex-start;flex-direction:column}.process-config-actions{justify-content:flex-start}}
+
+/* v0.5.3: process lifecycle timing */
+.process-lifecycle-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:7px;color:#74859a;font-size:9px;line-height:1.6}
+.process-lifecycle-meta code{font:9px ui-monospace,monospace;color:#aab9c8}
+.process-lifecycle-meta strong{font-weight:600;color:#9be4c1}

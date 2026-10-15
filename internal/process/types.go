@@ -34,6 +34,8 @@ type Snapshot struct {
 	StartedAt string `json:"startedAt,omitempty"`
 	Error     string `json:"error,omitempty"`
 	ExitCode  *int   `json:"exitCode,omitempty"`
+	FinishedAt string `json:"finishedAt,omitempty"`
+	DurationMs *int64 `json:"durationMs,omitempty"`
 }
 
 // BatchResult 描述批量操作中单个服务的执行结果。

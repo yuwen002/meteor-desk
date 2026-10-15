@@ -36,6 +36,7 @@ type View struct {
 type managedProcess struct {
 	cmd *exec.Cmd
 	done chan struct{}
+	startedAt time.Time
 	snapshot Snapshot
 }
 type Manager struct {
@@ -276,7 +277,8 @@ func (m *Manager) startOne(id string) error {
 	stderr, err := cmd.StderrPipe()
 	if err != nil { m.mu.Unlock(); return fmt.Errorf("创建标准错误管道失败：%w", err) }
 	if err := cmd.Start(); err != nil { m.mu.Unlock(); m.appendOutput(id,"stderr","启动失败："+err.Error()); return fmt.Errorf("启动服务失败：%w",err) }
-	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:time.Now().Format(time.RFC3339)}}
+	startedAt := time.Now()
+	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano)}}
 	m.instances[id] = instance
 	m.mu.Unlock()
 
@@ -287,6 +289,10 @@ func (m *Manager) startOne(id string) error {
 	go func(){
 		readers.Wait()
 		waitErr := cmd.Wait()
+		finishedAt := time.Now()
+		durationMsValue := finishedAt.Sub(instance.startedAt).Milliseconds()
+		if durationMsValue < 0 { durationMsValue = 0 }
+		durationMs := &durationMsValue
 		var exitCode *int
 		if cmd.ProcessState != nil {
 			code := cmd.ProcessState.ExitCode()
@@ -297,6 +303,8 @@ func (m *Manager) startOne(id string) error {
 		m.mu.Lock()
 		if current := m.instances[id]; current == instance {
 			current.snapshot.ExitCode = exitCode
+			current.snapshot.FinishedAt = finishedAt.Format(time.RFC3339Nano)
+			current.snapshot.DurationMs = durationMs
 			if current.snapshot.State == StateStopping || waitErr == nil { current.snapshot.State=StateStopped; current.snapshot.Error="" } else { current.snapshot.State=StateFailed; current.snapshot.Error=waitErr.Error() }
 		}
 		m.mu.Unlock()

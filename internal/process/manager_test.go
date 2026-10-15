@@ -107,6 +107,18 @@ func TestManagerRecordsNonzeroExitCode(t *testing.T) {
 			if *status.ExitCode != 7 {
 				t.Fatalf("退出码=%d，期望 7", *status.ExitCode)
 			}
+			if status.FinishedAt == "" {
+				t.Fatal("进程结束后应记录结束时间")
+			}
+			if _, err := time.Parse(time.RFC3339Nano, status.FinishedAt); err != nil {
+				t.Fatalf("结束时间格式无效：%q：%v", status.FinishedAt, err)
+			}
+			if status.DurationMs == nil || *status.DurationMs < 0 {
+				t.Fatalf("进程结束后应记录非负运行时长：%+v", status.DurationMs)
+			}
+			if status.StartedAt == "" {
+				t.Fatal("进程启动后应记录开始时间")
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
