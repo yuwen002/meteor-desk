@@ -11,10 +11,8 @@ const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), respons
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
 
-type ShortcutAction='openFile'|'focusSearch'|'runSearch'|'logs'|'processes'|'toolkit'
-type ShortcutMap=Record<ShortcutAction,string>
-const defaultShortcuts:ShortcutMap={openFile:'o',focusSearch:'k',runSearch:'Enter',logs:'1',processes:'2',toolkit:'3'}
-const shortcutsConfig=ref<ShortcutMap>({...defaultShortcuts})
+import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
+const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
 const shortcutsError=ref('')
 const shortcutActions:{key:ShortcutAction;label:string;description:string}[]=[
@@ -25,10 +23,9 @@ const shortcutActions:{key:ShortcutAction;label:string;description:string}[]=[
  {key:'processes',label:'进程管理页面',description:'切换到本地服务管理'},
  {key:'toolkit',label:'开发工具页面',description:'切换到开发工具箱'},
 ]
-const shortcutOptions=[{value:'o',label:'Ctrl/⌘ + O'},{value:'k',label:'Ctrl/⌘ + K'},{value:'Enter',label:'Ctrl/⌘ + Enter'},{value:'1',label:'Ctrl/⌘ + 1'},{value:'2',label:'Ctrl/⌘ + 2'},{value:'3',label:'Ctrl/⌘ + 3'}]
-function loadShortcuts(){try{const raw=window.localStorage.getItem('meteordesk.shortcuts.v1');if(!raw)return;const parsed=JSON.parse(raw) as Partial<ShortcutMap>;const keys=Object.keys(defaultShortcuts) as ShortcutAction[];const valid=keys.every(key=>typeof parsed[key]==='string'&&shortcutOptions.some(option=>option.value===parsed[key]));if(valid&&new Set(keys.map(key=>parsed[key])).size===keys.length)shortcutsConfig.value={...defaultShortcuts,...parsed}}catch{/* 本地存储不可用时使用默认值 */}}
-function saveShortcuts(){const values=Object.values(shortcutsConfig.value);if(new Set(values).size!==values.length){shortcutsError.value='快捷键不能重复，请为每个操作选择不同的组合键。';return}try{window.localStorage.setItem('meteordesk.shortcuts.v1',JSON.stringify(shortcutsConfig.value));shortcutsError.value='';shortcutsDialogOpen.value=false}catch{shortcutsError.value='无法保存快捷键设置，请检查本地存储权限。'}}
-function resetShortcuts(){shortcutsConfig.value={...defaultShortcuts};shortcutsError.value=''}
+function loadShortcuts(){try{shortcutsConfig.value=parseShortcutSettings(window.localStorage.getItem('meteordesk.shortcuts.v1'))}catch{shortcutsConfig.value={...DEFAULT_SHORTCUTS}}}
+function saveShortcuts(){const validationError=validateShortcutMap(shortcutsConfig.value);if(validationError){shortcutsError.value=validationError;return}try{window.localStorage.setItem('meteordesk.shortcuts.v1',JSON.stringify(shortcutsConfig.value));shortcutsError.value='';shortcutsDialogOpen.value=false}catch{shortcutsError.value='无法保存快捷键设置，请检查本地存储权限。'}}
+function resetShortcuts(){shortcutsConfig.value={...DEFAULT_SHORTCUTS};shortcutsError.value=''}
 function shortcutLabel(action:ShortcutAction){const key=shortcutsConfig.value[action];return 'Ctrl/⌘+'+(key==='Enter'?'Enter':key.toUpperCase())}
 
 
@@ -133,7 +130,7 @@ async function moveMatch(delta:number){
 }
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
-function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key==='Enter'?'Enter':e.key.toLowerCase();const action=(Object.keys(shortcutsConfig.value) as ShortcutAction[]).find(key=>shortcutsConfig.value[key]===k);if(!action)return;if(action==='runSearch'&&activePage.value!=='logs')return;e.preventDefault();switch(action){case'openFile':void chooseFile();break;case'focusSearch':setPage('logs');void nextTick(()=>inputRef.value?.focus());break;case'runSearch':if(!busy.value)void runSearch();break;case'logs':setPage('logs');break;case'processes':setPage('processes');break;case'toolkit':setPage('toolkit');break}}
+function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key==='Enter'?'Enter':e.key.toLowerCase();const action=resolveShortcutAction(shortcutsConfig.value,k);if(!action)return;if(action==='runSearch'&&activePage.value!=='logs')return;e.preventDefault();switch(action){case'openFile':void chooseFile();break;case'focusSearch':setPage('logs');void nextTick(()=>inputRef.value?.focus());break;case'runSearch':if(!busy.value)void runSearch();break;case'logs':setPage('logs');break;case'processes':setPage('processes');break;case'toolkit':setPage('toolkit');break}}
 onMounted(()=>{loadShortcuts();window.addEventListener('keydown',shortcuts);stopSearchUpdates=window.runtime?.EventsOn('log-search:update',onSearchUpdate);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
 onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop')})
 </script>
@@ -194,7 +191,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
  <div v-if="shortcutsDialogOpen" class="settings-overlay" @click.self="shortcutsDialogOpen=false">
   <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
    <div class="settings-dialog-heading"><div><span class="eyebrow">PREFERENCES</span><h2 id="shortcuts-title">快捷键设置</h2><p>快捷键使用 Ctrl（Windows/Linux）或 ⌘（macOS）。修改后立即生效。</p></div><button class="icon-button" type="button" aria-label="关闭" @click="shortcutsDialogOpen=false"><X :size="17"/></button></div>
-   <div class="shortcut-settings-list"><label v-for="action in shortcutActions" :key="action.key" class="shortcut-setting-row"><span><strong>{{action.label}}</strong><small>{{action.description}}</small></span><select v-model="shortcutsConfig[action.key]" :aria-label="action.label+'快捷键'"><option v-for="option in shortcutOptions" :key="option.value" :value="option.value">{{option.label}}</option></select></label></div>
+   <div class="shortcut-settings-list"><label v-for="action in shortcutActions" :key="action.key" class="shortcut-setting-row"><span><strong>{{action.label}}</strong><small>{{action.description}}</small></span><select v-model="shortcutsConfig[action.key]" :aria-label="action.label+'快捷键'"><option v-for="option in SHORTCUT_OPTIONS" :key="option.value" :value="option.value">{{option.label}}</option></select></label></div>
    <p v-if="shortcutsError" class="settings-error" role="alert">{{shortcutsError}}</p>
    <div class="settings-dialog-actions"><button class="button button-secondary" type="button" @click="resetShortcuts">恢复默认</button><span class="option-spacer"></span><button class="button button-secondary" type="button" @click="shortcutsDialogOpen=false">取消</button><button class="button button-primary" type="button" @click="saveShortcuts">保存设置</button></div>
   </section>
