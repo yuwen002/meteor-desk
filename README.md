@@ -74,7 +74,7 @@ MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具�
 - 原生拖放文件打开。
 - 最近文件、检索历史、上下文行数和结果上限持久化。
 - 常用快捷键：Ctrl/⌘+O 打开文件，Ctrl/⌘+K 聚焦搜索，Ctrl/⌘+Enter 检索，Ctrl/⌘+1/2/3 切换模块。
-- 暗色中文工作台界面。
+- 深色/浅色中文工作台界面，主题偏好保存在本机。
 
 ## 文档
 
@@ -95,7 +95,13 @@ MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具�
 
 ## 环境准备
 
-请先安装 Go、Node.js LTS、npm、Wails CLI，以及对应操作系统的桌面开发依赖。参见 [Wails v2 官方安装文档](https://wails.io/docs/gettingstarted/installation)。
+请先安装 Go、Node.js LTS、npm，以及对应操作系统的桌面开发依赖。参见 [Wails v2 官方安装文档](https://wails.io/docs/gettingstarted/installation)。仓库依赖固定为 Wails v2.10.2，建议本地 CLI 也使用相同版本，避免本地生成与 CI 构建行为不一致：
+
+```bash
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+```
+
+确保 Go 的 bin 目录位于 PATH 中；Windows 通常是 `%USERPROFILE%\\go\\bin`，macOS/Linux 通常是 `$(go env GOPATH)/bin`。CI 通过固定版本的 `go run ...@v2.10.2` 构建，不依赖开发者机器上的全局 CLI 版本。
 
 ## 开发启动
 
