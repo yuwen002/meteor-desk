@@ -14,7 +14,20 @@ describe('appendJSONPath', () => {
   })
 
   it('preserves empty and Unicode keys without ambiguity', () => {
-    expect(appendJSONPath('$', '')).toBe('$[""]')
+    expect(appendJSONPath('
+    expect(appendJSONPath('payload', '用户')).toBe('payload["用户"]')
+  })
+})
+, '')).toBe('$[""]')
+    expect(appendJSONPath('
+    expect(appendJSONPath('payload', '用户')).toBe('payload["用户"]')
+  })
+})
+, '
+    expect(appendJSONPath('payload', '用户')).toBe('payload["用户"]')
+  })
+})
+)).toBe('$["$"]')
     expect(appendJSONPath('payload', '用户')).toBe('payload["用户"]')
   })
 })
