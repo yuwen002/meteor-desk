@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"strconv"
 	"testing"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -341,4 +342,48 @@ func TestSearchFileMultiLineJSONHandlesEscapedBracesAndPlainLines(t *testing.T) 
 	jsonGot, err := SearchFileWithOptions(context.Background(), path, "level", false, 10, SearchOptions{MultiLineJSON: true}, nil)
 	if err != nil { t.Fatal(err) }
 	if len(jsonGot.Matches) != 1 || jsonGot.Matches[0].LineNumber != 2 { t.Fatalf("JSON 字符串中的括号不应提前结束文档：%+v", jsonGot.Matches) }
+}
+
+func BenchmarkSearchFileLargeLog(b *testing.B) {
+	sizeMB := 16
+	if raw := os.Getenv("METEORDESK_BENCH_SIZE_MB"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			b.Fatalf("无效的 METEORDESK_BENCH_SIZE_MB：%q", raw)
+		}
+		sizeMB = parsed
+	}
+
+	file, err := os.CreateTemp(b.TempDir(), "meteor-large-log-*.log")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer file.Close()
+
+	chunk := []byte(strings.Repeat("INFO benchmark sample event\n", 2048))
+	targetBytes := int64(sizeMB) * 1024 * 1024
+	var written int64
+	for written < targetBytes {
+		n := min(int64(len(chunk)), targetBytes-written)
+		if _, err := file.Write(chunk[:n]); err != nil {
+			b.Fatal(err)
+		}
+		written += n
+	}
+	if err := file.Close(); err != nil {
+		b.Fatal(err)
+	}
+
+	b.SetBytes(written)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result, err := SearchFile(file.Name(), "METEORDESK_BENCH_NEVER_MATCH", false, 1)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if result.BytesScanned < written {
+			b.Fatalf("扫描未覆盖整个文件：扫描 %d / %d 字节", result.BytesScanned, written)
+		}
+	}
 }
