@@ -19,7 +19,7 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 
 ## 日志检索数据流
 
-1. 前端生成唯一任务 ID，调用 `SearchLogsAdvanced` 并每 250 ms 读取进度和新增匹配。
+1. 前端生成唯一任务 ID，调用 `SearchLogsAdvanced`；Wails `log-search:update` 事件优先推送进度和新增匹配，250 ms 轮询保留为兼容回退。
 2. `App` 创建可取消的上下文，将请求转给 `internal/logx`。
 3. `logx` 只抽样文件头部（最多 64 KiB）识别编码，再通过固定缓冲读取全文。非 UTF-8 编码由流式解码器转换为 UTF-8；不会把整个文件读入内存。
 4. 搜索器按行匹配。普通文本模式不会缓存整行；预览、上下文、结果数和正则模式整行大小都有上限。
