@@ -17,7 +17,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `SearchLogs(searchID, path, query, useRegex, maxResults)` | 任务 ID、路径、搜索内容、是否正则、结果上限 | `SearchResponse` | 旧版兼容入口，不附加上下文行。 |
 | `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding)` | 上述参数、上下文行数、编码模式 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`。任务需有唯一 ID，响应完成时返回权威完整结果。 |
 | `GetLogSearchProgress(id)` | 任务 ID | `LogSearchProgress` | 读取字节数、扫描行数、匹配数、进度百分比及运行/取消状态。 |
-| `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示。 |
+| `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示；负游标按 0 处理，超出当前结果长度时返回空数组。取消任务会在保留期内保留已发现结果。 |
 | `CancelLogSearch(id)` | 任务 ID | `boolean` | 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。 |
 
 前端建议先生成唯一的 `searchID`，在调用 `SearchLogsAdvanced` 的同时定时轮询进度与增量匹配，并在最终 Promise 返回后以最终响应替换临时快照。取消是协作式操作：底层扫描会在检查点停止，并返回已累计结果。
@@ -108,7 +108,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 ## 5. 错误处理与安全说明
 
 - 后端方法会返回明确的错误字符串；前端应捕获 Promise rejection 并提示用户。
-- 搜索任务 ID 必须唯一；旧任务状态会在后续任务登记时按策略清理。
+- 搜索任务 ID 必须唯一；已完成任务在后续任务登记时按 10 分钟保留期清理；任务数量超过 32 时优先移除最早完成的任务，目标回落到 24 个。运行中的任务不会被自动驱逐。成功任务在最终响应形成后释放增量缓存；取消任务保留增量结果至过期，以支持晚到的轮询。
 - 配置导出中的完整环境变量值可能是凭据。脱敏导出应作为默认选项。
 - 取消搜索不会撤销已经发现的结果。
 - 本项目当前没有远程 API 身份认证层，因为其接口属于本机 Wails 桌面桥接而不是网络服务。
