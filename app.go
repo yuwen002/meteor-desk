@@ -36,6 +36,7 @@ type searchJob struct {
 type App struct {
 	ctx context.Context
 	mu sync.RWMutex
+	settingsSaveMu sync.Mutex
 	searches map[string]*searchJob
 	droppedFiles []string
 	processes *process.Manager
@@ -111,10 +112,9 @@ func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxRes
 		current.matches=nil
 	}
 	if err==nil&&!response.Canceled&&path!=""{config.AddRecentFile(&a.settings,path)}
-	settingsSnapshot:=a.settings
 	a.mu.Unlock()
 	cancel()
-	if err==nil&&!response.Canceled{_ = config.SaveSettings(settingsSnapshot)}
+	if err==nil&&!response.Canceled{_ = a.persistCurrentSettings()}
 	return response,err
 }
 // GetLogSearchProgress 返回任务当前的字节数、行数、匹配数和运行状态。
@@ -151,9 +151,34 @@ func (a *App) CancelLogSearch(id string)bool{
 }
 // GetAppSettings 返回当前本地设置的副本。
 func (a *App) GetAppSettings()config.Settings{a.mu.RLock();defer a.mu.RUnlock();return a.settings}
-// SaveAppSettings 规范化并持久化界面偏好和搜索历史。
-func (a *App) SaveAppSettings(settings config.Settings)error{
-	config.NormalizeSettings(&settings);if err:=config.SaveSettings(settings);err!=nil{return err};a.mu.Lock();a.settings=settings;a.mu.Unlock();return nil
+// SaveAppSettings 规范化并串行持久化界面偏好和搜索历史。
+func (a *App) SaveAppSettings(settings config.Settings) error {
+	config.NormalizeSettings(&settings)
+
+	// Serialize disk writes so concurrent bridge calls cannot let an older
+	// settings snapshot overwrite a newer one.
+	a.settingsSaveMu.Lock()
+	defer a.settingsSaveMu.Unlock()
+
+	if err := config.SaveSettings(settings); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.settings = settings
+	a.mu.Unlock()
+	return nil
+}
+
+// persistCurrentSettings persists the latest in-memory settings snapshot.
+// Search completion may race with UI saves, so it must not write an old copy.
+func (a *App) persistCurrentSettings() error {
+	a.settingsSaveMu.Lock()
+	defer a.settingsSaveMu.Unlock()
+
+	a.mu.RLock()
+	settings := a.settings
+	a.mu.RUnlock()
+	return config.SaveSettings(settings)
 }
 // GetProcesses 返回所有已配置服务及其运行快照。
 func (a *App) GetProcesses()([]process.View,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.List(),nil}
