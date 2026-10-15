@@ -208,7 +208,7 @@ func normalizeSpec(spec *Spec) error {
 
 func isSensitiveEnvKey(key string) bool {
 	normalized := strings.NewReplacer("_", "", "-", "", ".", "").Replace(strings.ToLower(key))
-	for _, fragment := range []string{"password", "passwd", "pwd", "secret", "token", "apikey", "accesskey", "privatekey", "credential", "authorization", "cookie", "signingkey", "clientsecret", "dsn"} {
+	for _, fragment := range []string{"password", "passwd", "pwd", "secret", "token", "apikey", "accesskey", "privatekey", "credential", "authorization", "cookie", "signingkey", "clientsecret", "dsn", "databaseurl", "dburl", "redisurl", "mongouri", "postgresurl", "mysqlurl", "jdbcurl", "connectionstring", "connectionuri", "webhook"} {
 		if strings.Contains(normalized, fragment) { return true }
 	}
 	return false
