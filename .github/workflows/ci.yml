@@ -24,7 +24,26 @@ jobs:
           cache: true
 
       - name: 运行日志检索和进程模型测试
-        run: go test ./internal/logx ./internal/process
+        run: go test ./internal/logx ./internal/process ./internal/config
+
+      - name: 大文件检索基准测试（64 MiB）
+        run: go test ./internal/logx -run '^
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm install
+
+      - name: 检查类型并构建前端
+        working-directory: frontend
+        run: npm run build
+ -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
