@@ -266,3 +266,53 @@ func TestValidUTF8SampleOnlyAllowsIncompleteTrailingRune(t *testing.T) {
 		t.Fatal("完整文件末尾的非法/不完整 UTF-8 不应被视为采样截断")
 	}
 }
+
+
+func TestIncrementalSearchReportsEachMatchOnlyOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "incremental-deltas.log")
+	line := "MATCH " + strings.Repeat("x", 20) + "\n"
+	if err := os.WriteFile(path, []byte(strings.Repeat(line, 30000)), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var streamed []int64
+	notifications := 0
+	got, err := SearchFileContext(context.Background(), path, "MATCH", false, 5000, func(p Progress) {
+		if len(p.Matches) == 0 {
+			return
+		}
+		notifications++
+		for _, match := range p.Matches {
+			streamed = append(streamed, match.LineNumber)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notifications < 2 {
+		t.Fatalf("大文件应分多次发送增量结果，通知次数=%d", notifications)
+	}
+	if len(streamed) != len(got.Matches) {
+		t.Fatalf("增量匹配数量=%d，最终结果数量=%d", len(streamed), len(got.Matches))
+	}
+	for i, lineNumber := range streamed {
+		want := int64(i + 1)
+		if lineNumber != want {
+			t.Fatalf("增量结果重复或顺序错误：index=%d line=%d want=%d", i, lineNumber, want)
+		}
+	}
+}
+
+func TestSearchResultCountRemainsBounded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result-limit.log")
+	if err := os.WriteFile(path, []byte(strings.Repeat("MATCH\n", hardMaxResults+100)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := SearchFile(path, "MATCH", false, hardMaxResults+100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Matches) != hardMaxResults || !got.ResultLimitReached {
+		t.Fatalf("结果缓存应受硬上限约束：count=%d limitReached=%v", len(got.Matches), got.ResultLimitReached)
+	}
+}
