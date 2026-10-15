@@ -136,3 +136,11 @@ jobs:
 
       - name: 构建本机桌面应用
         run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build -clean
+
+      - name: 上传桌面构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: meteor-desk-${{ runner.os }}
+          path: build/bin/**
+          if-no-files-found: error
+          retention-days: 7
