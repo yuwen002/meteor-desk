@@ -11,6 +11,22 @@ import (
 	"strings"
 )
 
+// readBoundedLine 在累积整行前执行大小检查，避免异常超长日志行导致无界分配。
+func readBoundedLine(reader *bufio.Reader, limit int) ([]byte, error, error) {
+	var line []byte
+	for {
+		part, readErr := reader.ReadSlice('\n')
+		if len(line)+len(part) > limit {
+			return nil, readErr, errors.New("多行 JSON 检索遇到超过 4 MiB 的单行内容；请改用普通检索或拆分文件")
+		}
+		line = append(line, part...)
+		if readErr == bufio.ErrBufferFull {
+			continue
+		}
+		return line, readErr, nil
+	}
+}
+
 // searchMultiLineJSON 将跨行 JSON 对象/数组视为一个匹配单元。
 // 单个文档限制为 4 MiB，避免格式错误的输入无限占用内存。
 func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, onProgress func(Progress)) (SearchResponse, error) {
