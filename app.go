@@ -120,6 +120,9 @@ func (a *App) DeleteProcess(id string)error{if a.startupErr!=nil{return a.startu
 func (a *App) StartProcess(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.Start(id)}
 func (a *App) StopProcess(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.Stop(id)}
 func (a *App) RestartProcess(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.Restart(id)}
+func (a *App) StartProcesses(ids []string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StartBatch(ids)}
+func (a *App) StopProcesses(ids []string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StopBatch(ids)}
+
 func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Logs(id,after),nil}
 func (a *App) updateSearchProgress(id string,p logx.Progress){
 	a.mu.Lock();defer a.mu.Unlock();job,ok:=a.searches[id];if !ok{return}
