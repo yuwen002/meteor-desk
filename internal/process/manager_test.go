@@ -12,6 +12,7 @@ import (
 func TestProcessHelper(t *testing.T) {
 	if os.Getenv("METEORDESK_PROCESS_HELPER") != "1" { return }
 	fmt.Println("helper-output-ready")
+	fmt.Fprintln(os.Stderr, "helper-error-ready")
 	for { time.Sleep(200*time.Millisecond) }
 }
 
@@ -25,15 +26,30 @@ func TestManagerPersistsSpecsAndRejectsUnsafeSpecs(t *testing.T) {
 	if _,err:=manager.Save(Spec{Name:"不安全配置",Executable:"sh",Args:[]string{"-c","echo dangerous\x00"}});err==nil{t.Fatal("应拒绝包含 NUL 字符的参数")}
 }
 func TestManagerStartsCollectsAndStopsProcess(t *testing.T) {
-	manager,err:=NewManagerAt(filepath.Join(t.TempDir(),"processes.json"));if err!=nil{t.Fatal(err)}
-	view,err:=manager.Save(Spec{Name:"测试子进程",Executable:os.Args[0],Args:[]string{"-test.run=TestProcessHelper"},Env:map[string]string{"METEORDESK_PROCESS_HELPER":"1"}});if err!=nil{t.Fatal(err)}
-	if err:=manager.Start(view.Spec.ID);err!=nil{t.Fatal(err)}
-	deadline:=time.Now().Add(4*time.Second);found:=false
-	for time.Now().Before(deadline){for _,line:=range manager.Logs(view.Spec.ID,0){if strings.Contains(line.Text,"helper-output-ready"){found=true}};if found{break};time.Sleep(25*time.Millisecond)}
-	if !found{_ = manager.Stop(view.Spec.ID);t.Fatal("未采集到子进程标准输出")}
-	if err:=manager.Stop(view.Spec.ID);err!=nil{t.Fatal(err)}
-	if manager.List()[0].Status.State!=StateStopped{t.Fatalf("服务停止后状态异常：%+v",manager.List()[0].Status)}
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil { t.Fatal(err) }
+	view, err := manager.Save(Spec{Name:"测试子进程", Executable:os.Args[0], Args:[]string{"-test.run=TestProcessHelper"}, Env:map[string]string{"METEORDESK_PROCESS_HELPER":"1"}})
+	if err != nil { t.Fatal(err) }
+	if err := manager.Start(view.Spec.ID); err != nil { t.Fatal(err) }
+
+	deadline := time.Now().Add(4*time.Second)
+	foundStdout, foundStderr := false, false
+	for time.Now().Before(deadline) {
+		for _, line := range manager.Logs(view.Spec.ID, 0) {
+			if line.Stream == "stdout" && strings.Contains(line.Text, "helper-output-ready") { foundStdout = true }
+			if line.Stream == "stderr" && strings.Contains(line.Text, "helper-error-ready") { foundStderr = true }
+		}
+		if foundStdout && foundStderr { break }
+		time.Sleep(25*time.Millisecond)
+	}
+	if !foundStdout || !foundStderr {
+		_ = manager.Stop(view.Spec.ID)
+		t.Fatalf("未同时采集标准输出和标准错误：stdout=%v stderr=%v", foundStdout, foundStderr)
+	}
+	if err := manager.Stop(view.Spec.ID); err != nil { t.Fatal(err) }
+	if manager.List()[0].Status.State != StateStopped { t.Fatalf("服务停止后状态异常：%+v", manager.List()[0].Status) }
 }
+
 func TestReadOutputTruncatesVeryLongLine(t *testing.T) {
 	input:=strings.Repeat("x",maxOutputLineBytes+500)+"\nsecond\n";var lines []string
 	readOutput(strings.NewReader(input),func(line string){lines=append(lines,line)})
@@ -106,4 +122,17 @@ func TestManagerStopBatchIgnoresStoppedServices(t *testing.T) {
 	results, err := manager.StopBatch([]string{view.Spec.ID})
 	if err != nil { t.Fatal(err) }
 	if len(results) != 1 || !results[0].Success { t.Fatalf("停止已停止服务应为幂等操作：%+v", results) }
+}
+
+
+func TestManagerRejectsDeletingReferencedDependency(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil { t.Fatal(err) }
+	base, err := manager.Save(Spec{Name:"数据库", Executable:os.Args[0]})
+	if err != nil { t.Fatal(err) }
+	_, err = manager.Save(Spec{Name:"API", Executable:os.Args[0], DependsOn:[]string{base.Spec.ID}})
+	if err != nil { t.Fatal(err) }
+	if err := manager.Delete(base.Spec.ID); err == nil || !strings.Contains(err.Error(), "仍被") {
+		t.Fatalf("仍有依赖方时应拒绝删除，实际错误：%v", err)
+	}
 }

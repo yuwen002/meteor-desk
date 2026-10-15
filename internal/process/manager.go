@@ -121,6 +121,14 @@ func (m *Manager) Delete(id string) error {
 	defer m.mu.Unlock()
 	if _, ok := m.specs[id]; !ok { return errors.New("未找到该服务配置") }
 	if instance := m.instances[id]; instance != nil && isActive(instance.snapshot.State) { return errors.New("请先停止服务，再删除配置") }
+	for otherID, spec := range m.specs {
+		if otherID == id { continue }
+		for _, dependencyID := range spec.DependsOn {
+			if dependencyID == id {
+				return fmt.Errorf("服务仍被“%s”依赖，请先移除依赖关系", spec.Name)
+			}
+		}
+	}
 	delete(m.specs,id); delete(m.instances,id); delete(m.outputs,id); delete(m.outputSequence,id)
 	return m.persistLocked()
 }
