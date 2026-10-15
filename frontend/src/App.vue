@@ -29,6 +29,7 @@ const shortcutOptions=[{value:'o',label:'Ctrl/⌘ + O'},{value:'k',label:'Ctrl/�
 function loadShortcuts(){try{const raw=window.localStorage.getItem('meteordesk.shortcuts.v1');if(!raw)return;const parsed=JSON.parse(raw) as Partial<ShortcutMap>;const keys=Object.keys(defaultShortcuts) as ShortcutAction[];const valid=keys.every(key=>typeof parsed[key]==='string'&&shortcutOptions.some(option=>option.value===parsed[key]));if(valid&&new Set(keys.map(key=>parsed[key])).size===keys.length)shortcutsConfig.value={...defaultShortcuts,...parsed}}catch{/* 本地存储不可用时使用默认值 */}}
 function saveShortcuts(){const values=Object.values(shortcutsConfig.value);if(new Set(values).size!==values.length){shortcutsError.value='快捷键不能重复，请为每个操作选择不同的组合键。';return}try{window.localStorage.setItem('meteordesk.shortcuts.v1',JSON.stringify(shortcutsConfig.value));shortcutsError.value='';shortcutsDialogOpen.value=false}catch{shortcutsError.value='无法保存快捷键设置，请检查本地存储权限。'}}
 function resetShortcuts(){shortcutsConfig.value={...defaultShortcuts};shortcutsError.value=''}
+function shortcutLabel(action:ShortcutAction){const key=shortcutsConfig.value[action];return 'Ctrl/⌘+'+(key==='Enter'?'Enter':key.toUpperCase())}
 
 
 
@@ -147,7 +148,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
    <button class="nav-item" :class="{active:activePage==='toolkit'}" @click="setPage('toolkit')"><Wrench :size="17"/><span>开发工具</span><kbd>3</kbd></button>
   </nav>
   <div class="sidebar-divider"></div><div class="workspace-label">运行方式</div><div class="local-card"><div class="local-icon"><ShieldCheck :size="16"/></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
-  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.9</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
+  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.16</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
  </aside>
  <main class="main-content">
   <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><button class="shortcut-hint" type="button" title="配置快捷键" @click="shortcutsDialogOpen=true"><Command :size="13"/><span>快捷键</span></button></div></header>
@@ -181,7 +182,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
      </section>
      <div class="panel-footer"><span><span class="footer-led"></span>日志内容仅在本机处理</span><span>流式检索 <span class="footer-divider">/</span>单行预览最多 8 KiB</span></div>
     </section>
-    <div class="bottom-note"><Braces :size="15"/><span>快捷键：Ctrl/⌘+O 打开文件，Ctrl/⌘+K 聚焦搜索，Ctrl/⌘+Enter 检索。</span><button @click="setPage('processes')">管理本地服务 <ArrowRight :size="13"/></button></div>
+    <div class="bottom-note"><Braces :size="15"/><span>快捷键：{{shortcutLabel('openFile')}} 打开文件，{{shortcutLabel('focusSearch')}} 聚焦搜索，{{shortcutLabel('runSearch')}} 检索。</span><button @click="setPage('processes')">管理本地服务 <ArrowRight :size="13"/></button></div>
    </section>
 
    <ProcessManagement :active="activePage==='processes'" />
