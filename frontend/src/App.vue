@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, FileSearch, FolderOpen, Gauge, HardDrive, History, Layers3, Regex, Search, ShieldCheck, TerminalSquare, Wrench, X } from 'lucide-vue-next'
+import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, FileSearch, FolderOpen, Gauge, HardDrive, History, Layers3, Regex, Search, ShieldCheck, Sun, Moon, TerminalSquare, Wrench, X } from 'lucide-vue-next'
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
@@ -14,6 +14,9 @@ const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
 const shortcutsError=ref('')
+const themeMode=ref<'dark'|'light'>('dark')
+function loadTheme(){try{themeMode.value=window.localStorage.getItem('meteordesk.theme')==='light'?'light':'dark'}catch{themeMode.value='dark'}}
+function toggleTheme(){themeMode.value=themeMode.value==='dark'?'light':'dark';try{window.localStorage.setItem('meteordesk.theme',themeMode.value)}catch{/* theme remains active for this session */}}
 const shortcutActions:{key:ShortcutAction;label:string;description:string}[]=[
  {key:'openFile',label:'打开日志文件',description:'打开系统文件选择器'},
  {key:'focusSearch',label:'聚焦搜索框',description:'切换到日志分析并聚焦搜索输入'},
@@ -130,12 +133,12 @@ async function moveMatch(delta:number){
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
 function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key==='Enter'?'Enter':e.key.toLowerCase();const action=resolveShortcutAction(shortcutsConfig.value,k);if(!action)return;if(action==='runSearch'&&activePage.value!=='logs')return;e.preventDefault();switch(action){case'openFile':void chooseFile();break;case'focusSearch':setPage('logs');void nextTick(()=>inputRef.value?.focus());break;case'runSearch':if(!busy.value)void runSearch();break;case'logs':setPage('logs');break;case'processes':setPage('processes');break;case'toolkit':setPage('toolkit');break}}
-onMounted(()=>{loadShortcuts();window.addEventListener('keydown',shortcuts);stopSearchUpdates=window.runtime?.EventsOn('log-search:update',onSearchUpdate);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
+onMounted(()=>{loadShortcuts();loadTheme();window.addEventListener('keydown',shortcuts);stopSearchUpdates=window.runtime?.EventsOn('log-search:update',onSearchUpdate);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
 onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop')})
 </script>
 
 <template>
-<div class="app-shell" style="--wails-drop-target: drop">
+<div class="app-shell" :class="{'theme-light':themeMode==='light'}" style="--wails-drop-target: drop">
  <aside class="sidebar">
   <div class="brand"><div class="brand-mark"><Activity :size="20"/></div><div class="brand-copy"><span class="brand-name">Meteor<span>Desk</span></span><span class="brand-caption">本地开发工作台</span></div></div>
   <div class="workspace-label">工作空间</div><nav class="nav-list" aria-label="主导航">
@@ -147,7 +150,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
   <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.16</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
  </aside>
  <main class="main-content">
-  <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><button class="shortcut-hint" type="button" title="配置快捷键" @click="shortcutsDialogOpen=true"><Command :size="13"/><span>快捷键</span></button></div></header>
+  <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><button class="theme-toggle" type="button" :aria-label="themeMode==='dark'?'切换浅色主题':'切换深色主题'" :title="themeMode==='dark'?'切换浅色主题':'切换深色主题'" @click="toggleTheme"><Sun v-if="themeMode==='dark'" :size="15"/><Moon v-else :size="15"/></button><button class="shortcut-hint" type="button" title="配置快捷键" @click="shortcutsDialogOpen=true"><Command :size="13"/><span>快捷键</span></button></div></header>
   <div class="page-wrap">
    <section v-if="activePage==='logs'" class="page-content">
     <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>可观测性 / 文件分析</div><h1>日志分析<span class="title-period">。</span></h1><p class="page-subtitle">逐块读取大体积日志，支持关键字、正则、上下文、JSON 字段过滤和常见文本编码。</p></div><button class="button button-secondary" :disabled="busy" @click="chooseFile"><FolderOpen :size="16"/>选择日志</button></div>
