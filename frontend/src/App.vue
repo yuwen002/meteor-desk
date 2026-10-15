@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, FileSearch, FolderOpen, Gauge, HardDrive, History, Layers3, Play, Plus, RefreshCw, Regex, Save, Search, ShieldCheck, Square, TerminalSquare, Trash2, Wrench, X } from 'lucide-vue-next'
+import DeveloperToolkit from './components/DeveloperToolkit.vue'
 
 type PageKey='logs'|'processes'|'toolkit'
 type ProcAction='start'|'stop'|'restart'
@@ -93,7 +94,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer(
    <button class="nav-item" :class="{active:activePage==='toolkit'}" @click="setPage('toolkit')"><Wrench :size="17"/><span>开发工具</span><kbd>3</kbd></button>
   </nav>
   <div class="sidebar-divider"></div><div class="workspace-label">运行方式</div><div class="local-card"><div class="local-icon"><ShieldCheck :size="16"/></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
-  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.4.0</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
+  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.0</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
  </aside>
  <main class="main-content">
   <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><div class="shortcut-hint"><Command :size="13"/><span>K</span></div></div></header>
@@ -156,7 +157,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer(
     <div class="bottom-note"><ShieldCheck :size="15"/><span>配置保存在本机用户目录；全部启动会按依赖排序，停止某项服务会先停止依赖它的下游服务。</span></div>
    </section>
 
-   <section v-else class="coming-soon-page"><div class="coming-icon"><Wrench :size="26"/></div><div class="eyebrow"><span class="eyebrow-line"></span>后续规划</div><h1>开发工具<span class="title-period">。</span></h1><p>时间戳转换、Base64、JWT 载荷查看等工具将在后续版本加入。</p><div class="coming-card"><span class="coming-card-icon"><Layers3 :size="17"/></span><div><strong>开发者常用工具集</strong><span>工具默认在本地运行，不向外部服务发送数据。</span></div><span class="roadmap-tag">计划中</span></div><button class="button button-secondary" @click="setPage('logs')"><ArrowRight :size="15" class="back-arrow"/>返回日志分析</button></section>
+   <DeveloperToolkit v-else />
   </div>
   <footer class="app-footer"><span>METEORDESK <span class="footer-divider">/</span>本地开发与运维工作台</span><span>专注效率 <span class="footer-divider">·</span>数据留在本机</span></footer>
  </main>
