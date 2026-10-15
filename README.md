@@ -142,7 +142,8 @@ go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=
 │   ├── logx/         # 流式日志检索、测试与性能基准
 │   └── process/      # 进程配置、生命周期和输出采集
 ├── frontend/src/     # Vue 中文桌面界面
-├── docs/              # 使用手册、API、架构与路线图
+├── docs/             # 使用手册、API、架构与路线图
+├── CHANGELOG.md
 └── CONTRIBUTING.md
 ```
 

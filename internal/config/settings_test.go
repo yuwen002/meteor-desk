@@ -24,3 +24,27 @@ func TestLoadMissingSettingsUsesDefaults(t *testing.T){
  got,err:=loadSettingsFrom(filepath.Join(t.TempDir(),"missing.json"));if err!=nil{t.Fatal(err)}
  if got.ContextLines!=2||got.ResultLimit!=500{t.Fatalf("默认设置不正确：%+v",got)}
 }
+
+func TestSearchRecordEncodingRoundTripAndDeduplication(t *testing.T) {
+	settings := DefaultSettings()
+	AddSearchRecord(&settings, SearchRecord{Query: "timeout", Path: "app.log", Encoding: "utf-8"})
+	AddSearchRecord(&settings, SearchRecord{Query: "timeout", Path: "app.log", Encoding: "gb18030"})
+	if len(settings.SearchHistory) != 2 {
+		t.Fatalf("不同编码应保留为不同历史记录：%+v", settings.SearchHistory)
+	}
+
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := saveSettingsTo(path, settings); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadSettingsFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.SearchHistory) != 2 {
+		t.Fatalf("编码历史数量异常：%+v", loaded.SearchHistory)
+	}
+	if loaded.SearchHistory[0].Encoding != "gb18030" || loaded.SearchHistory[1].Encoding != "utf-8" {
+		t.Fatalf("编码历史顺序或持久化错误：%+v", loaded.SearchHistory)
+	}
+}

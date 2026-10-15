@@ -202,3 +202,67 @@ func TestSearchFileStripsUTF8BOMAndRejectsUnknownEncoding(t *testing.T) {
 		t.Fatal("不支持的编码选项应当返回错误")
 	}
 }
+
+func TestSearchFileDetectsUTF16WithoutBOMAndKeepsContext(t *testing.T) {
+	tests := []struct {
+		name         string
+		littleEndian bool
+		wantEncoding string
+	}{
+		{name: "little-endian", littleEndian: true, wantEncoding: "UTF-16LE"},
+		{name: "big-endian", littleEndian: false, wantEncoding: "UTF-16BE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "utf16-no-bom.log")
+			endian := textunicode.BigEndian
+			if tt.littleEndian {
+				endian = textunicode.LittleEndian
+			}
+			text := "INFO service ready\nERROR 请求超时\nINFO recovery\n"
+			encoded, err := textunicode.UTF16(endian, textunicode.IgnoreBOM).NewEncoder().Bytes([]byte(text))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, encoded, 0600); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := SearchFileWithOptions(context.Background(), path, "请求超时", false, 10, SearchOptions{
+				Encoding: "auto", ContextLines: 1,
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Encoding != tt.wantEncoding || len(got.Matches) != 1 {
+				t.Fatalf("无 BOM UTF-16 未正确识别：encoding=%q matches=%+v", got.Encoding, got.Matches)
+			}
+			match := got.Matches[0]
+			if match.Content != "ERROR 请求超时" {
+				t.Fatalf("匹配内容异常：%q", match.Content)
+			}
+			if len(match.ContextBefore) != 1 || match.ContextBefore[0].Content != "INFO service ready" {
+				t.Fatalf("前文内容异常：%+v", match.ContextBefore)
+			}
+			if len(match.ContextAfter) != 1 || match.ContextAfter[0].Content != "INFO recovery" {
+				t.Fatalf("后文内容异常：%+v", match.ContextAfter)
+			}
+		})
+	}
+}
+
+func TestValidUTF8SampleOnlyAllowsIncompleteTrailingRune(t *testing.T) {
+	if !validUTF8Sample([]byte("valid UTF-8 日志"), false) {
+		t.Fatal("有效 UTF-8 应当被接受")
+	}
+	if validUTF8Sample([]byte{'v', 'a', 'l', 'i', 'd', 0xFF}, false) {
+		t.Fatal("非法尾字节不能被误判为样本截断")
+	}
+	partialRune := append([]byte("valid UTF-8 "), 0xE4, 0xB8)
+	if !validUTF8Sample(partialRune, false) {
+		t.Fatal("样本末尾截断的合法多字节字符应当被接受")
+	}
+	if validUTF8Sample(partialRune, true) {
+		t.Fatal("完整文件末尾的非法/不完整 UTF-8 不应被视为采样截断")
+	}
+}

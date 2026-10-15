@@ -108,20 +108,68 @@ func encodingByName(name string, skip int64) (string, int64, textencoding.Encodi
 	}
 }
 
-// validUTF8Sample 容忍 64 KiB 样本正好截在一个 UTF-8 多字节字符中的情况。
+// validUTF8Sample 只容忍样本末尾被截断的合法 UTF-8 字符，不把任意非法尾字节当成截断。
 func validUTF8Sample(sample []byte, wholeFile bool) bool {
 	if utf8.Valid(sample) {
 		return true
 	}
-	if wholeFile {
+	if wholeFile || len(sample) == 0 {
 		return false
 	}
-	for trim := 1; trim < utf8.UTFMax && trim < len(sample); trim++ {
-		if utf8.Valid(sample[:len(sample)-trim]) {
+
+	// UTF-8 字符最多占 4 字节，因此不完整字符的起始位置只能出现在末尾 3 字节内。
+	startMin := max(0, len(sample)-utf8.UTFMax+1)
+	for start := len(sample) - 1; start >= startMin; start-- {
+		lead := sample[start]
+		expected := utf8SequenceLength(lead)
+		if expected == 0 || len(sample)-start >= expected || !utf8.Valid(sample[:start]) {
+			continue
+		}
+		if isValidUTF8Prefix(sample[start:]) {
 			return true
 		}
 	}
 	return false
+}
+
+func utf8SequenceLength(lead byte) int {
+	switch {
+	case lead >= 0xC2 && lead <= 0xDF:
+		return 2
+	case lead >= 0xE0 && lead <= 0xEF:
+		return 3
+	case lead >= 0xF0 && lead <= 0xF4:
+		return 4
+	default:
+		return 0
+	}
+}
+
+// isValidUTF8Prefix 检查样本末尾是否是某个合法多字节字符的有效前缀。
+func isValidUTF8Prefix(prefix []byte) bool {
+	if len(prefix) == 0 {
+		return false
+	}
+	lead := prefix[0]
+	for i := 1; i < len(prefix); i++ {
+		b := prefix[i]
+		if b&0xC0 != 0x80 {
+			return false
+		}
+		if i == 1 {
+			switch lead {
+			case 0xE0:
+				if b < 0xA0 { return false }
+			case 0xED:
+				if b > 0x9F { return false }
+			case 0xF0:
+				if b < 0x90 { return false }
+			case 0xF4:
+				if b > 0x8F { return false }
+			}
+		}
+	}
+	return true
 }
 
 // guessUTF16 仅在样本包含明显的交错 NUL 字节时识别无 BOM UTF-16，
