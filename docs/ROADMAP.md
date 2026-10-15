@@ -5,6 +5,7 @@
 - [x] 初始化 Wails v2、Go 和 Vue 3 + TypeScript + Vite。
 - [x] 建立暗色中文工作台。
 - [x] 配置 GitHub Actions：Go 测试、性能基准和前端构建。
+- [x] CI 在 Ubuntu、Windows、macOS 上分别构建桌面程序。
 - [ ] 在 Windows、macOS、Linux 完成桌面程序实机验证。
 
 ## 阶段 1：日志分析
@@ -46,11 +47,11 @@
 
 ## 阶段 4：开发工具箱
 
-- [ ] 时间戳与时区转换。
-- [ ] JSON 格式化、压缩和对比。
-- [ ] Base64 编码与解码。
-- [ ] JWT 载荷查看，并明确说明不验证签名。
-- [ ] URL 与查询字符串处理。
+- [x] 时间戳与时区转换。
+- [x] JSON 格式化、压缩和结构化字段对比。
+- [x] Base64 编码与解码（UTF-8）。
+- [x] JWT Header/Payload 查看和 exp 过期提示，并明确不验证签名。
+- [x] URL 与查询字符串解析、组件编码和解码。
 
 ## 工程原则
 
