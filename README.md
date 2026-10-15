@@ -22,6 +22,7 @@ MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具�
 - 分别收集标准输出、标准错误和生命周期消息。
 - 单行输出最多保存 64 KiB，每个服务在内存中最多保留 1,500 条输出。
 - 配置仅保存到当前用户的本机配置目录；服务不会因为保存配置而自动执行。
+- 关闭应用时会取消正在运行的日志检索，并尝试停止由 MeteorDesk 启动的服务。
 - 进程通过可执行文件和参数直接启动，不会把输入默认拼接为 Shell 命令。
 
 ### 桌面体验与本地配置
@@ -46,7 +47,7 @@ MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具�
 
 在仓库根目录执行：
 
-\`\`\`bash
+```bash
 cd frontend
 npm install
 npm run build
@@ -55,45 +56,45 @@ cd ..
 go mod tidy
 go test ./...
 wails dev
-\`\`\`
+```
 
 ## 构建桌面程序
 
-\`\`\`bash
+```bash
 cd frontend
 npm install
 npm run build
 cd ..
 
 wails build
-\`\`\`
+```
 
 ## 大文件性能基准
 
 默认基准会生成并扫描约 64 MiB 的合成日志：
 
-\`\`\`bash
+```bash
 go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
-\`\`\`
+```
 
 内存和磁盘空间允许时，可提高到约 1 GiB：
 
-\`\`\`bash
+```bash
 # macOS / Linux
 METEORDESK_BENCH_SIZE_MB=1024 go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
 
 # PowerShell
 $env:METEORDESK_BENCH_SIZE_MB = "1024"
 go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
-\`\`\`
+```
 
 ## 配置保存位置
 
-应用偏好设置与进程配置保存在当前用户系统配置目录下的 \`MeteorDesk\` 子目录中，分别为 \`settings.json\` 和 \`processes.json\`。这些数据不会上传；环境变量可能包含敏感信息，请只在可信本机使用。
+应用偏好设置与进程配置保存在当前用户系统配置目录下的 `MeteorDesk` 子目录中，分别为 `settings.json` 和 `processes.json`。这些数据不会上传；环境变量可能包含敏感信息，请只在可信本机使用。
 
 ## 项目结构
 
-\`\`\`text
+```text
 .
 ├── app.go
 ├── main.go
@@ -103,7 +104,7 @@ go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=
 │   └── process/      # 进程配置、生命周期和输出采集
 ├── frontend/src/     # Vue 中文桌面界面
 └── docs/ROADMAP.md
-\`\`\`
+```
 
 ## 已知限制
 
