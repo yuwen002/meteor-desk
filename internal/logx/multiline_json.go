@@ -74,6 +74,8 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 				ContextBefore: []LineContext{},
 				ContextAfter: []LineContext{},
 			})
+			// 新匹配应立即推送，避免取消回调只能在下一批字节或 EOF 时收到结果。
+			notify(true)
 			if len(response.Matches) >= maxResults {
 				response.ResultLimitReached = true
 				reachedLimit = true
