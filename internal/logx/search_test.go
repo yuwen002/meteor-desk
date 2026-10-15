@@ -404,7 +404,7 @@ func TestSearchFileMultiLineJSONRejectsOversizedDocument(t *testing.T) {
 func TestSearchFileMultiLineJSONCancellationPreservesIncrementalMatches(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cancel-multiline.json")
 	// 让完整文档本身跨过进度通知阈值，确保回调收到匹配后能在下一轮读取前取消。
-	content := "{\n  \"padding\": \"" + strings.Repeat("x", 300*1024) + "\",\n  \"message\": \"cancel-target\"\n}\n" + strings.Repeat("INFO heartbeat\\n", 40000)
+	content := "{\n  \"message\": \"cancel-target\",\n  \"padding\": \"" + strings.Repeat("x", 300*1024) + "\"\n}\n" + strings.Repeat("INFO heartbeat\\n", 40000)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
