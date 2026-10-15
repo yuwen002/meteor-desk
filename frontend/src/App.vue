@@ -31,6 +31,7 @@ let partialMatchCursor=0
 let progressPollInFlight=false
 let completedSearchID=''
 let pendingDroppedPaths:string[]=[]
+let stopSearchUpdates:(()=>void)|undefined
 const enqueueSettingsSave=createSerialTaskQueue()
 
 function api(){return window.go?.main?.App}
@@ -63,6 +64,20 @@ async function pollProgress(id:string){
   }
  }catch{/* 刚创建任务时可能尚未登记，下一轮重试 */}
  finally{progressPollInFlight=false}
+}
+// Wails 事件用于低延迟追加结果；保留轮询作为兼容回退，并共享游标防止重复追加。
+function onSearchUpdate(event:SearchMatchesEvent){
+ if(event.searchId!==searchID.value||completedSearchID===event.searchId)return
+ searchProgress.value=event.progress
+ const current=response.value
+ if(!current)return
+ const updates=event.matches??[]
+ if(!updates.length){
+  response.value={...current,fileSizeBytes:event.progress.fileSizeBytes||current.fileSizeBytes,bytesScanned:event.progress.bytesScanned,scannedLines:event.progress.scannedLines,canceled:event.progress.canceled}
+  return
+ }
+ partialMatchCursor+=updates.length
+ response.value={...current,fileSizeBytes:event.progress.fileSizeBytes||current.fileSizeBytes,bytesScanned:event.progress.bytesScanned,scannedLines:event.progress.scannedLines,canceled:event.progress.canceled,matches:[...current.matches,...updates]}
 }
 async function cancelSearch(){const a=api();if(!a||!searchID.value)return;cancelRequested.value=true;try{await a.CancelLogSearch(searchID.value)}catch(e){errorMessage.value='取消检索失败：'+String(e)}}
 async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePath.value){errorMessage.value='请先选择日志文件。';return}if(!query.value){errorMessage.value='请输入关键字或正则表达式。';return}const a=api();if(!a){errorMessage.value='未检测到桌面桥接服务，请通过 wails dev 启动。';return}
@@ -98,8 +113,8 @@ async function moveMatch(delta:number){
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
 function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key.toLowerCase();if(k==='o'){e.preventDefault();void chooseFile()}else if(k==='k'){e.preventDefault();setPage('logs');void nextTick(()=>inputRef.value?.focus())}else if(e.key==='Enter'&&activePage.value==='logs'){e.preventDefault();if(!busy.value)void runSearch()}else if(k==='1'){e.preventDefault();setPage('logs')}else if(k==='2'){e.preventDefault();setPage('processes')}else if(k==='3'){e.preventDefault();setPage('toolkit')}}
-onMounted(()=>{window.addEventListener('keydown',shortcuts);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
-onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer('progress');clearTimer('drop')})
+onMounted(()=>{window.addEventListener('keydown',shortcuts);stopSearchUpdates=window.runtime?.EventsOn('log-search:update',onSearchUpdate);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
+onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop')})
 </script>
 
 <template>
