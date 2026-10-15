@@ -28,6 +28,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: 整理并下载 Go 依赖
+        run: go mod tidy
+
       - name: 运行完整 Go 单元测试
         run: go test ./...
 
