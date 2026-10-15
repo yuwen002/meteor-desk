@@ -124,6 +124,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package.json
 
+      - name: 安装桌面构建所需的前端依赖
+        working-directory: frontend
+        run: npm install
+
       - name: 整理并下载目标平台 Go 依赖
         run: go mod tidy
 
