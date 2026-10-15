@@ -270,7 +270,7 @@ func TestValidUTF8SampleOnlyAllowsIncompleteTrailingRune(t *testing.T) {
 
 func TestIncrementalSearchReportsEachMatchOnlyOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "incremental-deltas.log")
-	line := "MATCH " + strings.Repeat("x", 20) + "\n"
+	line := "MATCH " + strings.Repeat("x", 80) + "\n"
 	if err := os.WriteFile(path, []byte(strings.Repeat(line, 30000)), 0600); err != nil {
 		t.Fatal(err)
 	}
