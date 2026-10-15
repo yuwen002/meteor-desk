@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Activity, ChevronRight, Eye, EyeOff, FileDown, FileUp, Play, Plus, RefreshCw, Save, ShieldCheck, Square, TerminalSquare, Trash2 } from 'lucide-vue-next'
 import { getMaskedEnvironmentPreview, parseProcessForm } from '../utils/processConfig'
 
+type ProcAction = 'start' | 'stop' | 'restart'
+
 const props = defineProps<{ active: boolean }>()
 const processes=ref<ProcessView[]>([]), selectedPID=ref(''), processLogs=ref<ProcessOutput[]>([]), outputCursor=ref(0), processError=ref(''), processBusy=ref(false)
 const batchResults=ref<ProcessBatchResult[]>([]), processMessage=ref(''), showProcEnvEditor=ref(false)
