@@ -179,6 +179,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		})
 	}
 
+	// appendContent 持续更新当前行预览与匹配状态；普通文本模式不缓存整行。
 	appendContent := func(part []byte) error {
 		if len(part) == 0 {
 			return nil
@@ -232,6 +233,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		return nil
 	}
 
+	// finishLine 统一处理换行、匹配结果、前后文窗口以及每行临时缓冲区复用。
 	finishLine := func() {
 		lineNumber++
 		response.ScannedLines = lineNumber
@@ -303,6 +305,8 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		pendingCR = false
 	}
 
+	// 主循环以固定读取缓冲区向前扫描。取消在每次读取迭代检查，
+	// 因此大文件可在下一检查点停止并保留此前已累计的结果。
 	for {
 		if ctx.Err() != nil {
 			response.Canceled = true

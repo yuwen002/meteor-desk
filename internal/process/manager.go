@@ -28,12 +28,14 @@ const processForceStopWait = 2 * time.Second
 const processStopFinalizeWait = 500 * time.Millisecond
 const processConcurrentStopWait = processStopGracePeriod + processForceStopWait + processStopFinalizeWait
 
+// OutputLine 表示某个服务的一条本机输出或生命周期消息。
 type OutputLine struct {
 	Sequence int64 `json:"sequence"`
 	Time string `json:"time"`
 	Stream string `json:"stream"`
 	Text string `json:"text"`
 }
+// View 将服务配置与当前运行快照组合，作为前端列表项的数据结构。
 type View struct {
 	Spec Spec `json:"spec"`
 	Status Snapshot `json:"status"`
@@ -61,6 +63,8 @@ func (p *managedProcess) closeOutputPipes() {
 		}
 	})
 }
+// Manager 持有服务配置、受管理的进程实例及有界的输出缓存。
+// 所有共享状态均通过 mu 保护；调用耗时操作前会尽量释放锁。
 type Manager struct {
 	mu sync.RWMutex
 	configPath string
@@ -70,12 +74,14 @@ type Manager struct {
 	outputSequence map[string]int64
 }
 
+// NewManager 在当前用户配置目录中创建进程管理器。
 func NewManager() (*Manager, error) {
 	base, err := os.UserConfigDir()
 	if err != nil { return nil, err }
 	return NewManagerAt(filepath.Join(base, "MeteorDesk", "processes.json"))
 }
 
+// NewManagerAt 从指定文件加载服务定义，主要用于隔离测试或自定义本地路径。
 func NewManagerAt(path string) (*Manager, error) {
 	m := &Manager{configPath:path, specs:map[string]Spec{}, instances:map[string]*managedProcess{}, outputs:map[string][]OutputLine{}, outputSequence:map[string]int64{}}
 	data, err := os.ReadFile(path)
@@ -88,6 +94,7 @@ func NewManagerAt(path string) (*Manager, error) {
 	return m, nil
 }
 
+// List 返回按服务 ID 排序的配置与状态快照；返回的配置切片不会暴露内部可变对象。
 func (m *Manager) List() []View {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -237,6 +244,7 @@ func isSensitiveEnvKey(key string) bool {
 	return false
 }
 
+// Save 校验并持久化一个服务定义。运行中的服务不能直接修改配置。
 func (m *Manager) Save(spec Spec) (View, error) {
 	if err := normalizeSpec(&spec); err != nil {
 		return View{}, err
@@ -267,6 +275,7 @@ func (m *Manager) Save(spec Spec) (View, error) {
 	return View{Spec:cloneSpec(spec), Status:status}, nil
 }
 
+// Delete 删除已停止且未被其他服务引用的配置及其输出缓存。
 func (m *Manager) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -284,6 +293,7 @@ func (m *Manager) Delete(id string) error {
 	return m.persistLocked()
 }
 
+// startOne 在锁内完成状态检查和 cmd.Start，确保同一服务不会被两个调用同时启动。
 func (m *Manager) startOne(id string) error {
 	m.mu.Lock()
 	spec, ok := m.specs[id]
@@ -363,6 +373,7 @@ func (m *Manager) startOne(id string) error {
 	return nil
 }
 
+// stopOne 先请求优雅停止，超过宽限期后强制结束进程树，并保证输出管道有收尾期限。
 func (m *Manager) stopOne(id string) error {
 	m.mu.Lock()
 	instance := m.instances[id]
@@ -440,6 +451,7 @@ func (m *Manager) stopOne(id string) error {
 	}
 }
 
+// Start 启动单个服务，并通过批处理入口自动满足其上游依赖。
 func (m *Manager) Start(id string) error {
 	results, err := m.StartBatch([]string{id})
 	if err != nil { return err }
@@ -504,6 +516,7 @@ func (m *Manager) StartBatch(ids []string) ([]BatchResult, error) {
 	return results, nil
 }
 
+// Stop 停止指定服务及依赖该服务的下游服务。
 func (m *Manager) Stop(id string) error {
 	results, err := m.StopBatch([]string{id})
 	if err != nil { return err }
@@ -574,12 +587,14 @@ func (m *Manager) StopBatch(ids []string) ([]BatchResult, error) {
 	return results, nil
 }
 
+// Restart 在 Stop 完成后再启动；停止失败时不会继续启动第二个实例。
 func (m *Manager) Restart(id string) error {
 	if err := m.Stop(id); err != nil { return err }
 	return m.Start(id)
 }
 
 // StopAll 按依赖的反向顺序停止所有服务。
+// StopAll 按逆依赖顺序停止所有已配置服务，并汇总失败项。
 func (m *Manager) StopAll() error {
 	m.mu.RLock()
 	ids := make([]string, 0, len(m.specs))
@@ -635,6 +650,7 @@ func uniqueIDs(ids []string) []string {
 	return result
 }
 
+// Logs 返回序号大于 afterSequence 的缓存输出，适合前端按游标轮询。
 func (m *Manager) Logs(id string, afterSequence int64) []OutputLine {
 	m.mu.RLock(); defer m.mu.RUnlock()
 	lines:=m.outputs[id]; start:=0

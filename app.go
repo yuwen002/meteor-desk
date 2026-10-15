@@ -14,6 +14,7 @@ import (
 	"github.com/yuwen002/meteor-desk/internal/process"
 )
 
+// LogSearchProgress 是前端轮询使用的搜索任务状态 DTO。
 type LogSearchProgress struct {
 	SearchID string `json:"searchId"`
 	BytesScanned int64 `json:"bytesScanned"`
@@ -31,6 +32,7 @@ type searchJob struct {
 	matches []logx.Match
 }
 
+// App 是 Wails 暴露给前端的后端桥接对象；公开方法即本地桌面接口。
 type App struct {
 	ctx context.Context
 	mu sync.RWMutex

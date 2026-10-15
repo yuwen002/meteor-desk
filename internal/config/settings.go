@@ -28,6 +28,7 @@ type Settings struct {
 	ResultLimit int `json:"resultLimit"`
 }
 
+// DefaultSettings 返回适合首次启动的默认偏好值。
 func DefaultSettings() Settings {
 	return Settings{
 		RecentFiles: []string{},
@@ -46,6 +47,7 @@ func SettingsPath() (string, error) {
 	return filepath.Join(base, "MeteorDesk", "settings.json"), nil
 }
 
+// LoadSettings 从当前用户配置目录读取偏好；文件不存在时返回默认值。
 func LoadSettings() (Settings, error) {
 	path, err := SettingsPath()
 	if err != nil {
@@ -70,6 +72,7 @@ func loadSettingsFrom(path string) (Settings, error) {
 	return settings, nil
 }
 
+// SaveSettings 规范化设置后写入当前用户配置目录。
 func SaveSettings(settings Settings) error {
 	path, err := SettingsPath()
 	if err != nil {
@@ -127,6 +130,7 @@ func normalize(settings *Settings) {
 	}
 }
 
+// AddRecentFile 将路径置顶并去重，随后套用最近文件数量上限。
 func AddRecentFile(settings *Settings, path string) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -142,6 +146,7 @@ func AddRecentFile(settings *Settings, path string) {
 	normalize(settings)
 }
 
+// AddSearchRecord 将同条件的旧记录替换为最新记录，并限制历史长度。
 func AddSearchRecord(settings *Settings, record SearchRecord) {
 	if strings.TrimSpace(record.Query) == "" || strings.TrimSpace(record.Path) == "" {
 		return
