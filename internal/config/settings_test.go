@@ -2,6 +2,8 @@ package config
 
 import (
  "path/filepath"
+ "runtime"
+ "sync"
  "testing"
  "time"
 )
@@ -46,5 +48,66 @@ func TestSearchRecordEncodingRoundTripAndDeduplication(t *testing.T) {
 	}
 	if loaded.SearchHistory[0].Encoding != "gb18030" || loaded.SearchHistory[1].Encoding != "utf-8" {
 		t.Fatalf("编码历史顺序或持久化错误：%+v", loaded.SearchHistory)
+	}
+}
+
+
+func TestSaveSettingsUsesUniqueTemporaryFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	settings := DefaultSettings()
+	settings.SearchHistory = []SearchRecord{{Query: "first", Path: "app.log"}}
+	if err := saveSettingsTo(path, settings); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".settings-*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("保存成功后不应残留临时文件：%v", entries)
+	}
+	loaded, err := loadSettingsFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.SearchHistory) != 1 || loaded.SearchHistory[0].Query != "first" {
+		t.Fatalf("覆盖保存后内容异常：%+v", loaded.SearchHistory)
+	}
+}
+
+func TestConcurrentSaveSettingsDoNotShareTemporaryFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows replaces existing files differently; App serializes production writes")
+	}
+	path := filepath.Join(t.TempDir(), "settings.json")
+	const writers = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			settings := DefaultSettings()
+			settings.SearchHistory = []SearchRecord{{Query: "writer", Path: filepath.Join("logs", string(rune('a'+i))+".log")}}
+			errs <- saveSettingsTo(path, settings)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("并发保存失败：%v", err)
+		}
+	}
+	if _, err := loadSettingsFrom(path); err != nil {
+		t.Fatalf("并发保存后文件不是有效 JSON：%v", err)
+	}
+	entries, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".settings-*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("并发保存后残留临时文件：%v", entries)
 	}
 }
