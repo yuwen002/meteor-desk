@@ -119,7 +119,7 @@ async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePa
   await pollProgress(id)
   if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:input.query,path:input.path,useRegex:input.useRegex,contextLines:input.contextLines,encoding:input.encoding,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines&&x.encoding===record.encoding))].slice(0,30);addRecent(input.path);await persistSettings()}}
  catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false;if(pendingDroppedPaths.length){const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}}
-function applyHistory(r:SearchRecord){if(busy.value)return;filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';activePage.value='logs';response.value=null;selectedMatch.value=null;scrollTop.value=0}
+function applyHistory(r:SearchRecord){if(busy.value)return;filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';multiLineJSON.value=false;activePage.value='logs';response.value=null;selectedMatch.value=null;scrollTop.value=0}
 function updateScroll(e:Event){if(e.target instanceof HTMLElement)scrollTop.value=e.target.scrollTop}
 async function moveMatch(delta:number){
  const all=response.value?.matches??[]
