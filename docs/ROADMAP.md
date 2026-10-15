@@ -6,7 +6,8 @@
 - [x] 建立暗色中文工作台。
 - [x] 配置 GitHub Actions：Go 测试、性能基准和前端构建。
 - [x] CI 在 Ubuntu、Windows、macOS 上分别构建桌面程序。
-- [ ] 在 Windows、macOS、Linux 完成桌面程序实机验证。
+- [x] 在 Windows 完成桌面程序实机验证（用户反馈验证清单无异常）。
+- [ ] 在 macOS、Linux 完成桌面程序实机验证。
 
 ## 阶段 1：日志分析
 
