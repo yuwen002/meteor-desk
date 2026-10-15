@@ -4,14 +4,13 @@ import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, C
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
+import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
 type PageKey='logs'|'processes'|'toolkit'
 const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex=ref(false), contextLines=ref(2), resultLimit=ref(500), encodingMode=ref('auto')
 const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), searchProgress=ref<LogSearchProgress|null>(null), searchID=ref('')
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
-
-import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
 const shortcutsError=ref('')
