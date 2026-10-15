@@ -17,6 +17,7 @@ const (
 	defaultMaxResults = 500
 	hardMaxResults    = 5000
 	maxPreviewBytes   = 8 * 1024
+	maxContextBytes   = 1024
 	readerBufferSize  = 256 * 1024
 	progressStepBytes = 256 * 1024
 	// 正则表达式需要按整行匹配，因此为单行设置内存上限。
@@ -216,17 +217,33 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	finishLine := func() {
 		lineNumber++
 		response.ScannedLines = lineNumber
-		content := strings.ToValidUTF8(string(preview), "�")
-		clipped := lineBytes > maxPreviewBytes
-		current := LineContext{LineNumber: lineNumber, Content: content, ContentClipped: clipped}
+		if matcher != nil {
+			lineMatched = matcher.Match(regexLine)
+		}
 
-		// 为前面已经命中的结果追加当前行作为后文。
+		// 未命中且未请求上下文时，不转换预览为字符串，减少海量日志扫描的分配次数。
+		needContent := contextLines > 0 || lineMatched
+		content := ""
+		clipped := lineBytes > maxPreviewBytes
+		if needContent {
+			content = strings.ToValidUTF8(string(preview), "�")
+		}
+		contextContent := content
+		contextClipped := clipped
+		if contextLines > 0 && len(contextContent) > maxContextBytes {
+			contextContent = contextContent[:maxContextBytes]
+			contextContent = strings.ToValidUTF8(contextContent, "�")
+			contextClipped = true
+		}
+		currentLine := LineContext{LineNumber: lineNumber, Content: contextContent, ContentClipped: contextClipped}
+
+		// 为之前命中的结果追加当前行作为后文；已收集够上下文的结果不再保留。
 		if contextLines > 0 && len(pendingContext) > 0 {
 			nextPending := pendingContext[:0]
 			for _, matchIndex := range pendingContext {
 				m := &response.Matches[matchIndex]
 				if len(m.ContextAfter) < contextLines {
-					m.ContextAfter = append(m.ContextAfter, current)
+					m.ContextAfter = append(m.ContextAfter, currentLine)
 				}
 				if len(m.ContextAfter) < contextLines {
 					nextPending = append(nextPending, matchIndex)
@@ -235,9 +252,6 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 			pendingContext = nextPending
 		}
 
-		if matcher != nil {
-			lineMatched = matcher.Match(regexLine)
-		}
 		if lineMatched {
 			before := append([]LineContext{}, history...)
 			response.Matches = append(response.Matches, Match{
@@ -257,7 +271,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		}
 
 		if contextLines > 0 {
-			history = append(history, current)
+			history = append(history, currentLine)
 			if len(history) > contextLines {
 				history = append(history[:0], history[len(history)-contextLines:]...)
 			}
