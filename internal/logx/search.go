@@ -293,29 +293,27 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 			return response, nil
 		}
 
-		chunk, readErr := reader.ReadSlice('
-')
+		chunk, readErr := reader.ReadSlice('\n')
 		bytesScanned += int64(len(chunk))
-		hasNewline := len(chunk) > 0 && chunk[len(chunk)-1] == '
-'
+		hasNewline := len(chunk) > 0 && chunk[len(chunk)-1] == '\n'
 		part := chunk
 		if hasNewline {
 			part = part[:len(part)-1]
 		}
-		if hasNewline && len(part) > 0 && part[len(part)-1] == '' {
+		if hasNewline && len(part) > 0 && part[len(part)-1] == '\r' {
 			part = part[:len(part)-1]
 		}
 
 		// 兼容 CRLF 跨读取缓冲区边界的情况。
 		if pendingCR {
 			if !(hasNewline && len(part) == 0) {
-				if err := appendContent([]byte{''}); err != nil {
+				if err := appendContent([]byte{'\r'}); err != nil {
 					return SearchResponse{}, err
 				}
 			}
 			pendingCR = false
 		}
-		if !hasNewline && len(part) > 0 && part[len(part)-1] == '' {
+		if !hasNewline && len(part) > 0 && part[len(part)-1] == '\r' {
 			part = part[:len(part)-1]
 			pendingCR = true
 			lineOpen = true
