@@ -35,8 +35,8 @@ type Match struct {
 	LineNumber int64 `json:"lineNumber"`
 	Content string `json:"content"`
 	ContentClipped bool `json:"contentClipped"`
-	ContextBefore []LineContext `json:"contextBefore,omitempty"`
-	ContextAfter []LineContext `json:"contextAfter,omitempty"`
+	ContextBefore []LineContext `json:"contextBefore"`
+	ContextAfter []LineContext `json:"contextAfter"`
 }
 
 // Progress 描述扫描进度，供桌面界面轮询展示。
@@ -239,12 +239,13 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 			lineMatched = matcher.Match(regexLine)
 		}
 		if lineMatched {
-			before := append([]LineContext(nil), history...)
+			before := append([]LineContext{}, history...)
 			response.Matches = append(response.Matches, Match{
 				LineNumber: lineNumber,
 				Content: content,
 				ContentClipped: clipped,
 				ContextBefore: before,
+				ContextAfter: []LineContext{},
 			})
 			if contextLines > 0 {
 				pendingContext = append(pendingContext, len(response.Matches)-1)
