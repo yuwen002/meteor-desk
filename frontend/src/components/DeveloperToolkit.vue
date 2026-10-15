@@ -477,4 +477,56 @@ function resetJSON() {
 .toolkit-footer-note svg{flex-shrink:0;color:#88c6a9}
 @media(max-width:980px){.toolkit-grid-two,.toolkit-json-grid{grid-template-columns:1fr}.toolkit-textarea{min-height:180px}.toolkit-url-meta{grid-template-columns:1fr}.toolkit-card{padding:14px}}
 @media(max-width:680px){.toolkit-tabs{display:grid;grid-template-columns:1fr 1fr}.toolkit-tab{justify-content:flex-start}.toolkit-diff-values{grid-template-columns:minmax(0,1fr)}.toolkit-diff-values svg{display:none}.toolkit-result-line{grid-template-columns:70px minmax(0,1fr) 25px}}
+
+/* 浅色主题：工具箱使用独立 scoped 样式，必须显式响应应用级主题状态。 */
+:global(.theme-light) .toolkit-tabs{background:#f7f9fc;border-color:#dce3ec}
+:global(.theme-light) .toolkit-tab{color:#65758b}
+:global(.theme-light) .toolkit-tab:hover{background:#edf3f8;color:#253247}
+:global(.theme-light) .toolkit-tab.active{background:#e1f5ec;border-color:#c4e8d8;color:#176b50}
+:global(.theme-light) .toolkit-card{background:linear-gradient(150deg,#fff,#fbfcfe);border-color:#dce3ec;box-shadow:0 4px 18px rgba(35,55,80,.035)}
+:global(.theme-light) .toolkit-card-heading{color:#23815f}
+:global(.theme-light) .toolkit-card-heading h2,:global(.theme-light) .toolkit-card-heading h3{color:#253247}
+:global(.theme-light) .toolkit-card-heading p{color:#6c7b90}
+:global(.theme-light) .toolkit-label{color:#52647b}
+:global(.theme-light) .toolkit-input,:global(.theme-light) .toolkit-select,:global(.theme-light) .toolkit-textarea{background:#fff;border-color:#cfd9e5;color:#253247}
+:global(.theme-light) .toolkit-input::placeholder,:global(.theme-light) .toolkit-textarea::placeholder{color:#9aa7b8}
+:global(.theme-light) .toolkit-select{color:#52647b}
+:global(.theme-light) .toolkit-help{color:#718096}
+:global(.theme-light) .toolkit-error{color:#c2413a}
+:global(.theme-light) .toolkit-result-panel{background:#f7f9fc;border-color:#dce3ec}
+:global(.theme-light) .toolkit-result-kicker{color:#56816f}
+:global(.theme-light) .toolkit-time-result{color:#176b50}
+:global(.theme-light) .toolkit-result-line{border-color:#e3e9f0}
+:global(.theme-light) .toolkit-result-line>span{color:#718096}
+:global(.theme-light) .toolkit-result-line code{color:#28664f}
+:global(.theme-light) .toolkit-result-line button{color:#688779}
+:global(.theme-light) .toolkit-result-line button:hover{background:#e4f3ec;color:#176b50}
+:global(.theme-light) .toolkit-divider{background:#e1e7ef}
+:global(.theme-light) .toolkit-feedback{background:#edf8f2;border-color:#d1ecdd;color:#176b50}
+:global(.theme-light) .toolkit-feedback button{color:#688779}
+:global(.theme-light) .toolkit-diff-heading{color:#34445b}
+:global(.theme-light) .toolkit-diff-heading span{color:#718096}
+:global(.theme-light) .toolkit-diff-list,:global(.theme-light) .toolkit-output-block,:global(.theme-light) .toolkit-param-list{border-color:#dce3ec}
+:global(.theme-light) .toolkit-diff-row{background:#fff;border-color:#e5ebf2}
+:global(.theme-light) .toolkit-diff-path code{color:#28664f}
+:global(.theme-light) .toolkit-diff-values{color:#718096}
+:global(.theme-light) .toolkit-diff-values code{color:#52647b}
+:global(.theme-light) .toolkit-diff-values svg{color:#8291a4}
+:global(.theme-light) .toolkit-output-heading strong{color:#34445b}
+:global(.theme-light) .toolkit-output-block>pre,:global(.theme-light) .toolkit-json-output{background:#f7f9fc;color:#28664f}
+:global(.theme-light) .toolkit-security-note{background:#fff9eb;border-color:#f0dfb5;color:#866a2e}
+:global(.theme-light) .toolkit-jwt-status{background:#f7f9fc;border-color:#dce3ec;color:#52647b}
+:global(.theme-light) .toolkit-jwt-status.valid{color:#176b50;border-color:#c4e8d8}
+:global(.theme-light) .toolkit-jwt-status.expired{color:#b93832;border-color:#f0cdca}
+:global(.theme-light) .toolkit-url-meta>div{background:#f7f9fc;border-color:#dce3ec}
+:global(.theme-light) .toolkit-url-meta span{color:#718096}
+:global(.theme-light) .toolkit-url-meta code{color:#28664f}
+:global(.theme-light) .toolkit-param-list>div{background:#fff;border-color:#e5ebf2}
+:global(.theme-light) .toolkit-param-list code{color:#23815f}
+:global(.theme-light) .toolkit-param-list span{color:#52647b}
+:global(.theme-light) .toolkit-param-list button{color:#688779}
+:global(.theme-light) .toolkit-encoded-value{color:#28664f}
+:global(.theme-light) .toolkit-footer-note{color:#718096}
+:global(.theme-light) .toolkit-footer-note svg{color:#56816f}
+
 </style>
