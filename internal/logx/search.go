@@ -234,6 +234,8 @@ type SearchOptions struct {
 	ContextLines int    `json:"contextLines"`
 	// Encoding 可选 auto、utf-8、gb18030、utf-16le、utf-16be；空值等同 auto。
 	Encoding string `json:"encoding,omitempty"`
+	// MultiLineJSON 将跨行 JSON 对象/数组作为一个文档匹配；单行日志仍按行检索。
+	MultiLineJSON bool `json:"multiLineJSON,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
@@ -343,6 +345,9 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		Encoding: encodingName,
 		FileSizeBytes: info.Size(),
 		Matches: make([]Match, 0, min(maxResults, 128)),
+	}
+	if options.MultiLineJSON {
+		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, onProgress)
 	}
 
 	var lineNumber int64
