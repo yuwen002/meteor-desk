@@ -97,6 +97,16 @@ async function importProcessConfigs(){
 }
 async function deleteProcess(){const a=api();if(!a||!selectedProcess.value)return;if(!confirm('确定删除服务配置“'+selectedProcess.value.spec.name+'”？运行中的服务必须先停止。'))return;try{await a.DeleteProcess(selectedPID.value);newProcess();await loadProcesses()}catch(e){processError.value=String(e)}}
 function stateName(s:ProcessStatus['state']){return ({stopped:'已停止',starting:'启动中',running:'运行中',stopping:'停止中',failed:'异常退出'} as Record<ProcessStatus['state'],string>)[s]}
+function exitReasonName(reason?:ProcessStatus['exitReason']){
+ if(!reason)return ''
+ return ({normal:'正常退出',nonzero:'非零退出',signal:'信号终止','manual-stop':'手动停止','start-error':'启动失败'} as Record<NonNullable<ProcessStatus['exitReason']>,string>)[reason]
+}
+function processStatusSummary(status:ProcessStatus){
+ const label=exitReasonName(status.exitReason)
+ if(!label)return ''
+ if(status.state==='failed')return label+'：'+(status.error||'未提供错误信息')
+ return '最近一次：'+label
+}
 function formatLocalTime(value?:string){if(!value)return '—';const date=new Date(value);return Number.isNaN(date.getTime())?'—':date.toLocaleString()}
 function formatRunDuration(status:ProcessStatus){
  const start=status.startedAt?Date.parse(status.startedAt):NaN
@@ -123,7 +133,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer(
    <button class="nav-item" :class="{active:activePage==='toolkit'}" @click="setPage('toolkit')"><Wrench :size="17"/><span>开发工具</span><kbd>3</kbd></button>
   </nav>
   <div class="sidebar-divider"></div><div class="workspace-label">运行方式</div><div class="local-card"><div class="local-icon"><ShieldCheck :size="16"/></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
-  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.3</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
+  <div class="sidebar-bottom"><div class="version-row"><span>早期版本</span><span class="version-tag">v0.5.4</span></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><CircleHelp :size="17" class="help-icon"/></div></div>
  </aside>
  <main class="main-content">
   <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><div class="shortcut-hint"><Command :size="13"/><span>K</span></div></div></header>
@@ -177,7 +187,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);clearTimer(
      <div v-for="item in batchResults" :key="item.action+'-'+item.id" class="batch-result-row" :class="{failed:!item.success}"><span class="batch-result-mark">{{item.success?'✓':'!'}}</span><strong>{{item.name}}</strong><span>{{item.message}}</span></div>
     </div>
     <div class="process-layout">
-     <section class="process-panel"><div class="process-panel-heading"><div><h2>服务列表</h2><p>{{processes.length}} 个已保存的服务配置</p></div><button class="icon-button" @click="refreshProcesses"><RefreshCw :size="15"/></button></div><div v-if="processes.length" class="process-list"><button v-for="p in processes" :key="p.spec.id" class="process-item" :class="{selected:selectedPID===p.spec.id}" @click="selectProcess(p)"><span class="process-state-dot" :class="p.status.state"></span><span class="process-item-main"><strong>{{p.spec.name}}</strong><small>{{p.spec.executable}}</small><em>{{stateName(p.status.state)}}<template v-if="p.status.pid"> · PID {{p.status.pid}}</template></em></span><ChevronRight :size="14"/></button></div><div v-else class="process-empty"><TerminalSquare :size="25"/><strong>还没有服务配置</strong><span>创建一条命令配置，即可开始管理本地服务。</span><button class="button button-secondary" @click="newProcess"><Plus :size="14"/>创建第一个服务</button></div></section>
+     <section class="process-panel"><div class="process-panel-heading"><div><h2>服务列表</h2><p>{{processes.length}} 个已保存的服务配置</p></div><button class="icon-button" @click="refreshProcesses"><RefreshCw :size="15"/></button></div><div v-if="processes.length" class="process-list"><button v-for="p in processes" :key="p.spec.id" class="process-item" :class="{selected:selectedPID===p.spec.id}" @click="selectProcess(p)"><span class="process-state-dot" :class="p.status.state"></span><span class="process-item-main"><strong>{{p.spec.name}}</strong><small>{{p.spec.executable}}</small><small v-if="p.status.exitReason" class="process-item-diagnostic" :class="{failed:p.status.state==='failed'}">{{processStatusSummary(p.status)}}</small><em>{{stateName(p.status.state)}}<template v-if="p.status.pid"> · PID {{p.status.pid}}</template></em></span><ChevronRight :size="14"/></button></div><div v-else class="process-empty"><TerminalSquare :size="25"/><strong>还没有服务配置</strong><span>创建一条命令配置，即可开始管理本地服务。</span><button class="button button-secondary" @click="newProcess"><Plus :size="14"/>创建第一个服务</button></div></section>
      <section class="process-panel"><div class="process-panel-heading"><div><h2>{{editingID?'服务配置':'新增服务配置'}}</h2><p>参数使用 JSON 数组，不会拼接执行为 Shell 命令。</p></div><span class="safe-pill"><ShieldCheck :size="13"/>显式参数</span></div>
       <form class="process-form" @submit.prevent="saveProcess"><label class="field-label">服务名称</label><input v-model="procName" class="text-field" placeholder="例如：后端 API" required/><label class="field-label">可执行文件</label><input v-model="procExecutable" class="text-field mono-field" placeholder="例如：go、npm 或程序绝对路径" required/><label class="field-label">命令参数（JSON 字符串数组）</label><textarea v-model="procArgs" class="text-area mono-field" rows="3" spellcheck="false"></textarea><label class="field-label">工作目录</label><input v-model="procCwd" class="text-field mono-field" placeholder="可选，项目目录"/><div class="env-editor-heading"><label class="field-label">环境变量（JSON 字符串对象）</label><button type="button" class="button button-quiet env-toggle" @click="showProcEnvEditor=!showProcEnvEditor"><EyeOff v-if="showProcEnvEditor" :size="13"/><Eye v-else :size="13"/>{{showProcEnvEditor?'隐藏编辑内容':'编辑环境变量'}}</button></div><textarea v-if="showProcEnvEditor" v-model="procEnv" class="text-area mono-field" rows="4" spellcheck="false"></textarea><p v-if="showProcEnvEditor" class="env-editor-help">编辑模式会显示真实环境变量值。保存后退出编辑模式；导出时建议使用脱敏选项。</p><pre v-else class="env-preview mono-field">{{maskedProcEnvPreview}}</pre>
        <label class="field-label">启动前置依赖</label>

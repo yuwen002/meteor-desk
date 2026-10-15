@@ -19,3 +19,19 @@ func forceStopProcess(cmd *exec.Cmd) error {
 	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err == nil { return nil }
 	return cmd.Process.Kill()
 }
+
+// processExitStatus reports a conventional exit code and whether the process
+// was terminated by a Unix signal.
+func processExitStatus(cmd *exec.Cmd) (*int, bool) {
+	if cmd == nil || cmd.ProcessState == nil {
+		return nil, false
+	}
+	if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return nil, true
+	}
+	code := cmd.ProcessState.ExitCode()
+	if code < 0 {
+		return nil, false
+	}
+	return &code, false
+}

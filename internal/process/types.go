@@ -25,17 +25,29 @@ const (
 	StateFailed   State = "failed"
 )
 
+// ExitReason 说明进程最近一次运行结束的原因。
+type ExitReason string
+
+const (
+	ExitReasonNormal      ExitReason = "normal"
+	ExitReasonNonzero     ExitReason = "nonzero"
+	ExitReasonSignal      ExitReason = "signal"
+	ExitReasonManualStop  ExitReason = "manual-stop"
+	ExitReasonStartFailed ExitReason = "start-error"
+)
+
 // Snapshot 是提供给界面展示的进程状态快照。
 type Snapshot struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	State     State  `json:"state"`
-	PID       int    `json:"pid,omitempty"`
-	StartedAt string `json:"startedAt,omitempty"`
-	Error     string `json:"error,omitempty"`
-	ExitCode  *int   `json:"exitCode,omitempty"`
-	FinishedAt string `json:"finishedAt,omitempty"`
-	DurationMs *int64 `json:"durationMs,omitempty"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	State      State      `json:"state"`
+	PID        int        `json:"pid,omitempty"`
+	StartedAt  string     `json:"startedAt,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	ExitCode   *int       `json:"exitCode,omitempty"`
+	ExitReason ExitReason `json:"exitReason,omitempty"`
+	FinishedAt string     `json:"finishedAt,omitempty"`
+	DurationMs *int64     `json:"durationMs,omitempty"`
 }
 
 // BatchResult 描述批量操作中单个服务的执行结果。

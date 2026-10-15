@@ -72,7 +72,9 @@ func TestManagerStartsCollectsAndStopsProcess(t *testing.T) {
 		t.Fatalf("未同时采集标准输出和标准错误：stdout=%v stderr=%v", foundStdout, foundStderr)
 	}
 	if err := manager.Stop(view.Spec.ID); err != nil { t.Fatal(err) }
-	if manager.List()[0].Status.State != StateStopped { t.Fatalf("服务停止后状态异常：%+v", manager.List()[0].Status) }
+	stopped := manager.List()[0].Status
+	if stopped.State != StateStopped { t.Fatalf("服务停止后状态异常：%+v", stopped) }
+	if stopped.ExitReason != ExitReasonManualStop { t.Fatalf("手动停止原因未记录：%+v", stopped) }
 }
 
 
@@ -107,6 +109,9 @@ func TestManagerRecordsNonzeroExitCode(t *testing.T) {
 			if *status.ExitCode != 7 {
 				t.Fatalf("退出码=%d，期望 7", *status.ExitCode)
 			}
+			if status.ExitReason != ExitReasonNonzero {
+				t.Fatalf("非零退出原因不正确：%+v", status)
+			}
 			if status.FinishedAt == "" {
 				t.Fatal("进程结束后应记录结束时间")
 			}
@@ -124,6 +129,63 @@ func TestManagerRecordsNonzeroExitCode(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("等待进程退出超时")
+}
+
+
+func TestManagerRecordsNormalExit(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := manager.Save(Spec{
+		Name: "正常退出测试",
+		Executable: os.Args[0],
+		Args: []string{"-test.run=TestProcessHelper"},
+		Env: map[string]string{
+			"METEORDESK_PROCESS_HELPER": "1",
+			"METEORDESK_PROCESS_HELPER_EXIT_CODE": "0",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(view.Spec.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		status := manager.List()[0].Status
+		if status.State == StateStopped && status.ExitReason != "" {
+			if status.ExitReason != ExitReasonNormal {
+				t.Fatalf("正常退出原因不正确：%+v", status)
+			}
+			if status.ExitCode == nil || *status.ExitCode != 0 {
+				t.Fatalf("正常退出应记录退出码 0：%+v", status)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("等待正常退出超时")
+}
+
+func TestManagerRecordsStartFailure(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := manager.Save(Spec{Name: "启动失败测试", Executable: filepath.Join(t.TempDir(), "missing-executable")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(view.Spec.ID); err == nil {
+		t.Fatal("可执行文件不存在时应返回启动错误")
+	}
+	status := manager.List()[0].Status
+	if status.State != StateFailed || status.ExitReason != ExitReasonStartFailed || status.Error == "" {
+		t.Fatalf("启动失败状态未记录完整：%+v", status)
+	}
 }
 
 func TestReadOutputTruncatesVeryLongLine(t *testing.T) {

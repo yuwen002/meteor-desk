@@ -100,3 +100,5 @@
 .process-lifecycle-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:7px;color:#74859a;font-size:9px;line-height:1.6}
 .process-lifecycle-meta code{font:9px ui-monospace,monospace;color:#aab9c8}
 .process-lifecycle-meta strong{font-weight:600;color:#9be4c1}
+.process-item-main .process-item-diagnostic{color:#cfb77e}
+.process-item-main .process-item-diagnostic.failed{color:#ff9e95}

@@ -276,7 +276,16 @@ func (m *Manager) startOne(id string) error {
 	if err != nil { m.mu.Unlock(); return fmt.Errorf("创建标准输出管道失败：%w", err) }
 	stderr, err := cmd.StderrPipe()
 	if err != nil { m.mu.Unlock(); return fmt.Errorf("创建标准错误管道失败：%w", err) }
-	if err := cmd.Start(); err != nil { m.mu.Unlock(); m.appendOutput(id,"stderr","启动失败："+err.Error()); return fmt.Errorf("启动服务失败：%w",err) }
+	if err := cmd.Start(); err != nil {
+		finishedAt := time.Now()
+		m.instances[id] = &managedProcess{snapshot: Snapshot{
+			ID: id, Name: spec.Name, State: StateFailed, ExitReason: ExitReasonStartFailed,
+			Error: err.Error(), FinishedAt: finishedAt.Format(time.RFC3339Nano),
+		}}
+		m.mu.Unlock()
+		m.appendOutput(id, "stderr", "启动失败："+err.Error())
+		return fmt.Errorf("启动服务失败：%w", err)
+	}
 	startedAt := time.Now()
 	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano)}}
 	m.instances[id] = instance
@@ -293,19 +302,30 @@ func (m *Manager) startOne(id string) error {
 		durationMsValue := finishedAt.Sub(instance.startedAt).Milliseconds()
 		if durationMsValue < 0 { durationMsValue = 0 }
 		durationMs := &durationMsValue
-		var exitCode *int
-		if cmd.ProcessState != nil {
-			code := cmd.ProcessState.ExitCode()
-			if code >= 0 {
-				exitCode = &code
-			}
-		}
+		exitCode, signaled := processExitStatus(cmd)
 		m.mu.Lock()
 		if current := m.instances[id]; current == instance {
 			current.snapshot.ExitCode = exitCode
 			current.snapshot.FinishedAt = finishedAt.Format(time.RFC3339Nano)
 			current.snapshot.DurationMs = durationMs
-			if current.snapshot.State == StateStopping || waitErr == nil { current.snapshot.State=StateStopped; current.snapshot.Error="" } else { current.snapshot.State=StateFailed; current.snapshot.Error=waitErr.Error() }
+			switch {
+			case current.snapshot.State == StateStopping:
+				current.snapshot.State = StateStopped
+				current.snapshot.ExitReason = ExitReasonManualStop
+				current.snapshot.Error = ""
+			case waitErr == nil:
+				current.snapshot.State = StateStopped
+				current.snapshot.ExitReason = ExitReasonNormal
+				current.snapshot.Error = ""
+			case signaled:
+				current.snapshot.State = StateFailed
+				current.snapshot.ExitReason = ExitReasonSignal
+				current.snapshot.Error = waitErr.Error()
+			default:
+				current.snapshot.State = StateFailed
+				current.snapshot.ExitReason = ExitReasonNonzero
+				current.snapshot.Error = waitErr.Error()
+			}
 		}
 		m.mu.Unlock()
 		if waitErr != nil { m.appendOutput(id,"system","进程已退出："+waitErr.Error()) } else { m.appendOutput(id,"system","进程已正常退出") }

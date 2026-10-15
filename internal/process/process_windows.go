@@ -22,3 +22,15 @@ func forceStopProcess(cmd *exec.Cmd) error {
 	if err != nil { return cmd.Process.Kill() }
 	return nil
 }
+
+// Windows reports process termination as an exit code rather than a Unix signal.
+func processExitStatus(cmd *exec.Cmd) (*int, bool) {
+	if cmd == nil || cmd.ProcessState == nil {
+		return nil, false
+	}
+	code := cmd.ProcessState.ExitCode()
+	if code < 0 {
+		return nil, false
+	}
+	return &code, false
+}
