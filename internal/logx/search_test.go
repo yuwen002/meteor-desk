@@ -343,9 +343,10 @@ func TestSearchFileMultiLineJSONHandlesEscapedBracesAndPlainLines(t *testing.T) 
 	if len(jsonGot.Matches) != 1 || jsonGot.Matches[0].LineNumber != 2 { t.Fatalf("JSON 字符串中的括号不应提前结束文档：%+v", jsonGot.Matches) }
 }
 
+
 func TestSearchFileMultiLineJSONIgnoresIncompleteDocumentAtEOF(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "incomplete.json")
-	content := "INFO startup\\n{\\n  \\"message\\": \\"database unavailable\\",\\n  \\"details\\": {\\n"
+	content := "INFO startup\n{\n  \"message\": \"database unavailable\",\n  \"details\": {\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +362,7 @@ func TestSearchFileMultiLineJSONIgnoresIncompleteDocumentAtEOF(t *testing.T) {
 
 func TestSearchFileMultiLineJSONMatchesNestedArrayDocument(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested-array.json")
-	content := "INFO startup\\n[\\n  {\\"message\\": \\"first\\"},\\n  [\\"needle in nested array\\", 2]\\n]\\nINFO ready\\n"
+	content := "INFO startup\n[\n  {\"message\": \"first\"},\n  [\"needle in nested array\", 2]\n]\nINFO ready\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -381,14 +382,14 @@ func TestSearchFileMultiLineJSONMatchesNestedArrayDocument(t *testing.T) {
 func TestSearchFileMultiLineJSONRejectsOversizedDocument(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "oversized.json")
 	var content strings.Builder
-	content.WriteString("{\\n")
+	content.WriteString("{\n")
 	line := strings.Repeat("x", 64*1024)
 	for content.Len() <= maxRegexLineBytes {
-		content.WriteString("\\\"chunk\\\": \\"")
+		content.WriteString("\"chunk\": \"")
 		content.WriteString(line)
-		content.WriteString("\\",\\n")
+		content.WriteString("\",\n")
 	}
-	content.WriteString("}\\n")
+	content.WriteString("}\n")
 	if err := os.WriteFile(path, []byte(content.String()), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -398,4 +399,3 @@ func TestSearchFileMultiLineJSONRejectsOversizedDocument(t *testing.T) {
 		t.Fatalf("超过 4 MiB 的 JSON 文档应返回明确错误，实际：%v", err)
 	}
 }
-
