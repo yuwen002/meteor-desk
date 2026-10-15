@@ -293,6 +293,31 @@ func (m *Manager) Delete(id string) error {
 	return m.persistLocked()
 }
 
+// diagnoseStartError 将底层启动错误转成更可操作的本地诊断提示。
+func diagnoseStartError(spec Spec, err error) string {
+	base := fmt.Sprintf("启动可执行文件 %q 失败：%v", spec.Executable, err)
+	if spec.WorkingDir != "" {
+		info, statErr := os.Stat(spec.WorkingDir)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				return base + fmt.Sprintf("；配置的工作目录 %q 不存在，请检查路径。", spec.WorkingDir)
+			}
+			if errors.Is(statErr, os.ErrPermission) {
+				return base + fmt.Sprintf("；无权访问工作目录 %q，请检查目录权限。", spec.WorkingDir)
+			}
+		} else if !info.IsDir() {
+			return base + fmt.Sprintf("；配置的工作目录 %q 不是目录。", spec.WorkingDir)
+		}
+	}
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound) {
+		return base + "；请确认可执行文件存在，或命令已加入 PATH。"
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return base + "；请检查可执行权限和当前用户权限。"
+	}
+	return base + "；请检查可执行文件、参数、工作目录及所需环境变量。"
+}
+
 // startOne 在锁内完成状态检查和 cmd.Start，确保同一服务不会被两个调用同时启动。
 func (m *Manager) startOne(id string) error {
 	m.mu.Lock()
@@ -318,11 +343,11 @@ func (m *Manager) startOne(id string) error {
 		finishedAt := time.Now()
 		m.instances[id] = &managedProcess{snapshot: Snapshot{
 			ID: id, Name: spec.Name, State: StateFailed, ExitReason: ExitReasonStartFailed,
-			Error: err.Error(), FinishedAt: finishedAt.Format(time.RFC3339Nano),
+			Error: diagnoseStartError(spec, err), FinishedAt: finishedAt.Format(time.RFC3339Nano),
 		}}
 		m.mu.Unlock()
-		m.appendOutput(id, "stderr", "启动失败："+err.Error())
-		return fmt.Errorf("启动服务失败：%w", err)
+		m.appendOutput(id, "stderr", diagnoseStartError(spec, err))
+		return fmt.Errorf("%s: %w", diagnoseStartError(spec, err), err)
 	}
 	startedAt := time.Now()
 	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, stdout:stdout, stderr:stderr, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano)}}
