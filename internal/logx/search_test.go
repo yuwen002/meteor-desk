@@ -316,3 +316,29 @@ func TestSearchResultCountRemainsBounded(t *testing.T) {
 		t.Fatalf("结果缓存应受硬上限约束：count=%d limitReached=%v", len(got.Matches), got.ResultLimitReached)
 	}
 }
+
+func TestSearchFileMultiLineJSONMatchesWholeDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "multiline.json")
+	content := "INFO startup\n{\n  \"level\": \"error\",\n  \"message\": \"database unavailable\",\n  \"details\": {\"retry\": 3}\n}\nINFO ready\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
+
+	got, err := SearchFileWithOptions(context.Background(), path, "database unavailable", false, 10, SearchOptions{MultiLineJSON: true}, nil)
+	if err != nil { t.Fatal(err) }
+	if len(got.Matches) != 1 { t.Fatalf("应匹配整个多行 JSON 文档，结果：%+v", got.Matches) }
+	if got.Matches[0].LineNumber != 2 { t.Fatalf("文档起始行应为 2，实际：%d", got.Matches[0].LineNumber) }
+	if !strings.Contains(got.Matches[0].Content, "\"details\"") { t.Fatalf("结果应包含完整文档预览：%s", got.Matches[0].Content) }
+}
+
+func TestSearchFileMultiLineJSONHandlesEscapedBracesAndPlainLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mixed.json")
+	content := "WARN plain event\n{\n  \"message\": \"literal } and \\\"{\\\" stay in string\",\n  \"level\": \"info\"\n}\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
+
+	got, err := SearchFileWithOptions(context.Background(), path, "WARN", false, 10, SearchOptions{MultiLineJSON: true}, nil)
+	if err != nil { t.Fatal(err) }
+	if len(got.Matches) != 1 || got.Matches[0].LineNumber != 1 { t.Fatalf("普通日志行也应可检索：%+v", got.Matches) }
+
+	jsonGot, err := SearchFileWithOptions(context.Background(), path, "level", false, 10, SearchOptions{MultiLineJSON: true}, nil)
+	if err != nil { t.Fatal(err) }
+	if len(jsonGot.Matches) != 1 || jsonGot.Matches[0].LineNumber != 2 { t.Fatalf("JSON 字符串中的括号不应提前结束文档：%+v", jsonGot.Matches) }
+}
