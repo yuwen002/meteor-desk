@@ -92,18 +92,38 @@ func saveSettingsTo(path string, settings Settings) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	// Use a unique temporary file in the destination directory. A fixed
+	// ".tmp" name can collide when multiple callers persist settings at once.
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), ".settings-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := tmpFile.Name()
+	defer os.Remove(tmp)
+
+	if err := tmpFile.Chmod(0600); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		// Windows 无法直接覆盖已有目标，必要时移除旧文件后重试。
+		// Windows may not replace an existing destination. Keep compatibility
+		// with that behavior, while ensuring the temp file is unique and cleaned.
 		if removeErr := os.Remove(path); removeErr == nil {
 			if retryErr := os.Rename(tmp, path); retryErr == nil {
 				return nil
 			}
 		}
-		_ = os.Remove(tmp)
 		return err
 	}
 	return nil
