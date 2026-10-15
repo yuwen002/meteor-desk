@@ -98,3 +98,24 @@
 .process-lifecycle-meta strong{font-weight:600;color:#9be4c1}
 .process-item-main .process-item-diagnostic{color:#cfb77e}
 .process-item-main .process-item-diagnostic.failed{color:#ff9e95}
+
+/* v0.5.16: editable keyboard shortcuts */
+button.shortcut-hint{border:0;background:transparent;padding:5px 2px;border-radius:5px;cursor:pointer}
+button.shortcut-hint:hover{color:#b8f8dc;background:rgba(134,247,197,.06)}
+.settings-overlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:rgba(3,6,10,.76);backdrop-filter:blur(7px)}
+.settings-dialog{width:min(620px,100%);max-height:min(82vh,760px);overflow:auto;border:1px solid #303a49;border-radius:12px;background:#111722;box-shadow:0 24px 80px rgba(0,0,0,.5);padding:24px}
+.settings-dialog-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:18px}
+.settings-dialog-heading h2{margin:7px 0 6px;color:#edf3f8;font-size:20px;letter-spacing:-.4px}
+.settings-dialog-heading p{margin:0;color:#8290a3;font-size:11px;line-height:1.7}
+.settings-dialog-heading .eyebrow{font-size:9px;letter-spacing:1.6px}
+.icon-button{display:grid;place-items:center;width:31px;height:31px;border:1px solid #303a49;border-radius:6px;background:#171f2b;color:#9eacbd}
+.icon-button:hover{color:#eaf5f0;border-color:#506456}
+.shortcut-settings-list{display:flex;flex-direction:column;border-top:1px solid #27303d}
+.shortcut-setting-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 0;border-bottom:1px solid #27303d}
+.shortcut-setting-row>span{display:flex;flex-direction:column;gap:4px;min-width:0}
+.shortcut-setting-row strong{color:#dce5ee;font-size:11px;font-weight:600}
+.shortcut-setting-row small{color:#7f8da0;font-size:10px}
+.shortcut-setting-row select{width:150px;flex-shrink:0;border:1px solid #354153;border-radius:6px;background:#0c1119;color:#c6d2df;padding:8px;font-size:11px}
+.settings-error{margin:12px 0 0;color:#ff9e95;font-size:11px}
+.settings-dialog-actions{display:flex;align-items:center;gap:8px;margin-top:20px}
+@media(max-width:600px){.settings-dialog{padding:17px}.shortcut-setting-row{align-items:flex-start;flex-direction:column;gap:8px}.shortcut-setting-row select{width:100%}.settings-dialog-actions{flex-wrap:wrap}}
