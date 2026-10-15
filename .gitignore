@@ -20,3 +20,11 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Wails generated frontend bridge and build metadata
+/frontend/wailsjs/
+/frontend/package.json.md5
+
+# Wails/Vite build output (keep the directory placeholder)
+/frontend/dist/*
+!/frontend/dist/.gitkeep
