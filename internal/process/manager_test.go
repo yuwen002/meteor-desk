@@ -40,3 +40,24 @@ func TestReadOutputTruncatesVeryLongLine(t *testing.T) {
 	if len(lines)!=2{t.Fatalf("输出行数=%d，期望2",len(lines))}
 	if !strings.Contains(lines[0],"输出过长")||lines[1]!="second"{t.Fatalf("超长输出截断异常：%q",lines)}
 }
+
+ 
+func TestRestartConfiguredButStoppedService(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil { t.Fatal(err) }
+	view, err := manager.Save(Spec{Name:"重启测试", Executable:os.Args[0], Args:[]string{"-test.run=TestProcessHelper"}, Env:map[string]string{"METEORDESK_PROCESS_HELPER":"1"}})
+	if err != nil { t.Fatal(err) }
+	if err := manager.Restart(view.Spec.ID); err != nil { t.Fatalf("重启已保存但尚未运行的服务应成功：%v", err) }
+	if manager.List()[0].Status.State != StateRunning { t.Fatalf("重启后状态不正确：%+v", manager.List()[0].Status) }
+	if err := manager.Stop(view.Spec.ID); err != nil { t.Fatal(err) }
+}
+
+func TestStopAllStopsRunningServices(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil { t.Fatal(err) }
+	view, err := manager.Save(Spec{Name:"退出清理测试", Executable:os.Args[0], Args:[]string{"-test.run=TestProcessHelper"}, Env:map[string]string{"METEORDESK_PROCESS_HELPER":"1"}})
+	if err != nil { t.Fatal(err) }
+	if err := manager.Start(view.Spec.ID); err != nil { t.Fatal(err) }
+	if err := manager.StopAll(); err != nil { t.Fatal(err) }
+	if manager.List()[0].Status.State != StateStopped { t.Fatalf("StopAll 后服务仍未停止：%+v", manager.List()[0].Status) }
+}

@@ -46,6 +46,24 @@ func (a *App) startup(ctx context.Context) {
 		for _,path:=range paths{if strings.TrimSpace(path)!=""{a.droppedFiles=append(a.droppedFiles,path)}}
 	})
 }
+
+// shutdown 在窗口关闭时取消检索并停止本应用启动的本地服务。
+func (a *App) shutdown(ctx context.Context) {
+	a.mu.Lock()
+	for _, job := range a.searches {
+		if job.cancel != nil {
+			job.cancel()
+		}
+	}
+	a.mu.Unlock()
+
+	if a.processes != nil {
+		if err := a.processes.StopAll(); err != nil {
+			runtime.LogError(ctx, "退出时停止服务失败："+err.Error())
+		}
+	}
+}
+
 func (a *App) SelectLogFile()(string,error){
 	if a.ctx==nil{return "",errors.New("桌面运行环境尚未就绪")}
 	path,err:=runtime.OpenFileDialog(a.ctx,runtime.OpenDialogOptions{Title:"选择日志文件",Filters:[]runtime.FileFilter{
