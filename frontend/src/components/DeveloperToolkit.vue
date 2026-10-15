@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ArrowLeftRight, Braces, CheckCircle2, Clock3, Copy, FileJson, KeyRound, Link2, RefreshCw, ShieldAlert } from 'lucide-vue-next'
+import { appendJSONPath } from '../utils/jsonPath'
 
 type ToolKey = 'timestamp' | 'json' | 'base64' | 'jwt' | 'url'
 interface JsonDiffRow { path: string; kind: '新增' | '删除' | '修改'; before: unknown; after: unknown }
@@ -133,7 +134,7 @@ function flattenJSON(value: unknown, path = '$', target = new Map<string, unknow
   } else if (value !== null && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
     if (!entries.length) target.set(path, {})
-    entries.forEach(([key, child]) => flattenJSON(child, path === '$' ? key : path + '.' + key, target))
+    entries.forEach(([key, child]) => flattenJSON(child, appendJSONPath(path, key), target))
   } else {
     target.set(path, value)
   }
