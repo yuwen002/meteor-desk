@@ -11,6 +11,7 @@ type Spec struct {
 	WorkingDir string            `json:"workingDir"`
 	Env        map[string]string `json:"env"`
 	AutoStart  bool              `json:"autoStart"`
+	DependsOn  []string          `json:"dependsOn"`
 }
 
 // State 表示托管进程的生命周期状态。
@@ -32,4 +33,13 @@ type Snapshot struct {
 	PID       int    `json:"pid,omitempty"`
 	StartedAt string `json:"startedAt,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+// BatchResult 描述批量操作中单个服务的执行结果。
+type BatchResult struct {
+	ID string `json:"id"`
+	Name string `json:"name"`
+	Action string `json:"action"`
+	Success bool `json:"success"`
+	Message string `json:"message"`
 }
