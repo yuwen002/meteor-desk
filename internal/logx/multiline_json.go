@@ -112,9 +112,9 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 			return response, nil
 		}
 
-		line, readErr := reader.ReadString('\n')
-		if len(line) > maxRegexLineBytes {
-			return SearchResponse{}, errors.New("多行 JSON 检索遇到超过 4 MiB 的单行内容；请改用普通检索或拆分文件")
+		line, readErr, lineErr := readBoundedLine(reader, maxRegexLineBytes)
+		if lineErr != nil {
+			return SearchResponse{}, lineErr
 		}
 		bytesScanned += int64(len(line))
 		response.ScannedLines++
