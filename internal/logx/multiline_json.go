@@ -157,9 +157,8 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 			return SearchResponse{}, fmt.Errorf("读取多行 JSON 日志失败：%w", readErr)
 		}
 	}
-	if len(document) > 0 {
-		addMatch(documentStart, document)
-	}
+	// EOF 时若文档仍未闭合，视为不完整输入，不将其作为完整 JSON 文档返回。
+	// 这也避免把损坏文档之后的普通日志误当成文档内容匹配。
 	response.BytesScanned = response.FileSizeBytes
 	notify(true)
 	return response, nil
