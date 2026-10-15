@@ -39,3 +39,31 @@ func BenchmarkSearchFileLargeLog(b *testing.B) {
 		if _, err := SearchFile(path, "NEVER_MATCH", false, 500); err != nil { b.Fatal(err) }
 	}
 }
+
+// BenchmarkSearchFileRealLog runs against a caller-provided local log file.
+// The file is never copied into repository artifacts or printed to benchmark output.
+func BenchmarkSearchFileRealLog(b *testing.B) {
+	path := os.Getenv("METEORDESK_BENCH_LOG_PATH")
+	if path == "" {
+		b.Skip("设置 METEORDESK_BENCH_LOG_PATH 后运行真实日志基准")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		b.Fatalf("读取日志文件信息失败：%v", err)
+	}
+	if !info.Mode().IsRegular() {
+		b.Fatal("基准路径必须指向普通文件")
+	}
+	query := os.Getenv("METEORDESK_BENCH_QUERY")
+	if query == "" {
+		query = "METEORDESK_BENCH_NO_MATCH_DEFAULT"
+	}
+	b.SetBytes(info.Size())
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := SearchFile(path, query, false, 500); err != nil {
+			b.Fatalf("真实日志扫描失败：%v", err)
+		}
+	}
+}
