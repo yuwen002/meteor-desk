@@ -23,6 +23,11 @@ const maxOutputLineBytes = 64 * 1024
 const maxConfigImportBytes = 1 << 20
 const maxServiceConfigs = 500
 
+const processStopGracePeriod = 1500 * time.Millisecond
+const processForceStopWait = 2 * time.Second
+const processStopFinalizeWait = 500 * time.Millisecond
+const processConcurrentStopWait = processStopGracePeriod + processForceStopWait + processStopFinalizeWait
+
 type OutputLine struct {
 	Sequence int64 `json:"sequence"`
 	Time string `json:"time"`
@@ -37,7 +42,24 @@ type managedProcess struct {
 	cmd *exec.Cmd
 	done chan struct{}
 	startedAt time.Time
+	stdout io.Closer
+	stderr io.Closer
+	closeOutputOnce sync.Once
 	snapshot Snapshot
+}
+
+func (p *managedProcess) closeOutputPipes() {
+	if p == nil {
+		return
+	}
+	p.closeOutputOnce.Do(func() {
+		if p.stdout != nil {
+			_ = p.stdout.Close()
+		}
+		if p.stderr != nil {
+			_ = p.stderr.Close()
+		}
+	})
 }
 type Manager struct {
 	mu sync.RWMutex
@@ -275,8 +297,14 @@ func (m *Manager) startOne(id string) error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil { m.mu.Unlock(); return fmt.Errorf("创建标准输出管道失败：%w", err) }
 	stderr, err := cmd.StderrPipe()
-	if err != nil { m.mu.Unlock(); return fmt.Errorf("创建标准错误管道失败：%w", err) }
+	if err != nil {
+		_ = stdout.Close()
+		m.mu.Unlock()
+		return fmt.Errorf("创建标准错误管道失败：%w", err)
+	}
 	if err := cmd.Start(); err != nil {
+		_ = stdout.Close()
+		_ = stderr.Close()
 		finishedAt := time.Now()
 		m.instances[id] = &managedProcess{snapshot: Snapshot{
 			ID: id, Name: spec.Name, State: StateFailed, ExitReason: ExitReasonStartFailed,
@@ -287,7 +315,7 @@ func (m *Manager) startOne(id string) error {
 		return fmt.Errorf("启动服务失败：%w", err)
 	}
 	startedAt := time.Now()
-	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano)}}
+	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, stdout:stdout, stderr:stderr, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano)}}
 	m.instances[id] = instance
 	m.mu.Unlock()
 
@@ -353,8 +381,21 @@ func (m *Manager) stopOne(id string) error {
 	if instance.snapshot.State == StateStopping {
 		done := instance.done
 		m.mu.Unlock()
-		<-done
-		return nil
+		timer := time.NewTimer(processConcurrentStopWait)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return nil
+		case <-timer.C:
+			// A descendant may keep inherited output handles open after the root exits.
+			instance.closeOutputPipes()
+			select {
+			case <-done:
+				return nil
+			case <-time.After(processStopFinalizeWait):
+				return errors.New("等待并发停止操作完成超时，已关闭进程输出管道")
+			}
+		}
 	}
 	instance.snapshot.State = StateStopping
 	cmd, done := instance.cmd, instance.done
@@ -364,23 +405,38 @@ func (m *Manager) stopOne(id string) error {
 		select { case <-done: return nil; default: }
 		m.appendOutput(id, "system", "停止进程树请求失败，将尝试强制结束："+err.Error())
 		if killErr := forceStopProcess(cmd); killErr != nil {
-			select { case <-done: return nil; case <-time.After(500 * time.Millisecond):
+			instance.closeOutputPipes()
+			select { case <-done: return nil; case <-time.After(processStopFinalizeWait):
 				return fmt.Errorf("停止进程树失败：%w（请求停止错误：%v）", killErr, err)
 			}
 		}
 	}
-	timer := time.NewTimer(1500 * time.Millisecond)
+	timer := time.NewTimer(processStopGracePeriod)
 	defer timer.Stop()
 	select {
 	case <-done: return nil
 	case <-timer.C:
 		m.appendOutput(id, "system", "进程未在宽限期内退出，正在强制结束进程树")
 		if err := forceStopProcess(cmd); err != nil {
-			select { case <-done: return nil; case <-time.After(500 * time.Millisecond): return fmt.Errorf("强制结束进程树失败：%w", err) }
+			instance.closeOutputPipes()
+			select { case <-done: return nil; case <-time.After(processStopFinalizeWait): return fmt.Errorf("强制结束进程树失败：%w", err) }
 		}
-		forceTimer := time.NewTimer(2 * time.Second)
+		forceTimer := time.NewTimer(processForceStopWait)
 		defer forceTimer.Stop()
-		select { case <-done: return nil; case <-forceTimer.C: return errors.New("已发送强制结束请求，但进程输出管道仍未关闭") }
+		select {
+		case <-done:
+			return nil
+		case <-forceTimer.C:
+			// Avoid leaving the service permanently in "stopping" if an unrelated
+			// descendant inherited an output pipe and survived the process-group kill.
+			instance.closeOutputPipes()
+			select {
+			case <-done:
+				return nil
+			case <-time.After(processStopFinalizeWait):
+				return errors.New("已发送强制结束请求并关闭输出管道，但进程仍未完成退出")
+			}
+		}
 	}
 }
 
@@ -593,7 +649,13 @@ func readOutput(reader io.Reader,emit func(string)) {
 		if newline {if clipped{line=append(line,[]byte(" …[输出过长，已截断]")...)};emit(string(line));line=line[:0];clipped=false}
 		if err==bufio.ErrBufferFull {continue}
 		if err==io.EOF {if len(line)>0||clipped{if clipped{line=append(line,[]byte(" …[输出过长，已截断]")...)};emit(string(line))};return}
-		if err!=nil {emit("读取进程输出失败："+err.Error());return}
+		if err!=nil {
+			if errors.Is(err, os.ErrClosed) {
+				return
+			}
+			emit("读取进程输出失败："+err.Error())
+			return
+		}
 	}
 }
 func (m *Manager) persistLocked() error {

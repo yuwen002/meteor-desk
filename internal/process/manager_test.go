@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"encoding/json"
 	"os/exec"
+	"sync"
 	"strconv"
 	"os"
 	"path/filepath"
@@ -25,9 +26,15 @@ func TestProcessHelper(t *testing.T) {
 		marker := os.Getenv("METEORDESK_PROCESS_TREE_MARKER")
 		child := exec.Command(os.Args[0], "-test.run=TestProcessTreeGrandchild")
 		child.Env = append(os.Environ(), "METEORDESK_PROCESS_TREE_CHILD=1", "METEORDESK_PROCESS_TREE_MARKER="+marker)
+		if os.Getenv("METEORDESK_PROCESS_TREE_PARENT_EXIT") == "1" {
+			configureProcess(child)
+		}
 		child.Stdout, child.Stderr = os.Stdout, os.Stderr
 		if err := child.Start(); err != nil { fmt.Fprintln(os.Stderr, "grandchild-start-error:", err); return }
 		fmt.Printf("grandchild-pid=%d\n", child.Process.Pid)
+		if os.Getenv("METEORDESK_PROCESS_TREE_PARENT_EXIT") == "1" {
+			return
+		}
 	}
 	for { time.Sleep(200*time.Millisecond) }
 }
@@ -75,6 +82,17 @@ func TestManagerStartsCollectsAndStopsProcess(t *testing.T) {
 	stopped := manager.List()[0].Status
 	if stopped.State != StateStopped { t.Fatalf("服务停止后状态异常：%+v", stopped) }
 	if stopped.ExitReason != ExitReasonManualStop { t.Fatalf("手动停止原因未记录：%+v", stopped) }
+
+	// The prior process has fully finalized, so starting again should be immediate.
+	if err := manager.Start(view.Spec.ID); err != nil {
+		t.Fatalf("停止后立即重新启动失败：%v", err)
+	}
+	if status := manager.List()[0].Status; status.State != StateRunning {
+		t.Fatalf("重新启动后的状态不正确：%+v", status)
+	}
+	if err := manager.Stop(view.Spec.ID); err != nil {
+		t.Fatalf("第二次停止失败：%v", err)
+	}
 }
 
 
@@ -185,6 +203,150 @@ func TestManagerRecordsStartFailure(t *testing.T) {
 	status := manager.List()[0].Status
 	if status.State != StateFailed || status.ExitReason != ExitReasonStartFailed || status.Error == "" {
 		t.Fatalf("启动失败状态未记录完整：%+v", status)
+	}
+}
+
+
+func TestManagerConcurrentStartsDoNotDuplicateProcess(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := manager.Save(Spec{Name: "并发启动测试", Executable: os.Args[0], Args: []string{"-test.run=TestProcessHelper"}, Env: map[string]string{"METEORDESK_PROCESS_HELPER": "1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const callers = 8
+	startResults := make(chan error, callers)
+	var starters sync.WaitGroup
+	starters.Add(callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			defer starters.Done()
+			startResults <- manager.Start(view.Spec.ID)
+		}()
+	}
+	starters.Wait()
+	close(startResults)
+	for err := range startResults {
+		if err != nil {
+			_ = manager.StopAll()
+			t.Fatalf("并发启动不应产生重复启动错误：%v", err)
+		}
+	}
+
+	startMessages := 0
+	for _, line := range manager.Logs(view.Spec.ID, 0) {
+		if line.Stream == "system" && strings.Contains(line.Text, "服务已启动") {
+			startMessages++
+		}
+	}
+	if startMessages != 1 {
+		_ = manager.StopAll()
+		t.Fatalf("并发启动应只创建一个进程，启动日志数=%d", startMessages)
+	}
+	if err := manager.Stop(view.Spec.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerConcurrentStopsComplete(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := manager.Save(Spec{Name: "并发停止测试", Executable: os.Args[0], Args: []string{"-test.run=TestProcessHelper"}, Env: map[string]string{"METEORDESK_PROCESS_HELPER": "1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(view.Spec.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	const callers = 4
+	stopResults := make(chan error, callers)
+	var stoppers sync.WaitGroup
+	stoppers.Add(callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			defer stoppers.Done()
+			stopResults <- manager.Stop(view.Spec.ID)
+		}()
+	}
+	stoppers.Wait()
+	close(stopResults)
+	for err := range stopResults {
+		if err != nil {
+			t.Fatalf("并发停止应全部完成：%v", err)
+		}
+	}
+	if status := manager.List()[0].Status; status.State != StateStopped {
+		t.Fatalf("并发停止后状态不正确：%+v", status)
+	}
+}
+
+func TestManagerStopFinalizesWhenDescendantKeepsOutputPipeOpen(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "detached-grandchild.txt")
+	view, err := manager.Save(Spec{
+		Name: "输出管道继承测试",
+		Executable: os.Args[0],
+		Args: []string{"-test.run=TestProcessHelper"},
+		Env: map[string]string{
+			"METEORDESK_PROCESS_HELPER": "1",
+			"METEORDESK_PROCESS_TREE_PARENT": "1",
+			"METEORDESK_PROCESS_TREE_PARENT_EXIT": "1",
+			"METEORDESK_PROCESS_TREE_MARKER": marker,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(view.Spec.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var childPID int
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range manager.Logs(view.Spec.ID, 0) {
+			if strings.HasPrefix(line.Text, "grandchild-pid=") {
+				childPID, _ = strconv.Atoi(strings.TrimPrefix(line.Text, "grandchild-pid="))
+				break
+			}
+		}
+		if childPID > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if childPID <= 0 {
+		t.Fatalf("未获取到子进程 PID：%+v", manager.Logs(view.Spec.ID, 0))
+	}
+	child, err := os.FindProcess(childPID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Kill() }()
+
+	done := make(chan error, 1)
+	go func() { done <- manager.Stop(view.Spec.ID) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("输出管道被后代进程持有时，停止仍应完成：%v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("停止操作在后代进程继承输出管道时卡住")
+	}
+
+	status := manager.List()[0].Status
+	if status.State != StateStopped || status.ExitReason != ExitReasonManualStop {
+		t.Fatalf("关闭输出管道后应完成停止状态收尾：%+v", status)
 	}
 }
 
