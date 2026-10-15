@@ -106,6 +106,9 @@ func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxRes
 		if response.ScannedLines>current.progress.ScannedLines{current.progress.ScannedLines=response.ScannedLines}
 		current.progress.MatchesFound=len(response.Matches)
 		current.progress.Percent=calcPercent(current.progress.BytesScanned,current.progress.FileSizeBytes,false,response.Canceled||err!=nil)
+		// Complete SearchResponse now owns the full result set. Release the live
+		// delta buffer so completed searches do not retain thousands of previews.
+		current.matches=nil
 	}
 	if err==nil&&!response.Canceled&&path!=""{config.AddRecentFile(&a.settings,path)}
 	settingsSnapshot:=a.settings
