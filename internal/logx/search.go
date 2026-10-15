@@ -11,6 +11,12 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"unicode/utf8"
+
+	textencoding "golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	textunicode "golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 const (
@@ -23,6 +29,130 @@ const (
 	// 正则表达式需要按整行匹配，因此为单行设置内存上限。
 	maxRegexLineBytes = 4 * 1024 * 1024
 )
+
+
+const maxEncodingSampleBytes = 64 * 1024
+
+// byteCountingReader 统计解码器从底层文件读取的原始字节数。
+type byteCountingReader struct {
+	source    io.Reader
+	bytesRead int64
+}
+
+func (r *byteCountingReader) Read(p []byte) (int, error) {
+	n, err := r.source.Read(p)
+	r.bytesRead += int64(n)
+	return n, err
+}
+
+// resolveTextEncoding 支持 BOM、UTF-8 校验、无 BOM UTF-16 启发式检测，
+// 无法识别的非 UTF-8 文本按中文 Windows 日志常见的 GB18030 处理。
+func resolveTextEncoding(sample []byte, requested string, wholeFileSample bool) (string, int64, textencoding.Encoding, error) {
+	mode := strings.ToLower(strings.TrimSpace(requested))
+	if mode == "" {
+		mode = "auto"
+	}
+	utf8BOM := []byte{0xEF, 0xBB, 0xBF}
+	utf16LEBOM := []byte{0xFF, 0xFE}
+	utf16BEBOM := []byte{0xFE, 0xFF}
+
+	switch mode {
+	case "auto":
+		switch {
+		case bytes.HasPrefix(sample, utf8BOM):
+			return "UTF-8", int64(len(utf8BOM)), nil, nil
+		case bytes.HasPrefix(sample, utf16LEBOM):
+			return "UTF-16LE", int64(len(utf16LEBOM)), textunicode.UTF16(textunicode.LittleEndian, textunicode.IgnoreBOM), nil
+		case bytes.HasPrefix(sample, utf16BEBOM):
+			return "UTF-16BE", int64(len(utf16BEBOM)), textunicode.UTF16(textunicode.BigEndian, textunicode.IgnoreBOM), nil
+		}
+		if guessed := guessUTF16(sample); guessed != "" {
+			return encodingByName(guessed, 0)
+		}
+		if validUTF8Sample(sample, wholeFileSample) {
+			return "UTF-8", 0, nil, nil
+		}
+		return "GB18030", 0, simplifiedchinese.GB18030, nil
+	case "utf-8", "utf8":
+		if bytes.HasPrefix(sample, utf8BOM) {
+			return "UTF-8", int64(len(utf8BOM)), nil, nil
+		}
+		return "UTF-8", 0, nil, nil
+	case "gb18030", "gbk":
+		return "GB18030", 0, simplifiedchinese.GB18030, nil
+	case "utf-16le", "utf16le":
+		var skip int64
+		if bytes.HasPrefix(sample, utf16LEBOM) {
+			skip = int64(len(utf16LEBOM))
+		}
+		return "UTF-16LE", skip, textunicode.UTF16(textunicode.LittleEndian, textunicode.IgnoreBOM), nil
+	case "utf-16be", "utf16be":
+		var skip int64
+		if bytes.HasPrefix(sample, utf16BEBOM) {
+			skip = int64(len(utf16BEBOM))
+		}
+		return "UTF-16BE", skip, textunicode.UTF16(textunicode.BigEndian, textunicode.IgnoreBOM), nil
+	default:
+		return "", 0, nil, fmt.Errorf("不支持的日志编码 %q；请选择自动识别、UTF-8、GB18030 或 UTF-16", requested)
+	}
+}
+
+func encodingByName(name string, skip int64) (string, int64, textencoding.Encoding, error) {
+	switch name {
+	case "UTF-16LE":
+		return name, skip, textunicode.UTF16(textunicode.LittleEndian, textunicode.IgnoreBOM), nil
+	case "UTF-16BE":
+		return name, skip, textunicode.UTF16(textunicode.BigEndian, textunicode.IgnoreBOM), nil
+	default:
+		return "", 0, nil, fmt.Errorf("内部编码识别结果无效：%s", name)
+	}
+}
+
+// validUTF8Sample 容忍 64 KiB 样本正好截在一个 UTF-8 多字节字符中的情况。
+func validUTF8Sample(sample []byte, wholeFile bool) bool {
+	if utf8.Valid(sample) {
+		return true
+	}
+	if wholeFile {
+		return false
+	}
+	for trim := 1; trim < utf8.UTFMax && trim < len(sample); trim++ {
+		if utf8.Valid(sample[:len(sample)-trim]) {
+			return true
+		}
+	}
+	return false
+}
+
+// guessUTF16 仅在样本包含明显的交错 NUL 字节时识别无 BOM UTF-16，
+// 避免对任意非 UTF-8 二进制文件做过度猜测。
+func guessUTF16(sample []byte) string {
+	limit := min(len(sample), 512)
+	if limit < 8 {
+		return ""
+	}
+	var evenZeros, oddZeros int
+	for i, value := range sample[:limit] {
+		if value == 0 {
+			if i%2 == 0 {
+				evenZeros++
+			} else {
+				oddZeros++
+			}
+		}
+	}
+	half := float64(limit / 2)
+	if half == 0 {
+		return ""
+	}
+	if float64(oddZeros)/half >= 0.25 && float64(evenZeros)/half <= 0.05 {
+		return "UTF-16LE"
+	}
+	if float64(evenZeros)/half >= 0.25 && float64(oddZeros)/half <= 0.05 {
+		return "UTF-16BE"
+	}
+	return ""
+}
 
 // LineContext 是上下文窗口中的一行日志。
 type LineContext struct {
@@ -53,12 +183,16 @@ type Progress struct {
 // SearchOptions 是一次检索的可选参数。
 // ContextLines 会被限制在 0 到 10 之间，超过上限的值按 10 处理。
 type SearchOptions struct {
-	ContextLines int `json:"contextLines"`
+	ContextLines int    `json:"contextLines"`
+	// Encoding 可选 auto、utf-8、gb18030、utf-16le、utf-16be；空值等同 auto。
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
 type SearchResponse struct {
 	FilePath string `json:"filePath"`
+	// Encoding 是本次检索实际使用的文本编码。
+	Encoding string `json:"encoding"`
 	FileSizeBytes int64 `json:"fileSizeBytes"`
 	BytesScanned int64 `json:"bytesScanned"`
 	ScannedLines int64 `json:"scannedLines"`
@@ -131,16 +265,41 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		return SearchResponse{}, fmt.Errorf("读取日志文件信息失败：%w", err)
 	}
 
+	// 只抽样文件开头用于检测编码；大文件主体仍通过固定缓冲区流式读取。
+	sampleSize := min(info.Size(), int64(maxEncodingSampleBytes))
+	sample := make([]byte, int(sampleSize))
+	if len(sample) > 0 {
+		n, sampleErr := file.ReadAt(sample, 0)
+		if sampleErr != nil && sampleErr != io.EOF {
+			return SearchResponse{}, fmt.Errorf("读取日志编码样本失败：%w", sampleErr)
+		}
+		sample = sample[:n]
+	}
+	encodingName, bomBytes, decoder, err := resolveTextEncoding(sample, options.Encoding, int64(len(sample)) == info.Size())
+	if err != nil {
+		return SearchResponse{}, err
+	}
+	if _, err := file.Seek(bomBytes, io.SeekStart); err != nil {
+		return SearchResponse{}, fmt.Errorf("定位日志正文失败：%w", err)
+	}
+
+	var rawCounter *byteCountingReader
+	var scanInput io.Reader = file
+	if decoder != nil {
+		rawCounter = &byteCountingReader{source: file}
+		scanInput = transform.NewReader(rawCounter, decoder.NewDecoder())
+	}
+	reader := bufio.NewReaderSize(scanInput, readerBufferSize)
 	response := SearchResponse{
 		FilePath: path,
+		Encoding: encodingName,
 		FileSizeBytes: info.Size(),
 		Matches: make([]Match, 0, min(maxResults, 128)),
 	}
-	reader := bufio.NewReaderSize(file, readerBufferSize)
 
 	var lineNumber int64
 	var lineBytes int64
-	var bytesScanned int64
+	bytesScanned := bomBytes
 	var lastProgressBytes int64
 	var reportedMatchCount int
 	var preview []byte
@@ -316,7 +475,15 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		}
 
 		chunk, readErr := reader.ReadSlice('\n')
-		bytesScanned += int64(len(chunk))
+		if rawCounter != nil {
+			// 解码器可能预读少量源字节，因此此处表示底层已读取的原始字节数。
+			bytesScanned = bomBytes + rawCounter.bytesRead
+		} else {
+			bytesScanned += int64(len(chunk))
+		}
+		if bytesScanned > info.Size() {
+			bytesScanned = info.Size()
+		}
 		hasNewline := len(chunk) > 0 && chunk[len(chunk)-1] == '\n'
 		part := chunk
 		if hasNewline {
@@ -371,6 +538,8 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		notify(false)
 	}
 
+	// 成功到达 EOF 时，以原始文件大小作为最终进度，避免字符解码导致字节计数差异。
+	bytesScanned = info.Size()
 	response.BytesScanned = bytesScanned
 	notify(true)
 	return response, nil

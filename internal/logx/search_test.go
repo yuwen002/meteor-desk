@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	textunicode "golang.org/x/text/encoding/unicode"
 )
 
 func TestSearchFileLiteralAndLineNumbers(t *testing.T) {
@@ -117,4 +120,85 @@ func TestSearchFileHandlesCRLFAndBlankLines(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if got.ScannedLines != 3 { t.Fatalf("扫描行数 = %d，期望 3", got.ScannedLines) }
 	if len(got.Matches) != 1 || got.Matches[0].LineNumber != 2 { t.Fatalf("CRLF 处理异常：%+v", got) }
+}
+
+func TestSearchFileDetectsGB18030AndCanOverrideEncoding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gb18030.log")
+	content := "INFO 用户登录成功\nERROR 数据库连接失败\n"
+	encoded, err := simplifiedchinese.GB18030.NewEncoder().Bytes([]byte(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := SearchFileWithOptions(context.Background(), path, "连接失败", false, 10, SearchOptions{Encoding: "auto"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Encoding != "GB18030" || len(got.Matches) != 1 || got.Matches[0].Content != "ERROR 数据库连接失败" {
+		t.Fatalf("GB18030 自动识别或中文检索失败：encoding=%q matches=%+v", got.Encoding, got.Matches)
+	}
+
+	forcedUTF8, err := SearchFileWithOptions(context.Background(), path, "连接失败", false, 10, SearchOptions{Encoding: "utf-8"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forcedUTF8.Encoding != "UTF-8" {
+		t.Fatalf("手动编码选择未生效：%q", forcedUTF8.Encoding)
+	}
+}
+
+func TestSearchFileDetectsUTF16BOMAndSearchesDecodedLines(t *testing.T) {
+	tests := []struct {
+		name string
+		bom  []byte
+		want string
+	}{
+		{name: "little-endian", bom: []byte{0xFF, 0xFE}, want: "UTF-16LE"},
+		{name: "big-endian", bom: []byte{0xFE, 0xFF}, want: "UTF-16BE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "utf16.log")
+			endian := textunicode.LittleEndian
+			if tt.want == "UTF-16BE" {
+				endian = textunicode.BigEndian
+			}
+			encoded, err := textunicode.UTF16(endian, textunicode.IgnoreBOM).NewEncoder().Bytes([]byte("启动服务\nERROR 请求超时\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := append(append([]byte{}, tt.bom...), encoded...)
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := SearchFileWithOptions(context.Background(), path, "请求超时", false, 10, SearchOptions{Encoding: "auto"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Encoding != tt.want || len(got.Matches) != 1 || got.Matches[0].Content != "ERROR 请求超时" {
+				t.Fatalf("UTF-16 检索失败：encoding=%q matches=%+v", got.Encoding, got.Matches)
+			}
+		})
+	}
+}
+
+func TestSearchFileStripsUTF8BOMAndRejectsUnknownEncoding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "utf8-bom.log")
+	content := append([]byte{0xEF, 0xBB, 0xBF}, []byte("INFO 服务启动\n")...)
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := SearchFileWithOptions(context.Background(), path, "服务启动", false, 10, SearchOptions{Encoding: "auto"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Encoding != "UTF-8" || len(got.Matches) != 1 || strings.HasPrefix(got.Matches[0].Content, "\uFEFF") {
+		t.Fatalf("UTF-8 BOM 处理异常：encoding=%q matches=%+v", got.Encoding, got.Matches)
+	}
+	if _, err := SearchFileWithOptions(context.Background(), path, "INFO", false, 10, SearchOptions{Encoding: "made-up"}, nil); err == nil {
+		t.Fatal("不支持的编码选项应当返回错误")
+	}
 }

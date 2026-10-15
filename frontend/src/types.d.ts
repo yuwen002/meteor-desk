@@ -3,9 +3,9 @@ export {}
 declare global {
   interface LogLineContext { lineNumber:number; content:string; contentClipped:boolean }
   interface LogMatch extends LogLineContext { contextBefore:LogLineContext[]; contextAfter:LogLineContext[] }
-  interface LogSearchResponse { filePath:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean }
+  interface LogSearchResponse { filePath:string; encoding:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean }
   interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string }
-  interface SearchRecord { query:string; path:string; useRegex:boolean; contextLines:number; createdAt:string }
+  interface SearchRecord { query:string; path:string; useRegex:boolean; contextLines:number; encoding?:string; createdAt:string }
   interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number }
   interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean; dependsOn:string[] }
   interface ProcessBatchResult { id:string; name:string; action:'start'|'stop'; success:boolean; message:string }
@@ -15,7 +15,7 @@ declare global {
   interface JsonField { path:string; value:unknown }
   interface Window { go?:{main?:{App?:{
     SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
-    SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number)=>Promise<LogSearchResponse>;
+    SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number,encoding:string)=>Promise<LogSearchResponse>;
     GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; GetLogSearchMatches:(id:string,afterIndex:number)=>Promise<LogMatch[]>; CancelLogSearch:(id:string)=>Promise<boolean>;
     GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
     GetProcesses:()=>Promise<ProcessView[]>; SaveProcess:(spec:ProcessSpec)=>Promise<ProcessView>; DeleteProcess:(id:string)=>Promise<void>;

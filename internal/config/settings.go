@@ -18,6 +18,7 @@ type SearchRecord struct {
 	Path string `json:"path"`
 	UseRegex bool `json:"useRegex"`
 	ContextLines int `json:"contextLines"`
+	Encoding string `json:"encoding,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -154,7 +155,7 @@ func AddSearchRecord(settings *Settings, record SearchRecord) {
 	record.CreatedAt = time.Now()
 	next := []SearchRecord{record}
 	for _, item := range settings.SearchHistory {
-		if item.Query != record.Query || item.Path != record.Path || item.UseRegex != record.UseRegex || item.ContextLines != record.ContextLines {
+		if item.Query != record.Query || item.Path != record.Path || item.UseRegex != record.UseRegex || item.ContextLines != record.ContextLines || item.Encoding != record.Encoding {
 			next = append(next, item)
 		}
 	}
