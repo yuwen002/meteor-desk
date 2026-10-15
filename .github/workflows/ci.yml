@@ -26,7 +26,7 @@ jobs:
       - name: 安装 Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.23.x'
           cache: true
 
       - name: 整理并下载 Go 依赖
@@ -77,7 +77,7 @@ jobs:
       - name: 安装 Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.23.x'
           cache: true
 
       - name: 安装 Node.js
@@ -87,8 +87,5 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package.json
 
-      - name: 安装 Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
-
       - name: 构建本机桌面应用
-        run: wails build -clean
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build -clean
