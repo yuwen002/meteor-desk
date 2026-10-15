@@ -342,3 +342,60 @@ func TestSearchFileMultiLineJSONHandlesEscapedBracesAndPlainLines(t *testing.T) 
 	if err != nil { t.Fatal(err) }
 	if len(jsonGot.Matches) != 1 || jsonGot.Matches[0].LineNumber != 2 { t.Fatalf("JSON 字符串中的括号不应提前结束文档：%+v", jsonGot.Matches) }
 }
+
+func TestSearchFileMultiLineJSONIgnoresIncompleteDocumentAtEOF(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "incomplete.json")
+	content := "INFO startup\\n{\\n  \\"message\\": \\"database unavailable\\",\\n  \\"details\\": {\\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := SearchFileWithOptions(context.Background(), path, "database unavailable", false, 10, SearchOptions{MultiLineJSON: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Matches) != 0 {
+		t.Fatalf("未闭合的 JSON 文档不应作为完整文档匹配：%+v", got.Matches)
+	}
+}
+
+func TestSearchFileMultiLineJSONMatchesNestedArrayDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested-array.json")
+	content := "INFO startup\\n[\\n  {\\"message\\": \\"first\\"},\\n  [\\"needle in nested array\\", 2]\\n]\\nINFO ready\\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := SearchFileWithOptions(context.Background(), path, "needle in nested array", false, 10, SearchOptions{MultiLineJSON: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Matches) != 1 || got.Matches[0].LineNumber != 2 {
+		t.Fatalf("嵌套数组应作为完整文档匹配，起始行应为 2：%+v", got.Matches)
+	}
+	if !strings.Contains(got.Matches[0].Content, "first") || !strings.Contains(got.Matches[0].Content, "needle in nested array") {
+		t.Fatalf("应返回完整文档预览：%s", got.Matches[0].Content)
+	}
+}
+
+func TestSearchFileMultiLineJSONRejectsOversizedDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.json")
+	var content strings.Builder
+	content.WriteString("{\\n")
+	line := strings.Repeat("x", 64*1024)
+	for content.Len() <= maxRegexLineBytes {
+		content.WriteString("\\\"chunk\\\": \\"")
+		content.WriteString(line)
+		content.WriteString("\\",\\n")
+	}
+	content.WriteString("}\\n")
+	if err := os.WriteFile(path, []byte(content.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := SearchFileWithOptions(context.Background(), path, "needle", false, 10, SearchOptions{MultiLineJSON: true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "多行 JSON 文档超过 4 MiB") {
+		t.Fatalf("超过 4 MiB 的 JSON 文档应返回明确错误，实际：%v", err)
+	}
+}
+
