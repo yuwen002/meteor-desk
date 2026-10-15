@@ -204,6 +204,34 @@ func TestManagerRecordsStartFailure(t *testing.T) {
 	if status.State != StateFailed || status.ExitReason != ExitReasonStartFailed || status.Error == "" {
 		t.Fatalf("启动失败状态未记录完整：%+v", status)
 	}
+	if !strings.Contains(status.Error, "PATH") {
+		t.Fatalf("启动失败应提供可操作的诊断提示，实际错误：%s", status.Error)
+	}
+}
+
+func TestManagerStartFailureDiagnosesMissingWorkingDirectory(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingDir := filepath.Join(t.TempDir(), "missing-workdir")
+	view, err := manager.Save(Spec{
+		Name: "工作目录诊断测试",
+		Executable: os.Args[0],
+		Args: []string{"-test.run=TestProcessHelper"},
+		WorkingDir: missingDir,
+		Env: map[string]string{"METEORDESK_PROCESS_HELPER": "1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(view.Spec.ID); err == nil {
+		t.Fatal("工作目录不存在时应返回启动错误")
+	}
+	status := manager.List()[0].Status
+	if status.State != StateFailed || !strings.Contains(status.Error, "工作目录") || !strings.Contains(status.Error, "不存在") {
+		t.Fatalf("应指出缺失的工作目录：%+v", status)
+	}
 }
 
 
