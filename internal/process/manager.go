@@ -83,7 +83,7 @@ func (m *Manager) Save(spec Spec) (View, error) {
 	spec.Name, spec.Executable, spec.WorkingDir = strings.TrimSpace(spec.Name), strings.TrimSpace(spec.Executable), strings.TrimSpace(spec.WorkingDir)
 	if spec.Name == "" { return View{}, errors.New("服务名称不能为空") }
 	if spec.Executable == "" { return View{}, errors.New("可执行文件不能为空") }
-	if len(spec.Args) > 128 || len(spec.Env) > 128 { return View{}, errors.New("参数数量和环境变量数量均不能超过 128 个") }
+	if len(spec.Args) > 128 || len(spec.Env) > 128 || len(spec.DependsOn) > 64 { return View{}, errors.New("参数最多 128 个、环境变量最多 128 个、依赖最多 64 个") }
 	if strings.ContainsRune(spec.Executable, 0) { return View{}, errors.New("可执行文件路径包含非法字符") }
 	for _, arg := range spec.Args { if strings.ContainsRune(arg, 0) { return View{}, errors.New("命令参数包含非法字符") } }
 	for key, value := range spec.Env {
@@ -91,13 +91,26 @@ func (m *Manager) Save(spec Spec) (View, error) {
 	}
 	if spec.ID == "" { spec.ID = newID() }
 	spec.Args = append([]string(nil), spec.Args...)
+	spec.DependsOn = uniqueIDs(spec.DependsOn)
 	if spec.Env == nil { spec.Env = map[string]string{} }
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if instance := m.instances[spec.ID]; instance != nil && isActive(instance.snapshot.State) { return View{}, errors.New("运行中的服务不能修改配置，请先停止服务") }
+	for _, dependencyID := range spec.DependsOn {
+		if dependencyID == spec.ID { return View{}, errors.New("服务不能依赖自身") }
+		if _, exists := m.specs[dependencyID]; !exists { return View{}, fmt.Errorf("依赖服务不存在：%s", dependencyID) }
+	}
+	oldSpec, hadOldSpec := m.specs[spec.ID]
 	m.specs[spec.ID] = cloneSpec(spec)
-	if err := m.persistLocked(); err != nil { return View{}, err }
+	if _, err := m.dependencyOrderLocked([]string{spec.ID}, true); err != nil {
+		if hadOldSpec { m.specs[spec.ID] = oldSpec } else { delete(m.specs, spec.ID) }
+		return View{}, err
+	}
+	if err := m.persistLocked(); err != nil {
+		if hadOldSpec { m.specs[spec.ID] = oldSpec } else { delete(m.specs, spec.ID) }
+		return View{}, err
+	}
 	status := Snapshot{ID:spec.ID, Name:spec.Name, State:StateStopped}
 	if instance := m.instances[spec.ID]; instance != nil { status = instance.snapshot }
 	return View{Spec:cloneSpec(spec), Status:status}, nil
@@ -112,7 +125,7 @@ func (m *Manager) Delete(id string) error {
 	return m.persistLocked()
 }
 
-func (m *Manager) Start(id string) error {
+func (m *Manager) startOne(id string) error {
 	m.mu.Lock()
 	spec, ok := m.specs[id]
 	if !ok { m.mu.Unlock(); return errors.New("未找到该服务配置") }
@@ -149,7 +162,7 @@ func (m *Manager) Start(id string) error {
 	return nil
 }
 
-func (m *Manager) Stop(id string) error {
+func (m *Manager) stopOne(id string) error {
 	m.mu.Lock()
 	instance := m.instances[id]
 	if instance == nil {
@@ -189,34 +202,188 @@ func (m *Manager) Stop(id string) error {
 	}
 }
 
-func (m *Manager) Restart(id string) error {
-	if err := m.Stop(id); err != nil {
-		return err
+func (m *Manager) Start(id string) error {
+	results, err := m.StartBatch([]string{id})
+	if err != nil { return err }
+	for _, result := range results {
+		if result.ID == id && !result.Success { return errors.New(result.Message) }
 	}
+	return nil
+}
+
+// StartBatch 自动包含所选服务的上游依赖，并按依赖优先顺序启动。
+func (m *Manager) StartBatch(ids []string) ([]BatchResult, error) {
+	m.mu.RLock()
+	order, err := m.dependencyOrderLocked(ids, true)
+	m.mu.RUnlock()
+	if err != nil { return nil, err }
+
+	resultsByID := make(map[string]BatchResult, len(order))
+	results := make([]BatchResult, 0, len(order))
+	for _, id := range order {
+		m.mu.RLock()
+		spec := cloneSpec(m.specs[id])
+		instance := m.instances[id]
+		running := instance != nil && (instance.snapshot.State == StateRunning || instance.snapshot.State == StateStarting)
+		m.mu.RUnlock()
+
+		blockedBy := ""
+		for _, dep := range spec.DependsOn {
+			if previous, exists := resultsByID[dep]; exists && !previous.Success {
+				blockedBy = dep
+				break
+			}
+		}
+		result := BatchResult{ID:id, Name:spec.Name, Action:"start"}
+		switch {
+		case blockedBy != "":
+			result.Message = "依赖服务启动失败，已跳过：" + blockedBy
+		case running:
+			result.Success = true
+			result.Message = "服务已在运行"
+		default:
+			if startErr := m.startOne(id); startErr != nil {
+				result.Message = startErr.Error()
+			} else {
+				result.Success = true
+				result.Message = "启动成功"
+			}
+		}
+		resultsByID[id] = result
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (m *Manager) Stop(id string) error {
+	results, err := m.StopBatch([]string{id})
+	if err != nil { return err }
+	for _, result := range results {
+		if !result.Success { return errors.New(result.Message) }
+	}
+	return nil
+}
+
+// StopBatch 先停止所选服务的下游依赖方，再停止目标服务。
+func (m *Manager) StopBatch(ids []string) ([]BatchResult, error) {
+	m.mu.RLock()
+	targets := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if _, exists := m.specs[id]; !exists {
+			m.mu.RUnlock()
+			return nil, fmt.Errorf("未找到服务配置：%s", id)
+		}
+		targets[id] = struct{}{}
+	}
+	if len(targets) == 0 {
+		m.mu.RUnlock()
+		return []BatchResult{}, nil
+	}
+
+	changed := true
+	for changed {
+		changed = false
+		for id, spec := range m.specs {
+			if _, selected := targets[id]; selected { continue }
+			for _, dep := range spec.DependsOn {
+				if _, dependsOnTarget := targets[dep]; dependsOnTarget {
+					targets[id] = struct{}{}
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	targetIDs := make([]string, 0, len(targets))
+	for id := range targets { targetIDs = append(targetIDs, id) }
+	order, err := m.dependencyOrderLocked(targetIDs, true)
+	m.mu.RUnlock()
+	if err != nil { return nil, err }
+
+	results := make([]BatchResult, 0, len(targets))
+	for i := len(order)-1; i >= 0; i-- {
+		id := order[i]
+		if _, wanted := targets[id]; !wanted { continue }
+		m.mu.RLock()
+		spec := m.specs[id]
+		instance := m.instances[id]
+		active := instance != nil && isActive(instance.snapshot.State)
+		m.mu.RUnlock()
+
+		result := BatchResult{ID:id, Name:spec.Name, Action:"stop"}
+		if !active {
+			result.Success = true
+			result.Message = "服务已停止"
+		} else if stopErr := m.stopOne(id); stopErr != nil {
+			result.Message = stopErr.Error()
+		} else {
+			result.Success = true
+			result.Message = "停止成功"
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (m *Manager) Restart(id string) error {
+	if err := m.Stop(id); err != nil { return err }
 	return m.Start(id)
 }
 
-// StopAll 在应用退出时停止仍由此管理器运行的服务。
+// StopAll 按依赖的反向顺序停止所有服务。
 func (m *Manager) StopAll() error {
 	m.mu.RLock()
-	ids := make([]string, 0, len(m.instances))
-	for id, instance := range m.instances {
-		if instance != nil && isActive(instance.snapshot.State) {
-			ids = append(ids, id)
-		}
-	}
+	ids := make([]string, 0, len(m.specs))
+	for id := range m.specs { ids = append(ids, id) }
 	m.mu.RUnlock()
-
+	results, err := m.StopBatch(ids)
+	if err != nil { return err }
 	var failures []string
-	for _, id := range ids {
-		if err := m.Stop(id); err != nil {
-			failures = append(failures, id+": "+err.Error())
-		}
+	for _, result := range results {
+		if !result.Success { failures = append(failures, result.Name+": "+result.Message) }
 	}
-	if len(failures) > 0 {
-		return errors.New("停止部分服务失败：" + strings.Join(failures, "；"))
-	}
+	if len(failures) > 0 { return errors.New("停止部分服务失败：" + strings.Join(failures, "；")) }
 	return nil
+}
+
+// dependencyOrderLocked 执行拓扑排序；includeDependencies 为 true 时递归包含上游依赖。
+func (m *Manager) dependencyOrderLocked(ids []string, includeDependencies bool) ([]string, error) {
+	if len(ids) == 0 { return []string{}, nil }
+	state := make(map[string]uint8, len(m.specs))
+	order := make([]string, 0, len(m.specs))
+	var visit func(string) error
+	visit = func(id string) error {
+		spec, exists := m.specs[id]
+		if !exists { return fmt.Errorf("未找到服务配置：%s", id) }
+		if state[id] == 1 { return fmt.Errorf("检测到服务依赖循环，涉及服务：%s", spec.Name) }
+		if state[id] == 2 { return nil }
+		state[id] = 1
+		if includeDependencies {
+			for _, dep := range spec.DependsOn {
+				if err := visit(dep); err != nil { return err }
+			}
+		}
+		state[id] = 2
+		order = append(order, id)
+		return nil
+	}
+	for _, id := range ids {
+		if err := visit(id); err != nil { return nil, err }
+	}
+	return order, nil
+}
+
+func uniqueIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" { continue }
+		if _, exists := seen[id]; exists { continue }
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
 }
 
 func (m *Manager) Logs(id string, afterSequence int64) []OutputLine {

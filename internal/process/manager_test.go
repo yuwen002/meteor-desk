@@ -61,3 +61,49 @@ func TestStopAllStopsRunningServices(t *testing.T) {
 	if err := manager.StopAll(); err != nil { t.Fatal(err) }
 	if manager.List()[0].Status.State != StateStopped { t.Fatalf("StopAll 后服务仍未停止：%+v", manager.List()[0].Status) }
 }
+
+
+func TestManagerStartsDependenciesInOrder(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil { t.Fatal(err) }
+	dependency, err := manager.Save(Spec{Name:"基础服务", Executable:os.Args[0], Args:[]string{"-test.run=TestProcessHelper"}, Env:map[string]string{"METEORDESK_PROCESS_HELPER":"1"}})
+	if err != nil { t.Fatal(err) }
+	dependent, err := manager.Save(Spec{Name:"API 服务", Executable:os.Args[0], Args:[]string{"-test.run=TestProcessHelper"}, Env:map[string]string{"METEORDESK_PROCESS_HELPER":"1"}, DependsOn:[]string{dependency.Spec.ID}})
+	if err != nil { t.Fatal(err) }
+	results, err := manager.StartBatch([]string{dependent.Spec.ID})
+	if err != nil { t.Fatal(err) }
+	if len(results) != 2 || results[0].ID != dependency.Spec.ID || results[1].ID != dependent.Spec.ID {
+		_ = manager.StopAll()
+		t.Fatalf("启动顺序未遵循依赖关系：%+v", results)
+	}
+	for _, result := range results {
+		if !result.Success { _ = manager.StopAll(); t.Fatalf("批量启动失败：%+v", result) }
+	}
+	if err := manager.Stop(dependency.Spec.ID); err != nil { t.Fatal(err) }
+	for _, view := range manager.List() {
+		if view.Status.State != StateStopped { t.Fatalf("停止依赖时应先停止依赖方：%+v", view) }
+	}
+}
+
+func TestManagerRejectsDependencyCycle(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil { t.Fatal(err) }
+	first, err := manager.Save(Spec{Name:"服务 A", Executable:os.Args[0]})
+	if err != nil { t.Fatal(err) }
+	second, err := manager.Save(Spec{Name:"服务 B", Executable:os.Args[0], DependsOn:[]string{first.Spec.ID}})
+	if err != nil { t.Fatal(err) }
+	first.Spec.DependsOn = []string{second.Spec.ID}
+	if _, err := manager.Save(first.Spec); err == nil || !strings.Contains(err.Error(), "循环") {
+		t.Fatalf("应拒绝依赖循环，实际错误：%v", err)
+	}
+}
+
+func TestManagerStopBatchIgnoresStoppedServices(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil { t.Fatal(err) }
+	view, err := manager.Save(Spec{Name:"未运行服务", Executable:os.Args[0]})
+	if err != nil { t.Fatal(err) }
+	results, err := manager.StopBatch([]string{view.Spec.ID})
+	if err != nil { t.Fatal(err) }
+	if len(results) != 1 || !results[0].Success { t.Fatalf("停止已停止服务应为幂等操作：%+v", results) }
+}
