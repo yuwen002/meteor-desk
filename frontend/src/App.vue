@@ -30,6 +30,7 @@ const jsonFields=computed(()=>{const out:JsonField[]=[];const add=(v:unknown,pat
 let progressTimer:number|undefined, processTimer:number|undefined, dropTimer:number|undefined
 let partialMatchCursor=0
 let progressPollInFlight=false
+let completedSearchID=''
 
 function api(){return window.go?.main?.App}
 function clearTimer(which:'progress'|'process'|'drop'){if(which==='progress'&&progressTimer!==undefined){clearInterval(progressTimer);progressTimer=undefined}if(which==='process'&&processTimer!==undefined){clearInterval(processTimer);processTimer=undefined}if(which==='drop'&&dropTimer!==undefined){clearInterval(dropTimer);dropTimer=undefined}}
@@ -41,18 +42,18 @@ async function pollDrop(){const a=api();if(!a)return;try{const paths=await a.Pol
 // 每轮只追加尚未展示的匹配项，并同步进度元数据；不重复拉取完整结果集。
 async function pollProgress(id:string){
  const a=api()
- if(!a||progressPollInFlight)return
+ if(!a||progressPollInFlight||completedSearchID===id)return
  progressPollInFlight=true
  try{
   const p=await a.GetLogSearchProgress(id)
-  if(searchID.value!==id)return
+  if(searchID.value!==id||completedSearchID===id)return
   searchProgress.value=p
   if(response.value){
    response.value={...response.value,fileSizeBytes:p.fileSizeBytes||response.value.fileSizeBytes,bytesScanned:p.bytesScanned,scannedLines:p.scannedLines,canceled:p.canceled}
   }
   const cursor=partialMatchCursor
   const updates=await a.GetLogSearchMatches(id,cursor)
-  if(searchID.value!==id||cursor!==partialMatchCursor||!updates.length)return
+  if(searchID.value!==id||completedSearchID===id||cursor!==partialMatchCursor||!updates.length)return
   partialMatchCursor+=updates.length
   const current=response.value
   if(current){
@@ -63,10 +64,21 @@ async function pollProgress(id:string){
 }
 async function cancelSearch(){const a=api();if(!a||!searchID.value)return;cancelRequested.value=true;try{await a.CancelLogSearch(searchID.value)}catch(e){errorMessage.value='取消检索失败：'+String(e)}}
 async function runSearch(){errorMessage.value='';if(!filePath.value){errorMessage.value='请先选择日志文件。';return}if(!query.value){errorMessage.value='请输入关键字或正则表达式。';return}const a=api();if(!a){errorMessage.value='未检测到桌面桥接服务，请通过 wails dev 启动。';return}
- clearTimer('progress');const id=Date.now()+'-'+Math.random().toString(16).slice(2);searchID.value=id;cancelRequested.value=false;busy.value=true;partialMatchCursor=0;response.value={filePath:filePath.value,fileSizeBytes:0,bytesScanned:0,scannedLines:0,matches:[],resultLimitReached:false,canceled:false};selectedMatch.value=null;scrollTop.value=0
+ clearTimer('progress');const id=Date.now()+'-'+Math.random().toString(16).slice(2);searchID.value=id;completedSearchID='';cancelRequested.value=false;busy.value=true;partialMatchCursor=0;response.value={filePath:filePath.value,fileSizeBytes:0,bytesScanned:0,scannedLines:0,matches:[],resultLimitReached:false,canceled:false};selectedMatch.value=null;scrollTop.value=0
  searchProgress.value={searchId:id,bytesScanned:0,fileSizeBytes:0,scannedLines:0,matchesFound:0,percent:0,running:true,canceled:false}
  progressTimer=window.setInterval(()=>void pollProgress(id),250)
- try{response.value=await a.SearchLogsAdvanced(id,filePath.value,query.value,useRegex.value,resultLimit.value,contextLines.value);partialMatchCursor=response.value.matches.length;await pollProgress(id);if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:query.value,path:filePath.value,useRegex:useRegex.value,contextLines:contextLines.value,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines))].slice(0,30);addRecent(filePath.value);await persistSettings()}}
+ try{
+  const completed=await a.SearchLogsAdvanced(id,filePath.value,query.value,useRegex.value,resultLimit.value,contextLines.value)
+  response.value=completed
+  partialMatchCursor=completed.matches.length
+  completedSearchID=id
+  let finalPercent=100
+  if(completed.canceled||completed.resultLimitReached){
+   finalPercent=completed.fileSizeBytes>0?Math.min(99,Math.floor(completed.bytesScanned*100/completed.fileSizeBytes)):0
+  }
+  searchProgress.value={searchId:id,bytesScanned:completed.bytesScanned,fileSizeBytes:completed.fileSizeBytes,scannedLines:completed.scannedLines,matchesFound:completed.matches.length,percent:finalPercent,running:false,canceled:completed.canceled}
+  await pollProgress(id)
+  if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:query.value,path:filePath.value,useRegex:useRegex.value,contextLines:contextLines.value,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines))].slice(0,30);addRecent(filePath.value);await persistSettings()}}
  catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false}}
 function applyHistory(r:SearchRecord){filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;activePage.value='logs';selectedMatch.value=null}
 function updateScroll(e:Event){if(e.target instanceof HTMLElement)scrollTop.value=e.target.scrollTop}
