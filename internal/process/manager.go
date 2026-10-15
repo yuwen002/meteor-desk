@@ -481,7 +481,18 @@ func (m *Manager) StartBatch(ids []string) ([]BatchResult, error) {
 			result.Message = "服务已在运行"
 		default:
 			if startErr := m.startOne(id); startErr != nil {
-				result.Message = startErr.Error()
+				// Another concurrent StartBatch call may have created the instance
+				// after this batch checked the state. Treat that race as idempotent.
+				m.mu.RLock()
+				latest := m.instances[id]
+				startedConcurrently := latest != nil && (latest.snapshot.State == StateRunning || latest.snapshot.State == StateStarting)
+				m.mu.RUnlock()
+				if startedConcurrently {
+					result.Success = true
+					result.Message = "服务已在运行"
+				} else {
+					result.Message = startErr.Error()
+				}
 			} else {
 				result.Success = true
 				result.Message = "启动成功"
