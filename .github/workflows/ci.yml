@@ -38,6 +38,9 @@ jobs:
       - name: 运行完整 Go 单元测试
         run: go test ./...
 
+      - name: Go 并发数据竞争检查
+        run: go test -race ./...
+
       - name: GB 级大文件检索基准测试（1 GiB）
         env:
           METEORDESK_BENCH_SIZE_MB: 1024
