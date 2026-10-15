@@ -177,3 +177,10 @@ func dedupe(values []string, limit int) []string {
 	}
 	return result
 }
+
+ 
+// NormalizeSettings 对从界面或配置文件接收的设置进行边界校验。
+func NormalizeSettings(settings *Settings) {
+	if settings == nil { return }
+	normalize(settings)
+}

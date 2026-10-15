@@ -1,44 +1,24 @@
 export {}
 
 declare global {
-  interface LogMatch {
-    lineNumber: number
-    content: string
-    contentClipped: boolean
-  }
-
-  interface LogSearchResponse {
-    filePath: string
-    fileSizeBytes: number
-    bytesScanned: number
-    scannedLines: number
-    matches: LogMatch[]
-    resultLimitReached: boolean
-    canceled: boolean
-  }
-
-  interface LogSearchProgress {
-    searchId: string
-    bytesScanned: number
-    fileSizeBytes: number
-    scannedLines: number
-    matchesFound: number
-    percent: number
-    running: boolean
-    canceled: boolean
-    error?: string
-  }
-
-  interface Window {
-    go?: {
-      main?: {
-        App?: {
-          SelectLogFile: () => Promise<string>
-          SearchLogs: (searchId: string, path: string, query: string, useRegex: boolean, maxResults: number) => Promise<LogSearchResponse>
-          GetLogSearchProgress: (searchId: string) => Promise<LogSearchProgress>
-          CancelLogSearch: (searchId: string) => Promise<boolean>
-        }
-      }
-    }
-  }
+  interface LogLineContext { lineNumber:number; content:string; contentClipped:boolean }
+  interface LogMatch extends LogLineContext { contextBefore:LogLineContext[]; contextAfter:LogLineContext[] }
+  interface LogSearchResponse { filePath:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean }
+  interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string }
+  interface SearchRecord { query:string; path:string; useRegex:boolean; contextLines:number; createdAt:string }
+  interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number }
+  interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean }
+  interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; error?:string }
+  interface ProcessView { spec:ProcessSpec; status:ProcessStatus }
+  interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
+  interface JsonField { path:string; value:unknown }
+  interface Window { go?:{main?:{App?:{
+    SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
+    SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number)=>Promise<LogSearchResponse>;
+    GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; CancelLogSearch:(id:string)=>Promise<boolean>;
+    GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
+    GetProcesses:()=>Promise<ProcessView[]>; SaveProcess:(spec:ProcessSpec)=>Promise<ProcessView>; DeleteProcess:(id:string)=>Promise<void>;
+    StartProcess:(id:string)=>Promise<void>; StopProcess:(id:string)=>Promise<void>; RestartProcess:(id:string)=>Promise<void>;
+    GetProcessLogs:(id:string,after:number)=>Promise<ProcessOutput[]>;
+  }}}}
 }

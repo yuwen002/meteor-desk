@@ -24,7 +24,7 @@ jobs:
           cache: true
 
       - name: 运行日志检索和进程模型测试
-        run: go test ./internal/logx ./internal/process ./internal/config
+        run: go test ./internal/logx ./internal/process ./internal/config ./internal/config
 
       - name: 大文件检索基准测试（64 MiB）
         run: go test ./internal/logx -run '^

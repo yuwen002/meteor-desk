@@ -26,17 +26,20 @@ MeteorDesk 是一款使用 Go 和 Wails 构建的轻量级桌面工具，面向�
 - 正则模式单行大小限制和超限提示。
 - 流式检索单元测试。
 
-### 正在完善
+### 本轮已实现
 
-- 更丰富的日志上下文、JSON/NDJSON 格式化及字段筛选。
-- 大文件基准测试、检索耗时统计和异常恢复体验。
-- 更完整的文件编码识别与提示。
+- 匹配行前后文窗口（可设置 0、2、5、10 行）。
+- JSON 行格式化及字段路径/字段值筛选；NDJSON 可逐行查看。
+- 本地进程配置持久化、启动/停止/重启、标准输出与错误输出采集。
+- 最近文件、检索历史及偏好设置本地持久化。
+- 原生拖放打开文件和常用键盘快捷键。
+- 64 MiB 大文件检索基准测试，可通过环境变量扩大至约 1 GiB。
 
 ### 后续计划
 
-- 本地进程启动、停止、重启及输出聚合。
-- 时间戳转换、JSON、Base64、JWT 载荷查看等开发辅助工具。
-- 多文件对比、索引和服务依赖编排。
+- 时间戳转换、Base64、JWT 载荷查看等开发辅助工具。
+- 多文件对比、可选索引和服务依赖编排。
+- 更完整的跨平台进程树终止和退出信号验证。
 
 ## 技术栈
 
@@ -60,6 +63,7 @@ npm run build
 cd ..
 
 go mod tidy
+go test ./internal/logx ./internal/process ./internal/config
 wails dev
 ```
 
@@ -107,3 +111,25 @@ wails build
 - 控制搜索结果和界面预览大小。
 - 长任务应可查询进度、可取消。
 - 后续进程管理使用显式的可执行文件、参数和工作目录，避免默认解释任意 Shell 文本。
+
+
+## 大文件性能基准
+
+默认基准会生成并扫描约 64 MiB 的合成日志：
+
+\`\`\`bash
+go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
+\`\`\`
+
+若磁盘和内存允许，可提高至约 1 GiB：
+
+\`\`\`bash
+# macOS / Linux
+METEORDESK_BENCH_SIZE_MB=1024 go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
+
+# PowerShell
+$env:METEORDESK_BENCH_SIZE_MB = "1024"
+go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=1x -benchmem
+\`\`\`
+
+进程配置和偏好设置默认保存在当前用户系统配置目录的 \`MeteorDesk\` 子目录中。
