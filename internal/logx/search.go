@@ -347,7 +347,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		Matches: make([]Match, 0, min(maxResults, 128)),
 	}
 	if options.MultiLineJSON {
-		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, onProgress)
+		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, contextLines, onProgress)
 	}
 
 	var lineNumber int64
