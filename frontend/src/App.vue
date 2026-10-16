@@ -11,6 +11,8 @@ type PageKey='logs'|'processes'|'toolkit'
 const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex=ref(false), contextLines=ref(2), resultLimit=ref(500), encodingMode=ref('auto'), multiLineJSON=ref(false)
 const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), searchProgress=ref<LogSearchProgress|null>(null), searchID=ref('')
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
+const tailing=ref(false), tailPaused=ref(false), tailText=ref(''), tailError=ref(''), tailOffset=ref(-1), tailBytes=ref(0), tailOutput=ref<HTMLElement|null>(null)
+let tailTimer:number|undefined, tailPollInFlight=false
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
@@ -131,11 +133,41 @@ async function moveMatch(delta:number){
  await nextTick()
  if(resultListElement.value)resultListElement.value.scrollTop=Math.max(0,target*rowHeight-3*rowHeight)
 }
+async function pollTail(){
+ if(!tailing.value||tailPaused.value||tailPollInFlight)return
+ const a=(window as any).go?.main?.App
+ if(!a?.ReadLogTailChunk){tailError.value='当前桌面桥接尚未就绪，请重启开发构建后重试。';return}
+ tailPollInFlight=true
+ try{
+  const chunk=await a.ReadLogTailChunk(filePath.value,tailOffset.value) as {content:string;offset:number;reset:boolean;fileSize:number}
+  if(!tailing.value)return
+  if(chunk.reset){tailText.value='';tailBytes.value=0}
+  tailOffset.value=chunk.offset
+  if(chunk.content){
+   tailText.value=(tailText.value+chunk.content).slice(-1024*1024)
+   tailBytes.value+=new TextEncoder().encode(chunk.content).length
+   await nextTick()
+   if(tailOutput.value)tailOutput.value.scrollTop=tailOutput.value.scrollHeight
+  }
+  tailError.value=''
+ }catch(e){tailError.value='实时跟踪失败：'+String(e);stopTail()}
+ finally{tailPollInFlight=false}
+}
+async function startTail(){
+ if(!filePath.value){tailError.value='请先选择日志文件。';return}
+ stopTail()
+ tailText.value='';tailBytes.value=0;tailError.value='';tailPaused.value=false;tailOffset.value=-1;tailing.value=true
+ await pollTail()
+ if(tailing.value)tailTimer=window.setInterval(()=>void pollTail(),700)
+}
+function stopTail(){tailing.value=false;tailPaused.value=false;if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
+function toggleTailPause(){tailPaused.value=!tailPaused.value;if(!tailPaused.value)void pollTail()}
+function clearTail(){tailText.value='';tailBytes.value=0}
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
 function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key==='Enter'?'Enter':e.key.toLowerCase();const action=resolveShortcutAction(shortcutsConfig.value,k);if(!action)return;if(action==='runSearch'&&activePage.value!=='logs')return;e.preventDefault();switch(action){case'openFile':void chooseFile();break;case'focusSearch':setPage('logs');void nextTick(()=>inputRef.value?.focus());break;case'runSearch':if(!busy.value)void runSearch();break;case'logs':setPage('logs');break;case'processes':setPage('processes');break;case'toolkit':setPage('toolkit');break}}
 onMounted(()=>{loadShortcuts();loadTheme();window.addEventListener('keydown',shortcuts);stopSearchUpdates=window.runtime?.EventsOn('log-search:update',onSearchUpdate);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
-onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop')})
+onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop');stopTail()})
 </script>
 
 <template>
@@ -163,7 +195,12 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
     <section class="search-panel">
      <div class="panel-heading"><div class="panel-heading-left"><div class="panel-icon"><Search :size="17"/></div><div><h2>查找日志</h2><p>输入关键字或正则表达式，定位匹配行；多行 JSON 模式会将完整对象或数组作为一个匹配单元，并可查看文档外的前后日志。</p></div></div><div class="panel-meta"><span class="live-dot"></span>本地检索</div></div>
      <div class="file-drop" :class="{'file-selected':!!filePath}"><div class="file-icon"><FileSearch :size="20"/></div><div class="file-info"><strong>{{fileName||'请选择要分析的日志文件'}}</strong><span>{{filePath||'支持 .log、.txt、.out、.json、.ndjson；也可将文件拖入窗口'}}</span></div><button class="button button-quiet" :disabled="busy" @click="chooseFile">{{filePath?'更换文件':'浏览文件'}} <ArrowRight :size="14"/></button></div>
-     <details v-if="appSettings.recentFiles.length" class="history-panel"><summary><History :size="14"/>最近打开的文件 <span class="history-count">{{appSettings.recentFiles.length}}</span></summary><div class="history-items"><button v-for="p in appSettings.recentFiles" :key="p" class="history-item" :disabled="busy" @click="openDroppedFiles([p])"><FileSearch :size="13"/><span>{{p}}</span><ArrowRight :size="12"/></button></div></details>
+     <section class="tail-panel">
+       <div class="tail-heading"><div><h3>实时日志跟踪</h3><p>持续读取文件新增内容；启动时从文件末尾开始。</p></div><div class="tail-actions"><button class="button button-primary" :disabled="!filePath||tailing" @click="startTail">开始跟踪</button><button class="button button-secondary" :disabled="!tailing" @click="toggleTailPause">{{tailPaused?'继续':'暂停'}}</button><button class="button button-quiet" :disabled="!tailing" @click="stopTail">停止</button><button class="button button-quiet" @click="clearTail">清屏</button></div></div>
+       <div class="tail-status"><span class="status-dot" :class="{'tail-status-paused':tailPaused||!tailing}"></span>{{!tailing?'未跟踪':tailPaused?'已暂停':'跟踪中'}} · 已接收 {{fmtBytes(tailBytes)}} <span v-if="tailError" class="tail-error">{{tailError}}</span></div>
+       <pre ref="tailOutput" class="tail-output">{{tailText||'启动实时跟踪后，新写入的日志会显示在这里。'}}</pre>
+      </section>
+      <details v-if="appSettings.recentFiles.length" class="history-panel"><summary><History :size="14"/>最近打开的文件 <span class="history-count">{{appSettings.recentFiles.length}}</span></summary><div class="history-items"><button v-for="p in appSettings.recentFiles" :key="p" class="history-item" :disabled="busy" @click="openDroppedFiles([p])"><FileSearch :size="13"/><span>{{p}}</span><ArrowRight :size="12"/></button></div></details>
      <form class="query-form" @submit.prevent="runSearch"><label class="field-label" for="search-query">搜索内容</label><div class="search-input-row"><div class="query-input-wrap"><Search :size="17" class="query-input-icon"/><input id="search-query" ref="inputRef" v-model="query" autocomplete="off" spellcheck="false" placeholder="输入关键字、错误码、请求 ID……"/><span class="input-shortcut">回车 ↵</span></div><button type="submit" class="button button-primary" :disabled="busy"><Search v-if="!busy" :size="16"/><span v-else class="spinner"></span>{{busy?'正在检索':'开始检索'}}</button><button v-if="busy" type="button" class="button button-secondary button-cancel" :disabled="cancelRequested" @click="cancelSearch"><X :size="15"/>{{cancelRequested?'正在取消':'取消检索'}}</button></div>
       <div class="query-options"><label class="toggle-option"><input v-model="useRegex" type="checkbox"/><span class="custom-checkbox"><Regex v-if="useRegex" :size="12"/></span><span>使用正则表达式</span></label><label class="toggle-option"><input v-model="multiLineJSON" type="checkbox" :disabled="busy"/><span class="custom-checkbox"><Braces v-if="multiLineJSON" :size="12"/></span><span>多行 JSON 文档</span></label><label class="option-select">上下文行数 <select v-model.number="contextLines"><option :value="0">不显示</option><option :value="2">前后 2 行</option><option :value="5">前后 5 行</option><option :value="10">前后 10 行</option></select></label><label class="option-select">结果上限 <select v-model.number="resultLimit"><option :value="500">500 条</option><option :value="1000">1,000 条</option><option :value="5000">5,000 条</option></select></label><label class="option-select">文本编码 <select v-model="encodingMode" :disabled="busy"><option value="auto">自动识别</option><option value="utf-8">UTF-8</option><option value="gb18030">GB18030 / GBK</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option></select></label><span class="option-spacer"></span><span class="query-tip"><kbd>.*</kbd> Go 正则语法</span></div>
       <div v-if="busy&&searchProgress" class="progress-wrap"><div class="progress-meta"><span>{{cancelRequested?'正在停止检索':'正在扫描文件'}} · {{searchProgress.scannedLines.toLocaleString()}} 行</span><span>{{searchProgress.percent}}%　{{fmtBytes(searchProgress.bytesScanned)}} / {{fmtBytes(searchProgress.fileSizeBytes)}}</span></div><div class="progress-track"><div class="progress-bar" :style="{width:searchProgress.percent+'%'}"></div></div></div>
