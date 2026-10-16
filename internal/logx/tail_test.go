@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
