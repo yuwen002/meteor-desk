@@ -19,8 +19,8 @@ type TailChunk struct {
 // ReadTailChunk 从指定字节偏移读取一小段新增内容。
 // 文件被截断时会从头读取；单次读取有上限，避免大文件增长时占用过多内存。
 func ReadTailChunk(path string, offset int64) (TailChunk, error) {
-	if offset < 0 {
-		return TailChunk{}, errors.New("日志偏移量不能为负数")
+	if offset < -1 {
+		return TailChunk{}, errors.New("日志偏移量不能小于 -1")
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -36,6 +36,9 @@ func ReadTailChunk(path string, offset int64) (TailChunk, error) {
 		return TailChunk{}, errors.New("实时跟踪仅支持普通文件")
 	}
 
+	if offset == -1 {
+		return TailChunk{Offset: info.Size(), FileSize: info.Size()}, nil
+	}
 	reset := offset > info.Size()
 	if reset {
 		offset = 0
