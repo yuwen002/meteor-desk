@@ -53,6 +53,37 @@ func TestReadTailChunkResetsAfterTruncate(t *testing.T) {
 	}
 }
 
+func TestReadTailChunkPreservesDataAcrossMultipleChunks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	payload := bytes.Repeat([]byte("0123456789abcdef"), maxTailChunkBytes/16+37)
+	if err := os.WriteFile(path, payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []byte
+	var offset int64
+	for offset < int64(len(payload)) {
+		chunk, err := ReadTailChunk(path, offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chunk.Content) == 0 {
+			t.Fatalf("read stopped at offset %d of %d", offset, len(payload))
+		}
+		if len(chunk.Content) > maxTailChunkBytes {
+			t.Fatalf("chunk exceeded limit: %d", len(chunk.Content))
+		}
+		if chunk.Offset != offset+int64(len(chunk.Content)) {
+			t.Fatalf("offset did not advance with chunk: before=%d chunk=%d after=%d", offset, len(chunk.Content), chunk.Offset)
+		}
+		got = append(got, chunk.Content...)
+		offset = chunk.Offset
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("multi-chunk tail changed data: got %d bytes, want %d", len(got), len(payload))
+	}
+}
+
 func TestReadTailChunkRejectsInvalidOffset(t *testing.T) {
 	if _, err := ReadTailChunk("unused.log", -2); err == nil {
 		t.Fatal("expected negative offset to be rejected")
