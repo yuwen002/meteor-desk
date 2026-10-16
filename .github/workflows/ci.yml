@@ -29,8 +29,10 @@ jobs:
           go-version: '1.23.x'
           cache: true
 
-      - name: 整理并下载 Go 依赖
-        run: go mod tidy
+      - name: 下载并校验 Go 依赖
+        run: |
+          go mod download
+          go mod verify
 
       - name: Go 静态检查
         run: go vet ./...
@@ -51,11 +53,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: 安装前端依赖
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: 前端依赖安全审计（高危/严重告警阻断构建）
         working-directory: frontend
@@ -128,8 +130,10 @@ jobs:
         working-directory: frontend
         run: npm install
 
-      - name: 整理并下载目标平台 Go 依赖
-        run: go mod tidy
+      - name: 下载并校验目标平台 Go 依赖
+        run: |
+          go mod download
+          go mod verify
 
       - name: 在目标操作系统运行 Go 单元测试
         run: go test ./...
