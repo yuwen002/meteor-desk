@@ -14,9 +14,9 @@ describe('SerialPollCoordinator', () => {
     const resumed = deferred<string>()
     const accepted: string[] = []
 
-    const pausedPoll = coordinator.poll(() => stale.promise, (value) => accepted.push(value))
+    const pausedPoll = coordinator.poll(() => stale.promise, (value) => { accepted.push(value) })
     coordinator.invalidate()
-    const resumedPoll = coordinator.poll(() => resumed.promise, (value) => accepted.push(value))
+    const resumedPoll = coordinator.poll(() => resumed.promise, (value) => { accepted.push(value) })
 
     stale.resolve('stale chunk')
     await Promise.resolve()
@@ -48,8 +48,8 @@ describe('SerialPollCoordinator', () => {
     const first = deferred<number>()
     const order: number[] = []
 
-    const firstPoll = coordinator.poll(() => first.promise, (value) => order.push(value))
-    const secondPoll = coordinator.poll(async () => 2, (value) => order.push(value))
+    const firstPoll = coordinator.poll(() => first.promise, (value) => { order.push(value) })
+    const secondPoll = coordinator.poll(async () => 2, (value) => { order.push(value) })
 
     first.resolve(1)
     await expect(firstPoll).resolves.toBe(true)
@@ -62,9 +62,9 @@ describe('SerialPollCoordinator', () => {
     const first = deferred<number>()
     const order: number[] = []
 
-    const firstPoll = coordinator.poll(() => first.promise, (value) => order.push(value))
-    const skippedPoll = coordinator.poll(async () => 2, (value) => order.push(value))
-    const latestPoll = coordinator.poll(async () => 3, (value) => order.push(value))
+    const firstPoll = coordinator.poll(() => first.promise, (value) => { order.push(value) })
+    const skippedPoll = coordinator.poll(async () => 2, (value) => { order.push(value) })
+    const latestPoll = coordinator.poll(async () => 3, (value) => { order.push(value) })
 
     first.resolve(1)
     await expect(firstPoll).resolves.toBe(true)
