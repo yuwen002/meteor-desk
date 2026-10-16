@@ -15,12 +15,20 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `SelectLogFile()` | 无 | `string` | 打开系统文件选择器；取消选择时路径为空字符串。 |
 | `PollDroppedFiles()` | 无 | `string[]` | 取出并清空拖放文件队列。 |
 | `SearchLogs(searchID, path, query, useRegex, maxResults)` | 任务 ID、路径、搜索内容、是否正则、结果上限 | `SearchResponse` | 旧版兼容入口，不附加上下文行。 |
-| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding, multiLineJSON)` | 任务 ID、路径、查询、正则开关、结果上限、上下文行数、编码模式、多行 JSON 开关 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；`multiLineJSON=true` 时将跨行 JSON 对象/数组作为整体匹配单元。任务需有唯一 ID，响应完成时返回权威完整结果。 |
+| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding, multiLineJSON)` | 任务 ID、路径、查询、正则开关、结果上限、上下文行数、编码模式、多行 JSON 开关 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；`multiLineJSON=true` 时将跨行 JSON 对象/数组作为整体匹配单元，并按 `contextLines` 附加文档外普通日志行作为上下文；增量结果仅在其上下文快照完整或到达文件末尾后发送。任务需有唯一 ID，响应完成时返回权威完整结果。 |
 | `GetLogSearchProgress(id)` | 任务 ID | `LogSearchProgress` | 读取字节数、扫描行数、匹配数、进度百分比及运行/取消状态。 |
 | `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示；负游标按 0 处理，超出当前结果长度时返回空数组。取消任务会在保留期内保留已发现结果。 |
 | `CancelLogSearch(id)` | 任务 ID | `boolean` | 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。 |
 
 前端建议先生成唯一的 `searchID`，在调用 `SearchLogsAdvanced` 的同时监听 Wails `log-search:update` 事件以低延迟接收进度和新增匹配；轮询进度/增量接口仍作为兼容回退。事件包含 `searchId`、`progress` 和可选的 `matches`，前端必须按任务 ID 过滤并与轮询共用游标，防止重复追加。最终 Promise 返回后，以最终响应替换临时快照。取消是协作式操作：底层扫描会在检查点停止，并返回已累计结果。
+
+### 实时日志跟踪
+
+| 方法 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `ReadLogTailChunk(path, offset)` | 本地文件路径、字节偏移 | `TailChunk` | 增量读取最多 256 KiB；偏移传 `-1` 表示从当前文件末尾开始，普通偏移读取其后的新增字节；文件缩短或路径指向的文件被替换时从头读取并设置 `reset=true`。 |
+
+`TailChunk` 包含 `content`（新增文本）、`offset`（下一次读取偏移）、`reset`（是否因截断重置）和 `fileSize`（读取时文件大小）。后端通过跨平台文件身份比较识别路径替换，因此即使轮转后的新文件比旧偏移更大，也会从新文件头部重新读取。
 
 ### 本地服务
 

@@ -52,13 +52,15 @@ type App struct {
 	eventsEnabled bool
 	mu sync.RWMutex
 	settingsSaveMu sync.Mutex
+	tailMu sync.Mutex
+	tailFiles map[string]os.FileInfo
 	searches map[string]*searchJob
 	droppedFiles []string
 	processes *process.Manager
 	settings config.Settings
 	startupErr error
 }
-func NewApp() *App { return &App{searches:map[string]*searchJob{},settings:config.DefaultSettings()} }
+func NewApp() *App { return &App{searches:map[string]*searchJob{},tailFiles:map[string]os.FileInfo{},settings:config.DefaultSettings()} }
 func (a *App) startup(ctx context.Context) {
 	a.ctx=ctx
 	a.eventsEnabled=true
@@ -85,6 +87,25 @@ func (a *App) shutdown(ctx context.Context) {
 			runtime.LogError(ctx, "退出时停止服务失败："+err.Error())
 		}
 	}
+}
+
+// ReadLogTailChunk 读取日志文件新增内容；文件被截断或路径指向的文件被替换时从头读取。
+func (a *App) ReadLogTailChunk(path string, offset int64) (logx.TailChunk, error) {
+	if strings.TrimSpace(path) == "" {
+		return logx.TailChunk{}, errors.New("日志文件路径不能为空")
+	}
+	a.tailMu.Lock()
+	defer a.tailMu.Unlock()
+	if a.tailFiles == nil {
+		a.tailFiles = make(map[string]os.FileInfo)
+	}
+	key := filepath.Clean(path)
+	chunk, info, err := logx.ReadTailChunkWithPrevious(path, offset, a.tailFiles[key])
+	if err != nil {
+		return logx.TailChunk{}, err
+	}
+	a.tailFiles[key] = info
+	return chunk, nil
 }
 
 // SelectLogFile 打开系统文件选择器，返回用户选中的日志路径。

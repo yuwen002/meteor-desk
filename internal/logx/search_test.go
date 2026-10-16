@@ -427,3 +427,63 @@ func TestSearchFileMultiLineJSONCancellationPreservesIncrementalMatches(t *testi
 		t.Fatalf("取消检索应保留已找到的增量结果：%+v", got.Matches)
 	}
 }
+
+
+func TestSearchMultiLineJSONIncludesSurroundingLogContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "multiline-context.log")
+	content := "startup\nrequest received\n{\n  \"level\": \"error\",\n  \"message\": \"database unavailable\"\n}\nretry scheduled\nservice recovered\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
+
+	got, err := SearchFileWithOptions(context.Background(), path, "database unavailable", false, 10, SearchOptions{MultiLineJSON:true, ContextLines:2}, nil)
+	if err != nil { t.Fatal(err) }
+	if len(got.Matches) != 1 { t.Fatalf("匹配数量异常：%+v", got.Matches) }
+	m := got.Matches[0]
+	if m.LineNumber != 3 { t.Fatalf("JSON 文档起始行号应为 3，实际为 %d", m.LineNumber) }
+	if len(m.ContextBefore) != 2 || m.ContextBefore[0].Content != "startup" || m.ContextBefore[1].Content != "request received" {
+		t.Fatalf("JSON 前文异常：%+v", m.ContextBefore)
+	}
+	if len(m.ContextAfter) != 2 || m.ContextAfter[0].Content != "retry scheduled" || m.ContextAfter[1].Content != "service recovered" {
+		t.Fatalf("JSON 后文异常：%+v", m.ContextAfter)
+	}
+}
+
+func TestSearchMultiLineJSONDoesNotUseDocumentLinesAsContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "multiline-context-boundaries.log")
+	content := "before\n{\n \"message\": \"needle\"\n}\n{\n \"message\": \"other\"\n}\nafter\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
+
+	got, err := SearchFileWithOptions(context.Background(), path, "needle", false, 10, SearchOptions{MultiLineJSON:true, ContextLines:2}, nil)
+	if err != nil { t.Fatal(err) }
+	if len(got.Matches) != 1 { t.Fatalf("匹配数量异常：%+v", got.Matches) }
+	m := got.Matches[0]
+	if m.LineNumber != 2 { t.Fatalf("文档起始行号错误：%d", m.LineNumber) }
+	if len(m.ContextBefore) != 1 || m.ContextBefore[0].Content != "before" { t.Fatalf("前文应只包含文档外日志：%+v", m.ContextBefore) }
+	if len(m.ContextAfter) != 1 || m.ContextAfter[0].Content != "after" { t.Fatalf("后文不应包含相邻 JSON 文档内部行：%+v", m.ContextAfter) }
+}
+
+func TestSearchMultiLineJSONIncrementalResultsIncludeFinalContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "multiline-context-incremental.log")
+	content := "{\n \"message\": \"needle\"\n}\nafter-1\nafter-2\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
+
+	var updates []Match
+	got, err := SearchFileWithOptions(context.Background(), path, "needle", false, 10, SearchOptions{MultiLineJSON:true, ContextLines:2}, func(p Progress) {
+		updates = append(updates, p.Matches...)
+	})
+	if err != nil { t.Fatal(err) }
+	if len(got.Matches) != 1 || len(updates) != 1 { t.Fatalf("最终结果与增量结果数量不一致：final=%d updates=%d", len(got.Matches), len(updates)) }
+	if len(updates[0].ContextAfter) != 2 || updates[0].ContextAfter[1].Content != "after-2" { t.Fatalf("增量快照未包含完整后文：%+v", updates[0].ContextAfter) }
+}
+
+func TestSearchMultiLineJSONResultLimitWaitsForContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "multiline-context-limit.log")
+	content := "{\n \"message\": \"needle\"\n}\nafter-1\nafter-2\nneedle extra\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
+
+	got, err := SearchFileWithOptions(context.Background(), path, "needle", false, 1, SearchOptions{MultiLineJSON:true, ContextLines:2}, nil)
+	if err != nil { t.Fatal(err) }
+	if len(got.Matches) != 1 || !got.ResultLimitReached { t.Fatalf("结果上限处理异常：%+v", got) }
+	if len(got.Matches[0].ContextAfter) != 2 || got.Matches[0].ContextAfter[1].Content != "after-2" {
+		t.Fatalf("达到结果上限后仍应补齐已命中项的上下文：%+v", got.Matches[0].ContextAfter)
+	}
+}
