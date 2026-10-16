@@ -27,7 +27,7 @@ export function extractLogTimestamp(line: string): number | null {
   const [, day, monthName, year, hour, minute, second, sign, zoneHour, zoneMinute] = apache
   const month = months[monthName]
   if (!month) return null
-  const parsed = Date.parse(\`\${year}-\${month}-\${day}T\${hour}:\${minute}:\${second}\${sign}\${zoneHour}:\${zoneMinute}\`)
+  const parsed = Date.parse(year + '-' + month + '-' + day + 'T' + hour + ':' + minute + ':' + second + sign + zoneHour + ':' + zoneMinute)
   return Number.isFinite(parsed) ? parsed : null
 }
 
