@@ -87,6 +87,14 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
+// ReadLogTailChunk 读取日志文件新增内容；偏移失效（例如文件被截断）时从头读取。
+func (a *App) ReadLogTailChunk(path string, offset int64) (logx.TailChunk, error) {
+	if strings.TrimSpace(path) == "" {
+		return logx.TailChunk{}, errors.New("日志文件路径不能为空")
+	}
+	return logx.ReadTailChunk(path, offset)
+}
+
 // SelectLogFile 打开系统文件选择器，返回用户选中的日志路径。
 func (a *App) SelectLogFile()(string,error){
 	if a.ctx==nil{return "",errors.New("桌面运行环境尚未就绪")}
