@@ -431,7 +431,7 @@ func TestSearchFileMultiLineJSONCancellationPreservesIncrementalMatches(t *testi
 
 func TestSearchMultiLineJSONIncludesSurroundingLogContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "multiline-context.log")
-	content := "startup\\nrequest received\\n{\\n  \"level\": \"error\",\\n  \"message\": \"database unavailable\"\\n}\\nretry scheduled\\nservice recovered\\n"
+	content := "startup\nrequest received\n{\n  \"level\": \"error\",\n  \"message\": \"database unavailable\"\n}\nretry scheduled\nservice recovered\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
 
 	got, err := SearchFileWithOptions(context.Background(), path, "database unavailable", false, 10, SearchOptions{MultiLineJSON:true, ContextLines:2}, nil)
@@ -449,7 +449,7 @@ func TestSearchMultiLineJSONIncludesSurroundingLogContext(t *testing.T) {
 
 func TestSearchMultiLineJSONDoesNotUseDocumentLinesAsContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "multiline-context-boundaries.log")
-	content := "before\\n{\\n \"message\": \"needle\"\\n}\\n{\\n \"message\": \"other\"\\n}\\nafter\\n"
+	content := "before\n{\n \"message\": \"needle\"\n}\n{\n \"message\": \"other\"\n}\nafter\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
 
 	got, err := SearchFileWithOptions(context.Background(), path, "needle", false, 10, SearchOptions{MultiLineJSON:true, ContextLines:2}, nil)
@@ -463,7 +463,7 @@ func TestSearchMultiLineJSONDoesNotUseDocumentLinesAsContext(t *testing.T) {
 
 func TestSearchMultiLineJSONIncrementalResultsIncludeFinalContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "multiline-context-incremental.log")
-	content := "{\\n \"message\": \"needle\"\\n}\\nafter-1\\nafter-2\\n"
+	content := "{\n \"message\": \"needle\"\n}\nafter-1\nafter-2\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
 
 	var updates []Match
@@ -477,7 +477,7 @@ func TestSearchMultiLineJSONIncrementalResultsIncludeFinalContext(t *testing.T) 
 
 func TestSearchMultiLineJSONResultLimitWaitsForContext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "multiline-context-limit.log")
-	content := "{\\n \"message\": \"needle\"\\n}\\nafter-1\\nafter-2\\nneedle extra\\n"
+	content := "{\n \"message\": \"needle\"\n}\nafter-1\nafter-2\nneedle extra\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil { t.Fatal(err) }
 
 	got, err := SearchFileWithOptions(context.Background(), path, "needle", false, 1, SearchOptions{MultiLineJSON:true, ContextLines:2}, nil)
