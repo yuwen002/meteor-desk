@@ -6,6 +6,7 @@ import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { filterTailLines, type TailLevelFilter } from './utils/logLevel'
 import { filterLogLinesByTimeRange } from './utils/timeRange'
+import { SerialPollCoordinator } from './utils/serialPollCoordinator'
 import { appendJSONPath } from './utils/jsonPath'
 import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
@@ -16,7 +17,8 @@ const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null
 const tailing=ref(false), tailPaused=ref(false), tailText=ref(''), tailError=ref(''), tailOffset=ref(-1), tailBytes=ref(0), tailOutput=ref<HTMLElement|null>(null), tailLevelFilter=ref<TailLevelFilter>('ALL')
 const filteredTailText=computed(()=>filterTailLines(tailText.value,tailLevelFilter.value))
 const tailLevelFilters:TailLevelFilter[]=['ALL','INFO','WARN','ERROR']
-let tailTimer:number|undefined, tailPollInFlight=false, tailGeneration=0
+let tailTimer:number|undefined, tailGeneration=0
+const tailPoller=new SerialPollCoordinator()
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
@@ -141,24 +143,26 @@ async function moveMatch(delta:number){
  if(resultListElement.value)resultListElement.value.scrollTop=Math.max(0,target*rowHeight-3*rowHeight)
 }
 async function pollTail(generation=tailGeneration){
- if(generation!==tailGeneration||!tailing.value||tailPaused.value||tailPollInFlight)return
+ if(generation!==tailGeneration||!tailing.value||tailPaused.value)return
  const a=(window as any).go?.main?.App
  if(!a?.ReadLogTailChunk){tailError.value='当前桌面桥接尚未就绪，请重启开发构建后重试。';return}
- tailPollInFlight=true
  try{
-  const chunk=await a.ReadLogTailChunk(filePath.value,tailOffset.value) as {content:string;offset:number;reset:boolean;fileSize:number}
-  if(generation!==tailGeneration||!tailing.value)return
-  if(chunk.reset){tailText.value='';tailBytes.value=0}
-  tailOffset.value=chunk.offset
-  if(chunk.content){
-   tailText.value=(tailText.value+chunk.content).slice(-1024*1024)
-   tailBytes.value+=new TextEncoder().encode(chunk.content).length
-   await nextTick()
-   if(tailOutput.value)tailOutput.value.scrollTop=tailOutput.value.scrollHeight
-  }
-  tailError.value=''
+  await tailPoller.poll(
+   ()=>a.ReadLogTailChunk(filePath.value,tailOffset.value) as Promise<{content:string;offset:number;reset:boolean;fileSize:number}>,
+   async chunk=>{
+    if(generation!==tailGeneration||!tailing.value)return
+    if(chunk.reset){tailText.value='';tailBytes.value=0}
+    tailOffset.value=chunk.offset
+    if(chunk.content){
+     tailText.value=(tailText.value+chunk.content).slice(-1024*1024)
+     tailBytes.value+=new TextEncoder().encode(chunk.content).length
+     await nextTick()
+     if(generation===tailGeneration&&tailOutput.value)tailOutput.value.scrollTop=tailOutput.value.scrollHeight
+    }
+    tailError.value=''
+   }
+  )
  }catch(e){if(generation===tailGeneration){tailError.value='实时跟踪失败：'+String(e);stopTail()}}
- finally{tailPollInFlight=false}
 }
 async function startTail(){
  if(!filePath.value){tailError.value='请先选择日志文件。';return}
@@ -168,8 +172,8 @@ async function startTail(){
  await pollTail(generation)
  if(tailing.value&&generation===tailGeneration)tailTimer=window.setInterval(()=>void pollTail(),700)
 }
-function stopTail(){tailGeneration++;tailing.value=false;tailPaused.value=false;if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
-function toggleTailPause(){tailPaused.value=!tailPaused.value;tailGeneration++;if(!tailPaused.value)void pollTail(tailGeneration)}
+function stopTail(){tailGeneration++;tailPoller.invalidate();tailing.value=false;tailPaused.value=false;if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
+function toggleTailPause(){tailPaused.value=!tailPaused.value;tailGeneration++;tailPoller.invalidate();if(!tailPaused.value)void pollTail(tailGeneration)}
 function clearTail(){tailText.value='';tailBytes.value=0}
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
