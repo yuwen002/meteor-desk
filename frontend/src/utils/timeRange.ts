@@ -21,13 +21,21 @@ export function extractLogTimestamp(line: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function boundary(value: string, isEnd: boolean): number {
+  const timestamp = new Date(value).getTime()
+  if (!Number.isFinite(timestamp)) return Number.NaN
+  return isEnd && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(value)
+    ? timestamp + 60_000 - 1
+    : timestamp
+}
+
 export function isWithinTimeRange(line: string, range: TimeRange): boolean {
   if (!range.from && !range.to) return true
   const timestamp = extractLogTimestamp(line)
   if (timestamp === null) return false
 
-  const from = range.from ? new Date(range.from).getTime() : Number.NEGATIVE_INFINITY
-  const to = range.to ? new Date(range.to).getTime() : Number.POSITIVE_INFINITY
+  const from = range.from ? boundary(range.from, false) : Number.NEGATIVE_INFINITY
+  const to = range.to ? boundary(range.to, true) : Number.POSITIVE_INFINITY
   if ((range.from && !Number.isFinite(from)) || (range.to && !Number.isFinite(to)) || from > to) return false
   return timestamp >= from && timestamp <= to
 }
