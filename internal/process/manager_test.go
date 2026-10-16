@@ -440,6 +440,24 @@ func TestManagerRejectsDependencyCycle(t *testing.T) {
 	if _, err := manager.Save(first.Spec); err == nil || !strings.Contains(err.Error(), "循环") {
 		t.Fatalf("应拒绝依赖循环，实际错误：%v", err)
 	}
+
+	// 更新失败必须回滚内存中的原配置，不能留下非法依赖。
+	items := manager.List()
+	for _, item := range items {
+		if item.Spec.ID == first.Spec.ID {
+			if len(item.Spec.DependsOn) != 0 {
+				t.Fatalf("循环依赖保存失败后，原配置应保持不变：%+v", item.Spec.DependsOn)
+			}
+		}
+	}
+	// 同时检查磁盘快照，确保失败更新没有污染后续启动加载的配置。
+	reloaded, err := NewManagerAt(manager.configPath)
+	if err != nil { t.Fatal(err) }
+	for _, item := range reloaded.List() {
+		if item.Spec.ID == first.Spec.ID && len(item.Spec.DependsOn) != 0 {
+			t.Fatalf("循环依赖保存失败后，磁盘配置应保持不变：%+v", item.Spec.DependsOn)
+		}
+	}
 }
 
 func TestManagerStopBatchIgnoresStoppedServices(t *testing.T) {
