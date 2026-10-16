@@ -9,7 +9,7 @@ describe('extractLogTimestamp', () => {
 
   it('reads common local timestamps and Apache timestamps', () => {
     expect(extractLogTimestamp('2026-10-16 10:20:30 WARN retry')).not.toBeNull()
-    expect(extractLogTimestamp('[16/Oct/2026:10:20:30 +0800] GET /health')).toBe(Date.parse('16 Oct 2026 10:20:30 GMT+0800'))
+    expect(extractLogTimestamp('[16/Oct/2026:10:20:30 +0800] GET /health')).toBe(Date.parse('2026-10-16T10:20:30+08:00'))
   })
 
   it('reads timestamp fields in JSON and ignores unrelated dates in message text', () => {
