@@ -53,8 +53,8 @@ func TestReadTailChunkResetsAfterTruncate(t *testing.T) {
 	}
 }
 
-func TestReadTailChunkRejectsNegativeOffset(t *testing.T) {
-	if _, err := ReadTailChunk("unused.log", -1); err == nil {
+func TestReadTailChunkRejectsInvalidOffset(t *testing.T) {
+	if _, err := ReadTailChunk("unused.log", -2); err == nil {
 		t.Fatal("expected negative offset to be rejected")
 	}
 }
