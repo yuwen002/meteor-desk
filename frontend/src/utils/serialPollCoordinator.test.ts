@@ -32,10 +32,10 @@ describe('SerialPollCoordinator', () => {
     const accepted: string[] = []
     let path = 'old.log'
 
-    const oldPoll = coordinator.poll(() => oldFile.promise, (value) => accepted.push(path + ':' + value))
+    const oldPoll = coordinator.poll(() => oldFile.promise, (value) => { accepted.push(path + ':' + value) })
     coordinator.invalidate()
     path = 'new.log'
-    const newPoll = coordinator.poll(async () => 'new contents', (value) => accepted.push(path + ':' + value))
+    const newPoll = coordinator.poll(async () => 'new contents', (value) => { accepted.push(path + ':' + value) })
 
     oldFile.resolve('old contents')
     await expect(oldPoll).resolves.toBe(false)
