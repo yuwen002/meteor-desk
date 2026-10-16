@@ -32,6 +32,31 @@ wails dev
 wails build
 ```
 
+## 依赖锁文件
+
+提交依赖变更时，必须使用真实工具链更新并提交 `go.sum` 与 `frontend/package-lock.json`，不要手工编造校验值，也不要只提交依赖清单而遗漏锁文件。
+
+在仓库根目录执行并验证 Go 依赖：
+
+```bash
+go mod tidy
+go mod verify
+go vet ./...
+go test ./...
+go test -race ./...
+```
+
+再生成并验证 npm 锁文件：
+
+```bash
+cd frontend
+npm install
+npm test
+npm run build
+```
+
+检查 `go.mod`、`frontend/package.json` 是否有非预期变化，并将对应锁文件与依赖清单一起提交。锁文件进入仓库后，CI 应使用 `go mod download`/`go mod verify` 和 `npm ci`，避免 CI 自行重写依赖解析结果。
+
 ## 变更要求
 
 - 日志检索必须保持流式和内存有界；避免使用 `os.ReadFile` 读取整个日志。
