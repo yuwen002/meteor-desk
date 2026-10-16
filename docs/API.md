@@ -15,7 +15,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `SelectLogFile()` | 无 | `string` | 打开系统文件选择器；取消选择时路径为空字符串。 |
 | `PollDroppedFiles()` | 无 | `string[]` | 取出并清空拖放文件队列。 |
 | `SearchLogs(searchID, path, query, useRegex, maxResults)` | 任务 ID、路径、搜索内容、是否正则、结果上限 | `SearchResponse` | 旧版兼容入口，不附加上下文行。 |
-| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding, multiLineJSON)` | 上述参数、上下文行数、编码模式 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；`multiLineJSON=true` 时将跨行 JSON 对象/数组作为整体匹配单元。任务需有唯一 ID，响应完成时返回权威完整结果。 |
+| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding, multiLineJSON)` | 任务 ID、路径、查询、正则开关、结果上限、上下文行数、编码模式、多行 JSON 开关 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；`multiLineJSON=true` 时将跨行 JSON 对象/数组作为整体匹配单元。任务需有唯一 ID，响应完成时返回权威完整结果。 |
 | `GetLogSearchProgress(id)` | 任务 ID | `LogSearchProgress` | 读取字节数、扫描行数、匹配数、进度百分比及运行/取消状态。 |
 | `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示；负游标按 0 处理，超出当前结果长度时返回空数组。取消任务会在保留期内保留已发现结果。 |
 | `CancelLogSearch(id)` | 任务 ID | `boolean` | 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。 |
