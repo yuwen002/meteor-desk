@@ -35,7 +35,7 @@ export class SerialPollCoordinator {
         return
       }
       this.running = true
-      void this.drain(request)
+      void this.drain(request as PollRequest<unknown>)
     })
   }
 
