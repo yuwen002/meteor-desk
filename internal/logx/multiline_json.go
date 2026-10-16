@@ -75,7 +75,7 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 		}
 	}
 	addMatch := func(start int64, text []byte) {
-		if !matchText(text) { return }
+		if reachedLimit || !matchText(text) { return }
 		preview := text
 		clipped := len(preview) > maxPreviewBytes
 		if clipped { preview = preview[:maxPreviewBytes] }
