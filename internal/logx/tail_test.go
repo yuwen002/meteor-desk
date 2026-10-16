@@ -96,7 +96,9 @@ func TestReadTailChunkDetectsReplacedFileThatIsLarger(t *testing.T) {
 		t.Fatalf("expected initial offset 3, got %#v", first)
 	}
 
-	if err := os.Remove(path); err != nil {
+	// Keep the rotated inode alive so the filesystem cannot immediately reuse its identity.
+	rotatedPath := path + ".1"
+	if err := os.Rename(path, rotatedPath); err != nil {
 		t.Fatal(err)
 	}
 	replacement := []byte("replacement file is much larger than old")
