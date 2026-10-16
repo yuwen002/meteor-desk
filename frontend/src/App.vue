@@ -5,7 +5,7 @@ import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { filterTailLines, type TailLevelFilter } from './utils/logLevel'
-import { filterLogLinesByTimeRange } from './utils/timeRange'
+import { filterLogResults } from './utils/logResultFilters'
 import { SerialPollCoordinator } from './utils/serialPollCoordinator'
 import { appendJSONPath } from './utils/jsonPath'
 import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
@@ -42,14 +42,15 @@ function shortcutLabel(action:ShortcutAction){const key=shortcutsConfig.value[ac
 
 
 
-const timeRangeStart=ref(''), timeRangeEnd=ref('')
-const dateFilteredMatches=computed(()=>filterLogLinesByTimeRange(response.value?.matches??[],{from:timeRangeStart.value||undefined,to:timeRangeEnd.value||undefined}))
+const timeRangeStart=ref(''), timeRangeEnd=ref(''), searchLevelFilter=ref<TailLevelFilter>('ALL')
+const searchLevelFilters:TailLevelFilter[]=['ALL','INFO','WARN','ERROR']
+const filteredMatches=computed(()=>filterLogResults(response.value?.matches??[],{from:timeRangeStart.value||undefined,to:timeRangeEnd.value||undefined},searchLevelFilter.value))
 const rowHeight=42
 const virtualStart=computed(()=>Math.max(0,Math.floor(scrollTop.value/rowHeight)-3))
-const visibleMatches=computed(()=>dateFilteredMatches.value.slice(virtualStart.value,virtualStart.value+24))
+const visibleMatches=computed(()=>filteredMatches.value.slice(virtualStart.value,virtualStart.value+24))
 const virtualTop=computed(()=>virtualStart.value*rowHeight)
-const virtualBottom=computed(()=>Math.max(0,(dateFilteredMatches.value.length-virtualStart.value-visibleMatches.value.length)*rowHeight))
-const selectedIndex=computed(()=>dateFilteredMatches.value.findIndex(m=>m.lineNumber===selectedMatch.value?.lineNumber))
+const virtualBottom=computed(()=>Math.max(0,(filteredMatches.value.length-virtualStart.value-visibleMatches.value.length)*rowHeight))
+const selectedIndex=computed(()=>filteredMatches.value.findIndex(m=>m.lineNumber===selectedMatch.value?.lineNumber))
 const fileName=computed(()=>filePath.value.split(/[\\/]/).filter(Boolean).pop()||'')
 
 const fmtBytes=(bytes:number)=>{if(bytes<1024)return bytes+' B';const u=['KB','MB','GB','TB'];let v=bytes/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v>=100?0:1)+' '+u[i]}
@@ -131,9 +132,9 @@ async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePa
  catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false;if(pendingDroppedPaths.length){const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}}
 function applyHistory(r:SearchRecord){if(busy.value)return;filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';multiLineJSON.value=false;activePage.value='logs';response.value=null;selectedMatch.value=null;scrollTop.value=0}
 function updateScroll(e:Event){if(e.target instanceof HTMLElement)scrollTop.value=e.target.scrollTop}
-function resetTimeFilteredResults(){scrollTop.value=0;if(resultListElement.value)resultListElement.value.scrollTop=0;if(selectedMatch.value&&!dateFilteredMatches.value.some(m=>m.lineNumber===selectedMatch.value?.lineNumber))selectedMatch.value=null}
+function resetFilteredResults(){scrollTop.value=0;if(resultListElement.value)resultListElement.value.scrollTop=0;if(selectedMatch.value&&!filteredMatches.value.some(m=>m.lineNumber===selectedMatch.value?.lineNumber))selectedMatch.value=null}
 async function moveMatch(delta:number){
- const all=dateFilteredMatches.value
+ const all=filteredMatches.value
  if(!all.length)return
  const from=selectedIndex.value
  const target=Math.max(0,Math.min(all.length-1,from<0?(delta>0?0:all.length-1):from+delta))
@@ -219,9 +220,9 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
      </form>
      <details v-if="appSettings.searchHistory.length" class="history-panel query-history"><summary><History :size="14"/>最近检索 <span class="history-count">{{appSettings.searchHistory.length}}</span></summary><div class="history-items"><button v-for="(r,i) in appSettings.searchHistory" :key="r.createdAt+r.query+i" class="history-item" :disabled="busy" @click="applyHistory(r)"><Search :size="13"/><span><strong>{{r.query}}</strong><small>{{r.path}} · {{r.useRegex?'正则':'文本'}} · {{!r.encoding||r.encoding==='auto'?'自动识别':r.encoding}}</small></span><ArrowRight :size="12"/></button></div></details>
      <div v-if="errorMessage" class="notice notice-error"><span>!</span>{{errorMessage}}</div>
-     <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{dateFilteredMatches.length}}<template v-if="timeRangeStart||timeRangeEnd"> / {{response.matches.length}}</template></span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><span v-if="response.resultLimitReached" class="limit-pill">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
-     <div v-if="response" class="time-range-filter"><label>开始时间<input v-model="timeRangeStart" type="datetime-local" aria-label="开始时间" @change="resetTimeFilteredResults"/></label><label>结束时间<input v-model="timeRangeEnd" type="datetime-local" aria-label="结束时间" @change="resetTimeFilteredResults"/></label><button v-if="timeRangeStart||timeRangeEnd" type="button" class="button button-quiet" @click="timeRangeStart='';timeRangeEnd='';resetTimeFilteredResults()">清除</button><span>按日志行时间筛选；没有可识别时间戳的行会隐藏。</span></div>
-     <div v-if="response&&dateFilteredMatches.length" ref="resultListElement" class="result-list" @scroll="updateScroll"><div class="result-spacer" :style="{height:virtualTop+'px'}"></div><div v-for="(m,i) in visibleMatches" :key="m.lineNumber" class="result-row" :class="{selected:selectedMatch?.lineNumber===m.lineNumber}" role="button" tabindex="0" :title="m.content" @click="selectedMatch=m;jsonFilter=''" @keydown.enter="selectedMatch=m"><span class="line-number">{{String(m.lineNumber).padStart(5,'0')}}</span><span class="result-marker" :class="{first:virtualStart+i===0}"></span><code>{{m.content}}<span v-if="m.contentClipped" class="clipped-note"> [预览已截断]</span></code><ArrowRight :size="13" class="row-chevron"/></div><div class="result-spacer" :style="{height:virtualBottom+'px'}"></div></div>
+     <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{filteredMatches.length}}<template v-if="timeRangeStart||timeRangeEnd||searchLevelFilter!=='ALL'"> / {{response.matches.length}}</template></span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><span v-if="response.resultLimitReached" class="limit-pill">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
+     <div v-if="response" class="time-range-filter"><label>开始时间<input v-model="timeRangeStart" type="datetime-local" aria-label="开始时间" @change="resetFilteredResults"/></label><label>结束时间<input v-model="timeRangeEnd" type="datetime-local" aria-label="结束时间" @change="resetFilteredResults"/></label><button v-if="timeRangeStart||timeRangeEnd" type="button" class="button button-quiet" @click="timeRangeStart='';timeRangeEnd='';resetFilteredResults()">清除</button><div class="result-level-filters" role="group" aria-label="按日志级别筛选"><span>级别</span><button v-for="level in searchLevelFilters" :key="level" type="button" class="button button-quiet" :class="{'tail-filter-active':searchLevelFilter===level}" :aria-pressed="searchLevelFilter===level" @click="searchLevelFilter=level;resetFilteredResults()">{{level==='ALL'?'全部':level}}</button></div><span>时间与级别条件组合应用；启用时间范围后，没有可识别时间戳的行会隐藏。</span></div>
+     <div v-if="response&&filteredMatches.length" ref="resultListElement" class="result-list" @scroll="updateScroll"><div class="result-spacer" :style="{height:virtualTop+'px'}"></div><div v-for="(m,i) in visibleMatches" :key="m.lineNumber" class="result-row" :class="{selected:selectedMatch?.lineNumber===m.lineNumber}" role="button" tabindex="0" :title="m.content" @click="selectedMatch=m;jsonFilter=''" @keydown.enter="selectedMatch=m"><span class="line-number">{{String(m.lineNumber).padStart(5,'0')}}</span><span class="result-marker" :class="{first:virtualStart+i===0}"></span><code>{{m.content}}<span v-if="m.contentClipped" class="clipped-note"> [预览已截断]</span></code><ArrowRight :size="13" class="row-chevron"/></div><div class="result-spacer" :style="{height:virtualBottom+'px'}"></div></div>
      <div v-else-if="response" class="empty-results"><div class="empty-icon"><Search :size="20"/></div><strong>{{response.matches.length?'时间范围内没有结果':'没有找到匹配内容'}}</strong><span>{{response.matches.length?'调整起止时间，或清除时间筛选。':'尝试更换关键字，或启用正则表达式。'}}</span></div>
      <div v-else class="empty-results initial-empty"><div class="empty-illustration"><div class="empty-orbit orbit-one"></div><div class="empty-orbit orbit-two"></div><div class="empty-center"><FileSearch :size="24"/></div><span class="orbit-dot dot-a"></span><span class="orbit-dot dot-b"></span></div><strong>准备就绪</strong><span>选择本地日志文件并输入搜索内容，即可开始分析。</span></div>
      <section v-if="selectedMatch" class="detail-panel">
