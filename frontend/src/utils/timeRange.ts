@@ -24,7 +24,7 @@ export function extractLogTimestamp(line: string): number | null {
 function boundary(value: string, isEnd: boolean): number {
   const timestamp = new Date(value).getTime()
   if (!Number.isFinite(timestamp)) return Number.NaN
-  return isEnd && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(value)
+  return isEnd && value.length === 16 && value[10] === 'T'
     ? timestamp + 60_000 - 1
     : timestamp
 }
