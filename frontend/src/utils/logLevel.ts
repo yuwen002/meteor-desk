@@ -11,9 +11,9 @@ const levelAliases: Record<string, LogLevel> = {
   CRITICAL: 'ERROR',
 }
 
-const tokenPattern = /(?:^|[\\s\\[({,:])"?(?:level|severity)"?\\s*[=:]\\s*["']?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\\b/i
+const tokenPattern = /(?:^|[\s\[({,:])"?(?:level|severity)"?\s*[=:]\s*["']?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\b/i
 const bracketPattern = /(?:^|\s)\[(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\](?:\s|$)/i
-const prefixPattern = /^\\s*(?:\\d{4}-\\d{2}-\\d{2}[T ]\\S+\\s+)?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\\b/i
+const prefixPattern = /^\s*(?:\d{4}-\d{2}-\d{2}[T ]\S+\s+)?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\b/i
 
 export function classifyLogLevel(line: string): LogLevel | null {
   const match = line.match(tokenPattern) ?? line.match(bracketPattern) ?? line.match(prefixPattern)
