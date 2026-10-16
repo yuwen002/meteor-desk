@@ -58,3 +58,28 @@ func TestReadTailChunkRejectsInvalidOffset(t *testing.T) {
 		t.Fatal("expected negative offset to be rejected")
 	}
 }
+
+func TestReadTailChunkCanStartAtEnd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	content := []byte("history\n")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+	chunk, err := ReadTailChunk(path, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chunk.Content != "" || chunk.Offset != int64(len(content)) {
+		t.Fatalf("expected to start at EOF, got %#v", chunk)
+	}
+	if err := os.WriteFile(path, append(content, []byte("new line\n")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	next, err := ReadTailChunk(path, chunk.Offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Content != "new line\n" {
+		t.Fatalf("expected only appended content, got %#v", next)
+	}
+}
