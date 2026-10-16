@@ -14,10 +14,20 @@ export function extractLogTimestamp(line: string): number | null {
     if (Number.isFinite(parsed)) return parsed
   }
 
-  const raw = line.match(isoPrefix)?.[1] ?? line.match(apachePrefix)?.[1]
-  if (!raw) return null
-  const normalized = raw.replace(',', '.').replace(/([+-]\d{2})(\d{2})$/, '$1:$2')
-  const parsed = Date.parse(normalized)
+  const rawISO = line.match(isoPrefix)?.[1]
+  if (rawISO) {
+    const normalized = rawISO.replace(',', '.').replace(/([+-]\d{2})(\d{2})$/, '$1:$2')
+    const parsed = Date.parse(normalized)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const apache = line.match(apachePrefix)?.[1]?.match(/^(\d{2})\/([A-Za-z]{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})$/)
+  if (!apache) return null
+  const months: Record<string, string> = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' }
+  const [, day, monthName, year, hour, minute, second, sign, zoneHour, zoneMinute] = apache
+  const month = months[monthName]
+  if (!month) return null
+  const parsed = Date.parse(\`\${year}-\${month}-\${day}T\${hour}:\${minute}:\${second}\${sign}\${zoneHour}:\${zoneMinute}\`)
   return Number.isFinite(parsed) ? parsed : null
 }
 
