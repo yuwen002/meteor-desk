@@ -210,8 +210,13 @@ button.shortcut-hint:hover{color:#b8f8dc;background:rgba(134,247,197,.06)}
 .tail-status{display:flex;align-items:center;gap:8px;margin:13px 0 9px;color:#8b99ac;font-size:10px}
 .tail-status-paused{background:#657185;box-shadow:none}
 .tail-error{color:#ff9c9c;margin-left:8px}
+.tail-level-filters{display:flex;align-items:center;gap:6px;margin:0 0 8px;color:#77859a;font-size:10px}
+.tail-level-filters .button{min-height:24px;padding:3px 8px;font-size:10px}
+.tail-level-filters .tail-filter-active{color:#dce8f7;border-color:#51627a;background:#202b3a}
 .tail-output{margin:0;min-height:150px;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:13px;border:1px solid #222c3a;border-radius:7px;background:#090d13;color:#b9c7d8;font:11px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace}
 .theme-light .tail-panel{background:#fff;border-color:#dce2eb}
 .theme-light .tail-heading h3{color:#202a39}
 .theme-light .tail-heading p,.theme-light .tail-status{color:#667386}
 .theme-light .tail-output{background:#f6f8fb;border-color:#e0e5ed;color:#27364a}
+.theme-light .tail-level-filters{color:#667386}
+.theme-light .tail-level-filters .tail-filter-active{color:#24344a;border-color:#9eafc4;background:#eaf0f7}
