@@ -159,10 +159,10 @@ async function startTail(){
  const generation=tailGeneration
  tailText.value='';tailBytes.value=0;tailError.value='';tailPaused.value=false;tailOffset.value=-1;tailing.value=true
  await pollTail(generation)
- if(tailing.value&&generation===tailGeneration)tailTimer=window.setInterval(()=>void pollTail(generation),700)
+ if(tailing.value&&generation===tailGeneration)tailTimer=window.setInterval(()=>void pollTail(),700)
 }
 function stopTail(){tailGeneration++;tailing.value=false;tailPaused.value=false;if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
-function toggleTailPause(){tailPaused.value=!tailPaused.value;if(!tailPaused.value)void pollTail(tailGeneration)}
+function toggleTailPause(){tailPaused.value=!tailPaused.value;tailGeneration++;if(!tailPaused.value)void pollTail(tailGeneration)}
 function clearTail(){tailText.value='';tailBytes.value=0}
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
