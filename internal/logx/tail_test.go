@@ -83,3 +83,31 @@ func TestReadTailChunkCanStartAtEnd(t *testing.T) {
 		t.Fatalf("expected only appended content, got %#v", next)
 	}
 }
+func TestReadTailChunkDetectsReplacedFileThatIsLarger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.log")
+	if err := os.WriteFile(path, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, previous, err := ReadTailChunkWithPrevious(path, -1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Offset != 3 {
+		t.Fatalf("expected initial offset 3, got %#v", first)
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	replacement := []byte("replacement file is much larger than old")
+	if err := os.WriteFile(path, replacement, 0600); err != nil {
+		t.Fatal(err)
+	}
+	chunk, _, err := ReadTailChunkWithPrevious(path, first.Offset, previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !chunk.Reset || chunk.Content != string(replacement) {
+		t.Fatalf("expected replacement contents from offset zero, got %#v", chunk)
+	}
+}
