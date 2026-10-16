@@ -124,11 +124,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: 安装桌面构建所需的前端依赖
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: 下载并校验目标平台 Go 依赖
         run: |
