@@ -26,6 +26,13 @@ describe('isWithinTimeRange', () => {
     expect(isWithinTimeRange('undated detail', {})).toBe(true)
   })
 
+  it('includes the full selected end minute for datetime-local inputs', () => {
+    const end = new Date(2026, 9, 16, 12, 30, 59, 999)
+    const stamp = [end.getFullYear(), String(end.getMonth() + 1).padStart(2, '0'), String(end.getDate()).padStart(2, '0')].join('-')
+      + 'T' + [String(end.getHours()).padStart(2, '0'), String(end.getMinutes()).padStart(2, '0'), String(end.getSeconds()).padStart(2, '0')].join(':')
+    expect(isWithinTimeRange(stamp + ' INFO last second', { to: stamp.slice(0, 16) })).toBe(true)
+  })
+
   it('excludes undated lines and rejects invalid or reversed ranges', () => {
     expect(isWithinTimeRange('undated detail', { from: '2026-10-16T00:00' })).toBe(false)
     expect(isWithinTimeRange('2026-10-16T10:20:30Z INFO ready', { from: 'bad-date' })).toBe(false)
