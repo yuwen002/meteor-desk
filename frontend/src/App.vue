@@ -12,7 +12,7 @@ const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex
 const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), searchProgress=ref<LogSearchProgress|null>(null), searchID=ref('')
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
 const tailing=ref(false), tailPaused=ref(false), tailText=ref(''), tailError=ref(''), tailOffset=ref(-1), tailBytes=ref(0), tailOutput=ref<HTMLElement|null>(null)
-let tailTimer:number|undefined, tailPollInFlight=false
+let tailTimer:number|undefined, tailPollInFlight=false, tailGeneration=0
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
@@ -133,14 +133,14 @@ async function moveMatch(delta:number){
  await nextTick()
  if(resultListElement.value)resultListElement.value.scrollTop=Math.max(0,target*rowHeight-3*rowHeight)
 }
-async function pollTail(){
- if(!tailing.value||tailPaused.value||tailPollInFlight)return
+async function pollTail(generation=tailGeneration){
+ if(generation!==tailGeneration||!tailing.value||tailPaused.value||tailPollInFlight)return
  const a=(window as any).go?.main?.App
  if(!a?.ReadLogTailChunk){tailError.value='当前桌面桥接尚未就绪，请重启开发构建后重试。';return}
  tailPollInFlight=true
  try{
   const chunk=await a.ReadLogTailChunk(filePath.value,tailOffset.value) as {content:string;offset:number;reset:boolean;fileSize:number}
-  if(!tailing.value)return
+  if(generation!==tailGeneration||!tailing.value)return
   if(chunk.reset){tailText.value='';tailBytes.value=0}
   tailOffset.value=chunk.offset
   if(chunk.content){
@@ -150,18 +150,19 @@ async function pollTail(){
    if(tailOutput.value)tailOutput.value.scrollTop=tailOutput.value.scrollHeight
   }
   tailError.value=''
- }catch(e){tailError.value='实时跟踪失败：'+String(e);stopTail()}
+ }catch(e){if(generation===tailGeneration){tailError.value='实时跟踪失败：'+String(e);stopTail()}}
  finally{tailPollInFlight=false}
 }
 async function startTail(){
  if(!filePath.value){tailError.value='请先选择日志文件。';return}
  stopTail()
+ const generation=tailGeneration
  tailText.value='';tailBytes.value=0;tailError.value='';tailPaused.value=false;tailOffset.value=-1;tailing.value=true
- await pollTail()
- if(tailing.value)tailTimer=window.setInterval(()=>void pollTail(),700)
+ await pollTail(generation)
+ if(tailing.value&&generation===tailGeneration)tailTimer=window.setInterval(()=>void pollTail(generation),700)
 }
-function stopTail(){tailing.value=false;tailPaused.value=false;if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
-function toggleTailPause(){tailPaused.value=!tailPaused.value;if(!tailPaused.value)void pollTail()}
+function stopTail(){tailGeneration++;tailing.value=false;tailPaused.value=false;if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
+function toggleTailPause(){tailPaused.value=!tailPaused.value;if(!tailPaused.value)void pollTail(tailGeneration)}
 function clearTail(){tailText.value='';tailBytes.value=0}
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
