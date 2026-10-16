@@ -180,3 +180,23 @@ button.shortcut-hint:hover{color:#b8f8dc;background:rgba(134,247,197,.06)}
 .theme-light .shortcut-settings-list,.theme-light .shortcut-setting-row{border-color:#e0e7ef}
 .theme-light .settings-dialog-heading .icon-button{background:#f8fafc;border-color:#d4deea}
 .theme-light .theme-toggle{border-color:#d4deea;color:#51647b;background:#fff}
+
+/* Light-theme completion for process-management panels and runtime output. */
+.theme-light .process-panel-heading{border-color:#e0e7ef}
+.theme-light .process-panel-heading h2,.theme-light .process-empty strong,.theme-light .runtime-heading h3{color:#253247}
+.theme-light .process-panel-heading p,.theme-light .runtime-heading p,.theme-light .process-lifecycle-meta{color:#6c7b90}
+.theme-light .safe-pill{color:#176b50;border-color:#c4e8d8;background:#edf8f2}
+.theme-light .process-item-main .process-item-diagnostic{color:#866a2e}
+.theme-light .process-item-main .process-item-diagnostic.failed{color:#b93832}
+.theme-light .process-runtime{border-color:#dce3ec}
+.theme-light .log-stream-heading{background:#f0f4f8;border-color:#dce3ec;color:#52647b}
+.theme-light .process-log-line>span{color:#718096}
+.theme-light .process-log-line b{color:#52647b}
+.theme-light .process-log-line.stdout b{color:#176b50}
+.theme-light .process-log-line.stderr b,.theme-light .process-log-line.stderr code{color:#b93832}
+.theme-light .process-log-line.system b{color:#866a2e}
+.theme-light .process-error-text{color:#b93832;border-color:#f0cdca;background:#fff7f6}
+.theme-light .button-danger{color:#b93832;border-color:#efc7c3;background:#fff7f6}
+.theme-light .process-config-toolbar{box-shadow:0 2px 8px rgba(35,55,80,.025)}
+.theme-light .process-form-actions .button:disabled{opacity:.55}
+
