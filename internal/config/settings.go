@@ -27,6 +27,10 @@ type Settings struct {
 	SearchHistory []SearchRecord `json:"searchHistory"`
 	ContextLines int `json:"contextLines"`
 	ResultLimit int `json:"resultLimit"`
+	ExcludedTerms string `json:"excludedTerms,omitempty"`
+	SearchLevelFilter string `json:"searchLevelFilter,omitempty"`
+	TimeRangeStart string `json:"timeRangeStart,omitempty"`
+	TimeRangeEnd string `json:"timeRangeEnd,omitempty"`
 }
 
 // DefaultSettings 返回适合首次启动的默认偏好值。
@@ -142,6 +146,16 @@ func normalize(settings *Settings) {
 	if settings.ResultLimit > 5000 {
 		settings.ResultLimit = 5000
 	}
+	if len(settings.ExcludedTerms) > 4096 {
+		settings.ExcludedTerms = settings.ExcludedTerms[:4096]
+	}
+	switch settings.SearchLevelFilter {
+	case "", "ALL", "INFO", "WARN", "ERROR":
+	default:
+		settings.SearchLevelFilter = "ALL"
+	}
+	if settings.TimeRangeStart == "" { settings.TimeRangeStart = "" }
+	if settings.TimeRangeEnd == "" { settings.TimeRangeEnd = "" }
 	settings.RecentFiles = dedupe(settings.RecentFiles, maxRecentFiles)
 	if settings.SearchHistory == nil {
 		settings.SearchHistory = []SearchRecord{}
