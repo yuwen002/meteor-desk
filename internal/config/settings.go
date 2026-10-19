@@ -31,6 +31,7 @@ type Settings struct {
 	SearchLevelFilter string `json:"searchLevelFilter,omitempty"`
 	TimeRangeStart string `json:"timeRangeStart,omitempty"`
 	TimeRangeEnd string `json:"timeRangeEnd,omitempty"`
+	CaseSensitive bool `json:"caseSensitive"`
 }
 
 // DefaultSettings 返回适合首次启动的默认偏好值。
@@ -40,6 +41,7 @@ func DefaultSettings() Settings {
 		SearchHistory: []SearchRecord{},
 		ContextLines: 2,
 		ResultLimit: 500,
+		CaseSensitive: true,
 	}
 }
 
@@ -69,7 +71,7 @@ func loadSettingsFrom(path string) (Settings, error) {
 	if err != nil {
 		return DefaultSettings(), err
 	}
-	var settings Settings
+	settings := DefaultSettings()
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return DefaultSettings(), err
 	}
