@@ -9,7 +9,7 @@ import (
 )
 func TestSettingsRoundTripAndLimits(t *testing.T){
  path:=filepath.Join(t.TempDir(),"nested","settings.json")
- settings:=DefaultSettings();settings.ContextLines=99;settings.ResultLimit=8000
+ settings:=DefaultSettings();settings.ContextLines=99;settings.ResultLimit=8000;settings.ExcludedTerms="health check, heartbeat";settings.SearchLevelFilter="WARN";settings.TimeRangeStart="2026-10-01T00:00";settings.TimeRangeEnd="2026-10-02T00:00"
  for i:=0;i<20;i++{AddRecentFile(&settings,filepath.Join("logs",string(rune('a'+i))+".log"))}
  AddSearchRecord(&settings,SearchRecord{Query:"timeout",Path:"/tmp/app.log",CreatedAt:time.Now()})
  if err:=saveSettingsTo(path,settings);err!=nil{t.Fatal(err)}
@@ -17,6 +17,7 @@ func TestSettingsRoundTripAndLimits(t *testing.T){
  if loaded.ContextLines!=10||loaded.ResultLimit!=5000{t.Fatalf("范围校验错误：%+v",loaded)}
  if len(loaded.RecentFiles)!=maxRecentFiles{t.Fatalf("最近文件数量=%d",len(loaded.RecentFiles))}
  if len(loaded.SearchHistory)!=1||loaded.SearchHistory[0].Query!="timeout"{t.Fatalf("历史未保存：%+v",loaded.SearchHistory)}
+	if loaded.ExcludedTerms!="health check, heartbeat" || loaded.SearchLevelFilter!="WARN" || loaded.TimeRangeStart!="2026-10-01T00:00" || loaded.TimeRangeEnd!="2026-10-02T00:00" { t.Fatalf("检索偏好未持久化：%+v", loaded) }
 }
 func TestAddSearchRecordMovesDuplicateToFront(t *testing.T){
  s:=DefaultSettings();AddSearchRecord(&s,SearchRecord{Query:"error",Path:"app.log"});AddSearchRecord(&s,SearchRecord{Query:"error",Path:"app.log"})
