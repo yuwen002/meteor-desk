@@ -487,3 +487,18 @@ func TestSearchMultiLineJSONResultLimitWaitsForContext(t *testing.T) {
 		t.Fatalf("达到结果上限后仍应补齐已命中项的上下文：%+v", got.Matches[0].ContextAfter)
 	}
 }
+
+
+func TestSearchCaseSensitivityOption(t *testing.T) {
+ path := filepath.Join(t.TempDir(), "case.log")
+ if err := os.WriteFile(path, []byte("ERROR database\nerror database\nError database\n"), 0600); err != nil { t.Fatal(err) }
+ sensitive, err := SearchFileWithOptions(context.Background(), path, "ERROR", false, 10, SearchOptions{}, nil)
+ if err != nil { t.Fatal(err) }
+ if len(sensitive.Matches) != 1 || sensitive.Matches[0].LineNumber != 1 { t.Fatalf("默认应区分大小写：%+v", sensitive.Matches) }
+ insensitive, err := SearchFileWithOptions(context.Background(), path, "ERROR", false, 10, SearchOptions{IgnoreCase:true}, nil)
+ if err != nil { t.Fatal(err) }
+ if len(insensitive.Matches) != 3 { t.Fatalf("忽略大小写应匹配三行：%+v", insensitive.Matches) }
+ regex, err := SearchFileWithOptions(context.Background(), path, "^error", true, 10, SearchOptions{IgnoreCase:true}, nil)
+ if err != nil { t.Fatal(err) }
+ if len(regex.Matches) != 3 { t.Fatalf("忽略大小写的正则应匹配三行：%+v", regex.Matches) }
+}
