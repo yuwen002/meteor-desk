@@ -230,3 +230,13 @@ button.shortcut-hint:hover{color:#b8f8dc;background:rgba(134,247,197,.06)}
 .theme-light .tail-output{background:#f6f8fb;border-color:#e0e5ed;color:#27364a}
 .theme-light .tail-level-filters{color:#667386}
 .theme-light .tail-level-filters .tail-filter-active{color:#24344a;border-color:#9eafc4;background:#eaf0f7}
+
+
+/* Log search match highlighting and result exclusion control. */
+.search-highlight{background:#6d4a12;color:#ffe4a3;border-radius:2px;padding:0 1px;font-weight:700}
+.exclude-filter{display:flex;align-items:center;gap:7px;color:#8492a6;font-size:10px;flex-wrap:wrap}
+.exclude-filter input{min-width:180px;max-width:260px;min-height:28px;padding:5px 8px;border:1px solid #303b4b;border-radius:6px;background:#0d131c;color:#dce5f2;font:inherit}
+.exclude-filter input:focus{outline:1px solid #5b9b80;border-color:#5b9b80}
+.theme-light .search-highlight{background:#ffe5a8;color:#744b00}
+.theme-light .exclude-filter{color:#667386}
+.theme-light .exclude-filter input{background:#f6f8fb;border-color:#dce2eb;color:#27364a}
