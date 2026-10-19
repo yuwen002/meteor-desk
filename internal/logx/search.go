@@ -237,7 +237,7 @@ type SearchOptions struct {
 	// MultiLineJSON 将跨行 JSON 对象/数组作为一个文档匹配；单行日志仍按行检索。
 	MultiLineJSON bool `json:"multiLineJSON,omitempty"`
 	// CaseSensitive 控制普通文本和正则表达式是否区分大小写。
-	CaseSensitive bool `json:"caseSensitive"`
+	IgnoreCase bool `json:"ignoreCase,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
@@ -300,7 +300,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	var matcher *regexp.Regexp
 	if useRegex {
 		pattern := query
-		if !options.CaseSensitive { pattern = "(?i:" + query + ")" }
+		if options.IgnoreCase { pattern = "(?i:" + query + ")" }
 		compiled, err := regexp.Compile(pattern)
 		if err != nil {
 			return SearchResponse{}, fmt.Errorf("正则表达式无效：%w", err)
@@ -308,7 +308,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		matcher = compiled
 	}
 	needle := []byte(query)
-	if !options.CaseSensitive { needle = bytes.ToLower(needle) }
+	if options.IgnoreCase { needle = bytes.ToLower(needle) }
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -352,7 +352,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		Matches: make([]Match, 0, min(maxResults, 128)),
 	}
 	if options.MultiLineJSON {
-		if !options.CaseSensitive && matcher == nil { matcher, _ = regexp.Compile("(?i:" + regexp.QuoteMeta(query) + ")") }
+		if options.IgnoreCase && matcher == nil { matcher, _ = regexp.Compile("(?i:" + regexp.QuoteMeta(query) + ")") }
 		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, contextLines, onProgress)
 	}
 
@@ -423,7 +423,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 
 		if !lineMatched {
 			searchPart := part
-			if !options.CaseSensitive { searchPart = bytes.ToLower(part) }
+			if options.IgnoreCase { searchPart = bytes.ToLower(part) }
 			if bytes.Contains(searchPart, needle) {
 				lineMatched = true
 			} else {
@@ -434,7 +434,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 					cross := make([]byte, 0, len(carry)+prefixLen)
 					cross = append(cross, carry...)
 					cross = append(cross, part[:prefixLen]...)
-					if !options.CaseSensitive { cross = bytes.ToLower(cross) }
+					if options.IgnoreCase { cross = bytes.ToLower(cross) }
 					lineMatched = bytes.Contains(cross, needle)
 				}
 				if !lineMatched && keep > 0 {
