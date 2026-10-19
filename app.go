@@ -117,6 +117,12 @@ func (a *App) SelectLogFile()(string,error){
 	}})
 	return path,err
 }
+// ValidateLogFile 检查最近文件路径是否仍指向可读取的普通文件。
+func (a *App) ValidateLogFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // PollDroppedFiles 取出并清空桌面拖放事件中积累的文件路径。
 func (a *App) PollDroppedFiles()[]string{
 	a.mu.Lock();defer a.mu.Unlock();paths:=append([]string(nil),a.droppedFiles...);a.droppedFiles=a.droppedFiles[:0];return paths
