@@ -34,10 +34,10 @@ describe('excludeLogResults', () => {
 
   it('excludes any comma or newline separated term case-insensitively', () => {
     expect(excludeLogResults(rows, 'health check, retry')).toEqual([{ content: 'ERROR database failed' }])
-    expect(excludeLogResults(rows, 'health check\\nretry')).toEqual([{ content: 'ERROR database failed' }])
+    expect(excludeLogResults(rows, 'health check\nretry')).toEqual([{ content: 'ERROR database failed' }])
   })
 
   it('keeps all results when no exclusion terms are provided', () => {
-    expect(excludeLogResults(rows, ' , \\n ')).toEqual(rows)
+    expect(excludeLogResults(rows, ' , \n ')).toEqual(rows)
   })
 })
