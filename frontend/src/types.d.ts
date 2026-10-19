@@ -7,7 +7,7 @@ declare global {
   interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string }
   interface SearchMatchesEvent { searchId:string; progress:LogSearchProgress; matches?:LogMatch[] }
   interface SearchRecord { query:string; path:string; useRegex:boolean; contextLines:number; encoding?:string; createdAt:string }
-  interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number }
+  interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number; excludedTerms?:string; searchLevelFilter?:'ALL'|'INFO'|'WARN'|'ERROR'; timeRangeStart?:string; timeRangeEnd?:string }
   interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean; dependsOn:string[] }
   interface ProcessBatchResult { id:string; name:string; action:'start'|'stop'; success:boolean; message:string }
   interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; finishedAt?:string; durationMs?:number; exitCode?:number; exitReason?:'normal'|'nonzero'|'signal'|'manual-stop'|'start-error'; error?:string }
