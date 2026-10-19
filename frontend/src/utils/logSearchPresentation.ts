@@ -4,17 +4,13 @@ export interface HighlightSegment {
 }
 
 /** Split text into safe renderable segments; never inject log content as HTML. */
-export function splitHighlightedText(
-  text: string,
-  query: string,
-  useRegex = false,
-  caseSensitive = false,
-): HighlightSegment[] {
+export function splitHighlightedText(text: string, query: string, useRegex = false): HighlightSegment[] {
   if (!query) return [{ text, matched: false }]
 
   let pattern: RegExp
   try {
-    pattern = new RegExp(useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu'.replace('u', caseSensitive ? 'g' : 'gi'))
+    const source = useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    pattern = new RegExp(source, 'gi')
   } catch {
     return [{ text, matched: false }]
   }
@@ -34,11 +30,11 @@ export function splitHighlightedText(
 }
 
 /** Exclude a result when any comma/newline-separated exclusion term is present. */
-export function excludeLogResults<T extends { content: string }>(items: T[], excludedTerms: string, caseSensitive = false): T[] {
-  const terms = excludedTerms.split(/[\n,]/).map((term) => term.trim()).filter(Boolean)
+export function excludeLogResults<T extends { content: string }>(items: T[], excludedTerms: string): T[] {
+  const terms = excludedTerms.split(/[\n,]/).map((term) => term.trim()).filter(Boolean).map((term) => term.toLocaleLowerCase())
   if (!terms.length) return items
   return items.filter((item) => {
-    const content = caseSensitive ? item.content : item.content.toLocaleLowerCase()
-    return !terms.some((term) => content.includes(caseSensitive ? term : term.toLocaleLowerCase()))
+    const content = item.content.toLocaleLowerCase()
+    return !terms.some((term) => content.includes(term))
   })
 }
