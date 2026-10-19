@@ -12,9 +12,9 @@ const levelAliases: Record<string, LogLevel> = {
 }
 
 const recognizedLevels = new Set(Object.keys(levelAliases))
-const tokenPattern = /(?:^|[\\s\\[({,:])"?(?:level|severity)"?\\s*[=:]\\s*["']?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\\b/i
-const bracketPattern = /(?:^|\\s)\\[(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\\](?:\\s|$)/i
-const prefixPattern = /^\\s*(?:\\d{4}-\\d{2}-\\d{2}[T ]\\S+\\s+)?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\\b/i
+const tokenPattern = /(?:^|[\s\[({,:])"?(?:level|severity)"?\s*[=:]\s*["']?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\b/i
+const bracketPattern = /(?:^|\s)\[(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\](?:\s|$)/i
+const prefixPattern = /^\s*(?:\d{4}-\d{2}-\d{2}[T ]\S+\s+)?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL)\b/i
 
 function normalizeLevel(value: unknown): LogLevel | null {
   if (typeof value !== 'string') return null
@@ -49,5 +49,5 @@ export function classifyLogLevel(line: string): LogLevel | null {
 
 export function filterTailLines(text: string, filter: TailLevelFilter): string {
   if (filter === 'ALL' || !text) return text
-  return text.split('\\n').filter((line) => classifyLogLevel(line) === filter).join('\\n')
+  return text.split('\n').filter((line) => classifyLogLevel(line) === filter).join('\n')
 }
