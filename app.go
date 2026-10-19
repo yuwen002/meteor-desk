@@ -140,7 +140,7 @@ func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxRes
 	searchCtx,cancel:=context.WithCancel(a.ctx)
 	a.searches[searchID]=&searchJob{cancel:cancel,progress:LogSearchProgress{SearchID:searchID,Running:true}}
 	a.mu.Unlock()
-	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding, MultiLineJSON:multiLineJSON, CaseSensitive:caseSensitive},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
+	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding, MultiLineJSON:multiLineJSON, IgnoreCase:!caseSensitive},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
 	a.finishSearchJob(searchID, path, response, err)
 	cancel()
 	return response,err
