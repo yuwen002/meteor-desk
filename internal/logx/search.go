@@ -263,7 +263,7 @@ func SearchFile(path, query string, useRegex bool, maxResults int) (SearchRespon
 // onProgress 的 Matches 是自上一次通知后的增量结果；如需最终完整上下文，
 // 仍应使用 SearchResponse.Matches。
 func SearchFileContext(ctx context.Context, path, query string, useRegex bool, maxResults int, onProgress func(Progress)) (SearchResponse, error) {
-	return SearchFileWithOptions(ctx, path, query, useRegex, maxResults, SearchOptions{CaseSensitive: true}, onProgress)
+	return SearchFileWithOptions(ctx, path, query, useRegex, maxResults, SearchOptions{}, onProgress)
 }
 
 // SearchFileWithOptions 使用固定大小的读取缓冲区扫描文件。
