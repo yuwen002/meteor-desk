@@ -255,7 +255,7 @@ type SearchResponse struct {
 
 // SearchFile 保留简单调用入口。
 func SearchFile(path, query string, useRegex bool, maxResults int) (SearchResponse, error) {
-	return SearchFileWithOptions(context.Background(), path, query, useRegex, maxResults, SearchOptions{CaseSensitive: true}, nil)
+	return SearchFileWithOptions(context.Background(), path, query, useRegex, maxResults, SearchOptions{}, nil)
 }
 
 // SearchFileContext 支持取消和进度回调，但不附加上下文行。
