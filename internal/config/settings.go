@@ -154,8 +154,6 @@ func normalize(settings *Settings) {
 	default:
 		settings.SearchLevelFilter = "ALL"
 	}
-	if settings.TimeRangeStart == "" { settings.TimeRangeStart = "" }
-	if settings.TimeRangeEnd == "" { settings.TimeRangeEnd = "" }
 	settings.RecentFiles = dedupe(settings.RecentFiles, maxRecentFiles)
 	if settings.SearchHistory == nil {
 		settings.SearchHistory = []SearchRecord{}
