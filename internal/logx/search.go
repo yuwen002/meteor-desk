@@ -236,7 +236,7 @@ type SearchOptions struct {
 	Encoding string `json:"encoding,omitempty"`
 	// MultiLineJSON 将跨行 JSON 对象/数组作为一个文档匹配；单行日志仍按行检索。
 	MultiLineJSON bool `json:"multiLineJSON,omitempty"`
-	// CaseSensitive 控制普通文本和正则表达式是否区分大小写；默认 false 保持旧版大小写敏感行为需由调用方显式设置 true。
+	// CaseSensitive 控制普通文本和正则表达式是否区分大小写。
 	CaseSensitive bool `json:"caseSensitive"`
 }
 
@@ -255,7 +255,7 @@ type SearchResponse struct {
 
 // SearchFile 保留简单调用入口。
 func SearchFile(path, query string, useRegex bool, maxResults int) (SearchResponse, error) {
-	return SearchFileWithOptions(context.Background(), path, query, useRegex, maxResults, SearchOptions{}, nil)
+	return SearchFileWithOptions(context.Background(), path, query, useRegex, maxResults, SearchOptions{CaseSensitive: true}, nil)
 }
 
 // SearchFileContext 支持取消和进度回调，但不附加上下文行。
@@ -263,7 +263,7 @@ func SearchFile(path, query string, useRegex bool, maxResults int) (SearchRespon
 // onProgress 的 Matches 是自上一次通知后的增量结果；如需最终完整上下文，
 // 仍应使用 SearchResponse.Matches。
 func SearchFileContext(ctx context.Context, path, query string, useRegex bool, maxResults int, onProgress func(Progress)) (SearchResponse, error) {
-	return SearchFileWithOptions(ctx, path, query, useRegex, maxResults, SearchOptions{}, onProgress)
+	return SearchFileWithOptions(ctx, path, query, useRegex, maxResults, SearchOptions{CaseSensitive: true}, onProgress)
 }
 
 // SearchFileWithOptions 使用固定大小的读取缓冲区扫描文件。
@@ -352,6 +352,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		Matches: make([]Match, 0, min(maxResults, 128)),
 	}
 	if options.MultiLineJSON {
+		if !options.CaseSensitive && matcher == nil { matcher, _ = regexp.Compile("(?i:" + regexp.QuoteMeta(query) + ")") }
 		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, contextLines, onProgress)
 	}
 
