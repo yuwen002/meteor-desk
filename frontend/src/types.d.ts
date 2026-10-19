@@ -7,7 +7,7 @@ declare global {
   interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string }
   interface SearchMatchesEvent { searchId:string; progress:LogSearchProgress; matches?:LogMatch[] }
   interface SearchRecord { query:string; path:string; useRegex:boolean; contextLines:number; encoding?:string; createdAt:string }
-  interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number; excludedTerms?:string; searchLevelFilter?:'ALL'|'INFO'|'WARN'|'ERROR'; timeRangeStart?:string; timeRangeEnd?:string }
+  interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number; excludedTerms?:string; searchLevelFilter?:'ALL'|'INFO'|'WARN'|'ERROR'; timeRangeStart?:string; timeRangeEnd?:string; caseSensitive?:boolean }
   interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean; dependsOn:string[] }
   interface ProcessBatchResult { id:string; name:string; action:'start'|'stop'; success:boolean; message:string }
   interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; finishedAt?:string; durationMs?:number; exitCode?:number; exitReason?:'normal'|'nonzero'|'signal'|'manual-stop'|'start-error'; error?:string }
@@ -15,8 +15,8 @@ declare global {
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
   interface JsonField { path:string; value:unknown }
   interface Window { runtime?:{EventsOn:(eventName:string,callback:(event:SearchMatchesEvent)=>void)=>()=>void}; go?:{main?:{App?:{
-    SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
-    SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number,encoding:string,multiLineJSON:boolean)=>Promise<LogSearchResponse>;
+    SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>; ValidateLogFile:(path:string)=>Promise<boolean>;
+    SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number,encoding:string,multiLineJSON:boolean,caseSensitive:boolean)=>Promise<LogSearchResponse>;
     GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; GetLogSearchMatches:(id:string,afterIndex:number)=>Promise<LogMatch[]>; CancelLogSearch:(id:string)=>Promise<boolean>;
     GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
     GetProcesses:()=>Promise<ProcessView[]>; SaveProcess:(spec:ProcessSpec)=>Promise<ProcessView>; DeleteProcess:(id:string)=>Promise<void>;
