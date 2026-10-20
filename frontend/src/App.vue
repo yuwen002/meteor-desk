@@ -6,6 +6,7 @@ import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { filterTailLines, type TailLevelFilter } from './utils/logLevel'
 import { summarizeLogLines } from './utils/logStats'
+import { aggregateLogEvents } from './utils/logEventAggregation'
 import { resolveResultJumpIndex } from './utils/logResultNavigation'
 import { filterLogResults } from './utils/logResultFilters'
 import { excludeLogResults, splitHighlightedText } from './utils/logSearchPresentation'
@@ -24,6 +25,8 @@ const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null
 const resultJumpInput=ref('1'), resultJumpError=ref('')
 const tailing=ref(false), tailPaused=ref(false), tailText=ref(''), tailError=ref(''), tailOffset=ref(-1), tailBytes=ref(0), tailOutput=ref<HTMLElement|null>(null), tailLevelFilter=ref<TailLevelFilter>('ALL')
 const filteredTailText=computed(()=>filterTailLines(tailText.value,tailLevelFilter.value))
+const tailEventMode=ref(false)
+const filteredTailEvents=computed(()=>aggregateLogEvents(tailText.value).filter(event=>tailLevelFilter.value==='ALL'||event.level===tailLevelFilter.value))
 const tailLevelFilters:TailLevelFilter[]=['ALL','INFO','WARN','ERROR']
 let tailTimer:number|undefined, tailGeneration=0
 const tailPoller=new SerialPollCoordinator()
@@ -253,7 +256,8 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
      <section class="tail-panel">
        <div class="tail-heading"><div><h3>实时日志跟踪</h3><p>持续读取文件新增内容；启动时从文件末尾开始。</p></div><div class="tail-actions"><button class="button button-primary" :disabled="!filePath||tailing" @click="startTail">开始跟踪</button><button class="button button-secondary" :disabled="!tailing" @click="toggleTailPause">{{tailPaused?'继续':'暂停'}}</button><button class="button button-quiet" :disabled="!tailing" @click="stopTail">停止</button><button class="button button-quiet" @click="clearTail">清屏</button></div></div>
        <div class="tail-status"><span class="status-dot" :class="{'tail-status-paused':tailPaused||!tailing}"></span>{{!tailing?'未跟踪':tailPaused?'已暂停':'跟踪中'}} · 已接收 {{fmtBytes(tailBytes)}} <span v-if="tailError" class="tail-error">{{tailError}}</span></div>
-       <div class="tail-level-filters" role="group" aria-label="日志级别过滤"><span>级别</span><button v-for="level in tailLevelFilters" :key="level" type="button" class="button button-quiet" :class="{'tail-filter-active':tailLevelFilter===level}" :aria-pressed="tailLevelFilter===level" @click="tailLevelFilter=level">{{level==='ALL'?'全部':level}}</button></div><pre ref="tailOutput" class="tail-output">{{filteredTailText||'启动实时跟踪后，新写入的日志会显示在这里。'}}</pre>
+       <div class="tail-toolbar"><div class="tail-level-filters" role="group" aria-label="日志级别过滤"><span>级别</span><button v-for="level in tailLevelFilters" :key="level" type="button" class="button button-quiet" :class="{'tail-filter-active':tailLevelFilter===level}" :aria-pressed="tailLevelFilter===level" @click="tailLevelFilter=level">{{level==='ALL'?'全部':level}}</button></div><label class="tail-event-toggle"><input v-model="tailEventMode" type="checkbox"/>按异常事件聚合</label></div>
+       <div v-if="tailEventMode" class="tail-event-list"><div v-for="event in filteredTailEvents" :key="event.startLine+'-'+event.endLine" class="tail-event-card"><div class="tail-event-meta"><span :class="'event-level-'+event.level.toLowerCase()">{{event.level}}</span><span>行 {{event.startLine}}–{{event.endLine}}</span><span v-if="event.timestamp">{{event.timestamp}}</span><span v-if="event.truncated">事件内容已截断</span></div><pre>{{event.content}}</pre></div><p v-if="!filteredTailEvents.length" class="muted">当前没有可显示的事件。</p></div><pre v-else ref="tailOutput" class="tail-output">{{filteredTailText||'启动实时跟踪后，新写入的日志会显示在这里。'}}</pre>
       </section>
       <section v-if="response" class="tail-panel">
        <div class="tail-heading"><div><h3>当前检索结果统计</h3><p>仅统计当前已加载并经过筛选的结果，不会重新扫描整个日志文件。</p></div><span class="panel-meta">{{resultStats.total.toLocaleString()}} 条</span></div>
