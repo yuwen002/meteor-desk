@@ -5,6 +5,7 @@ import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { filterTailLines, type TailLevelFilter } from './utils/logLevel'
+import { summarizeLogLines } from './utils/logStats'
 import { filterLogResults } from './utils/logResultFilters'
 import { excludeLogResults, splitHighlightedText } from './utils/logSearchPresentation'
 import { SerialPollCoordinator } from './utils/serialPollCoordinator'
@@ -50,6 +51,7 @@ function shortcutLabel(action:ShortcutAction){const key=shortcutsConfig.value[ac
 const timeRangeStart=ref(''), timeRangeEnd=ref(''), searchLevelFilter=ref<TailLevelFilter>('ALL'), excludedTerms=ref('')
 const searchLevelFilters:TailLevelFilter[]=['ALL','INFO','WARN','ERROR']
 const filteredMatches=computed(()=>excludeLogResults(filterLogResults(response.value?.matches??[],{from:timeRangeStart.value||undefined,to:timeRangeEnd.value||undefined},searchLevelFilter.value),excludedTerms.value))
+const resultStats=computed(()=>summarizeLogLines(filteredMatches.value.map(match=>({content:match.content}))))
 function highlightSegments(content:string){return splitHighlightedText(content,query.value,useRegex.value)}
 const rowHeight=42
 const virtualStart=computed(()=>Math.max(0,Math.floor(scrollTop.value/rowHeight)-3))
@@ -236,6 +238,12 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
        <div class="tail-heading"><div><h3>实时日志跟踪</h3><p>持续读取文件新增内容；启动时从文件末尾开始。</p></div><div class="tail-actions"><button class="button button-primary" :disabled="!filePath||tailing" @click="startTail">开始跟踪</button><button class="button button-secondary" :disabled="!tailing" @click="toggleTailPause">{{tailPaused?'继续':'暂停'}}</button><button class="button button-quiet" :disabled="!tailing" @click="stopTail">停止</button><button class="button button-quiet" @click="clearTail">清屏</button></div></div>
        <div class="tail-status"><span class="status-dot" :class="{'tail-status-paused':tailPaused||!tailing}"></span>{{!tailing?'未跟踪':tailPaused?'已暂停':'跟踪中'}} · 已接收 {{fmtBytes(tailBytes)}} <span v-if="tailError" class="tail-error">{{tailError}}</span></div>
        <div class="tail-level-filters" role="group" aria-label="日志级别过滤"><span>级别</span><button v-for="level in tailLevelFilters" :key="level" type="button" class="button button-quiet" :class="{'tail-filter-active':tailLevelFilter===level}" :aria-pressed="tailLevelFilter===level" @click="tailLevelFilter=level">{{level==='ALL'?'全部':level}}</button></div><pre ref="tailOutput" class="tail-output">{{filteredTailText||'启动实时跟踪后，新写入的日志会显示在这里。'}}</pre>
+      </section>
+      <section v-if="response" class="tail-panel">
+       <div class="tail-heading"><div><h3>当前检索结果统计</h3><p>仅统计当前已加载并经过筛选的结果，不会重新扫描整个日志文件。</p></div><span class="panel-meta">{{resultStats.total.toLocaleString()}} 条</span></div>
+       <div class="metric-grid"><div class="metric-card"><div class="metric-kicker">INFO</div><div class="metric-value">{{resultStats.info.toLocaleString()}}</div></div><div class="metric-card"><div class="metric-kicker">WARN</div><div class="metric-value">{{resultStats.warn.toLocaleString()}}</div></div><div class="metric-card"><div class="metric-kicker">ERROR</div><div class="metric-value">{{resultStats.error.toLocaleString()}}</div></div><div class="metric-card"><div class="metric-kicker">未识别</div><div class="metric-value">{{resultStats.unknown.toLocaleString()}}</div></div></div>
+       <div v-if="resultStats.trend.length" class="stats-trend"><strong>时间趋势（分钟）</strong><div v-for="bucket in resultStats.trend" :key="bucket.label" class="stats-trend-row"><span>{{bucket.label}}</span><span>INFO {{bucket.info}} · WARN {{bucket.warn}} · ERROR {{bucket.error}}</span></div></div>
+       <div v-if="resultStats.repeatedErrors.length" class="stats-trend"><strong>重复错误（最多 10 组）</strong><div v-for="item in resultStats.repeatedErrors" :key="item.key" class="stats-error-row"><span>{{item.message}}</span><b>×{{item.count}}</b></div></div>
       </section>
       <details v-if="appSettings.recentFiles.length" class="history-panel"><summary><History :size="14"/>最近打开的文件 <span class="history-count">{{appSettings.recentFiles.length}}</span></summary><div class="history-items"><button v-for="p in appSettings.recentFiles" :key="p" class="history-item" :disabled="busy" @click="openDroppedFiles([p])"><FileSearch :size="13"/><span>{{p}}</span><ArrowRight :size="12"/></button></div></details>
      <form class="query-form" @submit.prevent="runSearch"><label class="field-label" for="search-query">搜索内容</label><div class="search-input-row"><div class="query-input-wrap"><Search :size="17" class="query-input-icon"/><input id="search-query" ref="inputRef" v-model="query" autocomplete="off" spellcheck="false" placeholder="输入关键字、错误码、请求 ID……"/><span class="input-shortcut">回车 ↵</span></div><button type="submit" class="button button-primary" :disabled="busy"><Search v-if="!busy" :size="16"/><span v-else class="spinner"></span>{{busy?'正在检索':'开始检索'}}</button><button v-if="busy" type="button" class="button button-secondary button-cancel" :disabled="cancelRequested" @click="cancelSearch"><X :size="15"/>{{cancelRequested?'正在取消':'取消检索'}}</button></div>
