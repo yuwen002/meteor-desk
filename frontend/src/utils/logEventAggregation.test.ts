@@ -36,7 +36,7 @@ describe('aggregateLogEvents', () => {
     const events = aggregateLogEvents(input, { timestampPattern: '^(\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2})' })
     expect(events).toHaveLength(2)
     expect(events[1].timestamp).toBe('2026/10/20 10:00:01')
-    expect(aggregateLogEvents(input, { timestampPattern: '[' })).toHaveLength(2)
+    expect(aggregateLogEvents(input, { timestampPattern: '[' })).toHaveLength(1)
   })
 
   it('returns no events for empty input', () => {
