@@ -2,6 +2,7 @@ package config
 
 import (
  "path/filepath"
+ "os"
  "runtime"
  "sync"
  "testing"
@@ -9,7 +10,7 @@ import (
 )
 func TestSettingsRoundTripAndLimits(t *testing.T){
  path:=filepath.Join(t.TempDir(),"nested","settings.json")
- settings:=DefaultSettings();settings.ContextLines=99;settings.ResultLimit=8000
+ settings:=DefaultSettings();settings.ContextLines=99;settings.ResultLimit=8000;settings.ExcludedTerms="health check, heartbeat";settings.SearchLevelFilter="WARN";settings.TimeRangeStart="2026-10-01T00:00";settings.TimeRangeEnd="2026-10-02T00:00";settings.CaseSensitive=false
  for i:=0;i<20;i++{AddRecentFile(&settings,filepath.Join("logs",string(rune('a'+i))+".log"))}
  AddSearchRecord(&settings,SearchRecord{Query:"timeout",Path:"/tmp/app.log",CreatedAt:time.Now()})
  if err:=saveSettingsTo(path,settings);err!=nil{t.Fatal(err)}
@@ -17,6 +18,7 @@ func TestSettingsRoundTripAndLimits(t *testing.T){
  if loaded.ContextLines!=10||loaded.ResultLimit!=5000{t.Fatalf("范围校验错误：%+v",loaded)}
  if len(loaded.RecentFiles)!=maxRecentFiles{t.Fatalf("最近文件数量=%d",len(loaded.RecentFiles))}
  if len(loaded.SearchHistory)!=1||loaded.SearchHistory[0].Query!="timeout"{t.Fatalf("历史未保存：%+v",loaded.SearchHistory)}
+	if loaded.ExcludedTerms!="health check, heartbeat" || loaded.SearchLevelFilter!="WARN" || loaded.TimeRangeStart!="2026-10-01T00:00" || loaded.TimeRangeEnd!="2026-10-02T00:00" || loaded.CaseSensitive { t.Fatalf("检索偏好未持久化：%+v", loaded) }
 }
 func TestAddSearchRecordMovesDuplicateToFront(t *testing.T){
  s:=DefaultSettings();AddSearchRecord(&s,SearchRecord{Query:"error",Path:"app.log"});AddSearchRecord(&s,SearchRecord{Query:"error",Path:"app.log"})
@@ -110,4 +112,12 @@ func TestConcurrentSaveSettingsDoNotShareTemporaryFile(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("并发保存后残留临时文件：%v", entries)
 	}
+}
+
+func TestLegacySettingsKeepCaseSensitiveDefault(t *testing.T) {
+ path := filepath.Join(t.TempDir(), "legacy.json")
+ if err := os.WriteFile(path, []byte(`{"recentFiles":[],"searchHistory":[],"contextLines":2,"resultLimit":500}`), 0600); err != nil { t.Fatal(err) }
+ got, err := loadSettingsFrom(path)
+ if err != nil { t.Fatal(err) }
+ if !got.CaseSensitive { t.Fatal("旧版配置缺少该字段时应保留大小写敏感默认值") }
 }

@@ -27,6 +27,11 @@ type Settings struct {
 	SearchHistory []SearchRecord `json:"searchHistory"`
 	ContextLines int `json:"contextLines"`
 	ResultLimit int `json:"resultLimit"`
+	ExcludedTerms string `json:"excludedTerms,omitempty"`
+	SearchLevelFilter string `json:"searchLevelFilter,omitempty"`
+	TimeRangeStart string `json:"timeRangeStart,omitempty"`
+	TimeRangeEnd string `json:"timeRangeEnd,omitempty"`
+	CaseSensitive bool `json:"caseSensitive"`
 }
 
 // DefaultSettings 返回适合首次启动的默认偏好值。
@@ -36,6 +41,7 @@ func DefaultSettings() Settings {
 		SearchHistory: []SearchRecord{},
 		ContextLines: 2,
 		ResultLimit: 500,
+		CaseSensitive: true,
 	}
 }
 
@@ -65,7 +71,7 @@ func loadSettingsFrom(path string) (Settings, error) {
 	if err != nil {
 		return DefaultSettings(), err
 	}
-	var settings Settings
+	settings := DefaultSettings()
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return DefaultSettings(), err
 	}
@@ -141,6 +147,14 @@ func normalize(settings *Settings) {
 	}
 	if settings.ResultLimit > 5000 {
 		settings.ResultLimit = 5000
+	}
+	if len(settings.ExcludedTerms) > 4096 {
+		settings.ExcludedTerms = settings.ExcludedTerms[:4096]
+	}
+	switch settings.SearchLevelFilter {
+	case "", "ALL", "INFO", "WARN", "ERROR":
+	default:
+		settings.SearchLevelFilter = "ALL"
 	}
 	settings.RecentFiles = dedupe(settings.RecentFiles, maxRecentFiles)
 	if settings.SearchHistory == nil {

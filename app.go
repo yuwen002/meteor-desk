@@ -52,13 +52,15 @@ type App struct {
 	eventsEnabled bool
 	mu sync.RWMutex
 	settingsSaveMu sync.Mutex
+	tailMu sync.Mutex
+	tailFiles map[string]os.FileInfo
 	searches map[string]*searchJob
 	droppedFiles []string
 	processes *process.Manager
 	settings config.Settings
 	startupErr error
 }
-func NewApp() *App { return &App{searches:map[string]*searchJob{},settings:config.DefaultSettings()} }
+func NewApp() *App { return &App{searches:map[string]*searchJob{},tailFiles:map[string]os.FileInfo{},settings:config.DefaultSettings()} }
 func (a *App) startup(ctx context.Context) {
 	a.ctx=ctx
 	a.eventsEnabled=true
@@ -87,6 +89,25 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
+// ReadLogTailChunk 读取日志文件新增内容；文件被截断或路径指向的文件被替换时从头读取。
+func (a *App) ReadLogTailChunk(path string, offset int64) (logx.TailChunk, error) {
+	if strings.TrimSpace(path) == "" {
+		return logx.TailChunk{}, errors.New("日志文件路径不能为空")
+	}
+	a.tailMu.Lock()
+	defer a.tailMu.Unlock()
+	if a.tailFiles == nil {
+		a.tailFiles = make(map[string]os.FileInfo)
+	}
+	key := filepath.Clean(path)
+	chunk, info, err := logx.ReadTailChunkWithPrevious(path, offset, a.tailFiles[key])
+	if err != nil {
+		return logx.TailChunk{}, err
+	}
+	a.tailFiles[key] = info
+	return chunk, nil
+}
+
 // SelectLogFile 打开系统文件选择器，返回用户选中的日志路径。
 func (a *App) SelectLogFile()(string,error){
 	if a.ctx==nil{return "",errors.New("桌面运行环境尚未就绪")}
@@ -96,16 +117,25 @@ func (a *App) SelectLogFile()(string,error){
 	}})
 	return path,err
 }
+// ValidateLogFile 检查最近文件路径是否仍指向可读取的普通文件。
+func (a *App) ValidateLogFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() { return false }
+	file, err := os.Open(path)
+	if err != nil { return false }
+	return file.Close() == nil
+}
+
 // PollDroppedFiles 取出并清空桌面拖放事件中积累的文件路径。
 func (a *App) PollDroppedFiles()[]string{
 	a.mu.Lock();defer a.mu.Unlock();paths:=append([]string(nil),a.droppedFiles...);a.droppedFiles=a.droppedFiles[:0];return paths
 }
 // SearchLogs 执行不带上下文行的日志搜索，保留旧版桥接调用入口。
 func (a *App) SearchLogs(searchID,path,query string,useRegex bool,maxResults int)(logx.SearchResponse,error){
-	return a.SearchLogsAdvanced(searchID,path,query,useRegex,maxResults,0,"auto",false)
+	return a.SearchLogsAdvanced(searchID,path,query,useRegex,maxResults,0,"auto",false,true)
 }
 // SearchLogsAdvanced 注册一个可取消的搜索任务；扫描期间通过进度和增量匹配接口读取状态。
-func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxResults,contextLines int,encoding string,multiLineJSON bool)(logx.SearchResponse,error){
+func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxResults,contextLines int,encoding string,multiLineJSON,caseSensitive bool)(logx.SearchResponse,error){
 	if a.ctx==nil{return logx.SearchResponse{},errors.New("桌面运行环境尚未就绪")}
 	if searchID==""{return logx.SearchResponse{},errors.New("缺少检索任务编号")}
 	a.mu.Lock();a.pruneSearchesLocked()
@@ -113,7 +143,7 @@ func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxRes
 	searchCtx,cancel:=context.WithCancel(a.ctx)
 	a.searches[searchID]=&searchJob{cancel:cancel,progress:LogSearchProgress{SearchID:searchID,Running:true}}
 	a.mu.Unlock()
-	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding, MultiLineJSON:multiLineJSON},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
+	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding, MultiLineJSON:multiLineJSON, IgnoreCase:!caseSensitive},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
 	a.finishSearchJob(searchID, path, response, err)
 	cancel()
 	return response,err

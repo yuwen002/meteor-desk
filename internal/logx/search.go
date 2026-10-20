@@ -236,6 +236,8 @@ type SearchOptions struct {
 	Encoding string `json:"encoding,omitempty"`
 	// MultiLineJSON 将跨行 JSON 对象/数组作为一个文档匹配；单行日志仍按行检索。
 	MultiLineJSON bool `json:"multiLineJSON,omitempty"`
+	// CaseSensitive 控制普通文本和正则表达式是否区分大小写。
+	IgnoreCase bool `json:"ignoreCase,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
@@ -297,13 +299,16 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 
 	var matcher *regexp.Regexp
 	if useRegex {
-		compiled, err := regexp.Compile(query)
+		pattern := query
+		if options.IgnoreCase { pattern = "(?i:" + query + ")" }
+		compiled, err := regexp.Compile(pattern)
 		if err != nil {
 			return SearchResponse{}, fmt.Errorf("正则表达式无效：%w", err)
 		}
 		matcher = compiled
 	}
 	needle := []byte(query)
+	if options.IgnoreCase { needle = bytes.ToLower(needle) }
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -347,7 +352,8 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		Matches: make([]Match, 0, min(maxResults, 128)),
 	}
 	if options.MultiLineJSON {
-		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, onProgress)
+		if options.IgnoreCase && matcher == nil { matcher, _ = regexp.Compile("(?i:" + regexp.QuoteMeta(query) + ")") }
+		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, contextLines, onProgress)
 	}
 
 	var lineNumber int64
@@ -416,7 +422,9 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		}
 
 		if !lineMatched {
-			if bytes.Contains(part, needle) {
+			searchPart := part
+			if options.IgnoreCase { searchPart = bytes.ToLower(part) }
+			if bytes.Contains(searchPart, needle) {
 				lineMatched = true
 			} else {
 				// 只有跨块匹配才需要拼接边界：最多分配关键字长度左右的少量内存。
@@ -426,6 +434,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 					cross := make([]byte, 0, len(carry)+prefixLen)
 					cross = append(cross, carry...)
 					cross = append(cross, part[:prefixLen]...)
+					if options.IgnoreCase { cross = bytes.ToLower(cross) }
 					lineMatched = bytes.Contains(cross, needle)
 				}
 				if !lineMatched && keep > 0 {
