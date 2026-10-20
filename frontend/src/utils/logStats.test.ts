@@ -23,6 +23,16 @@ describe('summarizeLogLines', () => {
     expect(stats.repeatedErrors[0].message).toContain('<N>')
   })
 
+  it('groups JSON errors by their message instead of changing timestamps and request IDs', () => {
+    const stats = summarizeLogLines([
+      { content: '{"timestamp":"2026-10-20T10:02:15Z","level":"ERROR","message":"database request 123456 failed"}' },
+      { content: '{"timestamp":"2026-10-20T10:03:15Z","level":"ERROR","message":"database request 987654 failed"}' },
+    ])
+    expect(stats.repeatedErrors).toHaveLength(1)
+    expect(stats.repeatedErrors[0].count).toBe(2)
+    expect(stats.repeatedErrors[0].message).toBe('database request <N> failed')
+  })
+
   it('builds minute buckets from text and JSON timestamps in chronological order', () => {
     const stats = summarizeLogLines([
       { content: '{"timestamp":"2026-10-20T10:02:15Z","level":"ERROR","message":"bad"}' },
