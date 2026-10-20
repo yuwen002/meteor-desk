@@ -15,7 +15,7 @@ import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShor
 type PageKey='logs'|'processes'|'toolkit'
 const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex=ref(false), contextLines=ref(2), resultLimit=ref(500), encodingMode=ref('auto'), multiLineJSON=ref(false), caseSensitive=ref(true)
 const workspaceTabs=ref<LogWorkspaceTab[]>([createLogWorkspaceTab('log-1')]), activeTabId=ref('log-1')
-const tabSnapshots=new Map<string,{response:LogSearchResponse|null;selectedMatch:LogMatch|null;scrollTop:number;tailText:string;tailBytes:number;tailOffset:number;tailLevelFilter:TailLevelFilter}>()
+const tabSnapshots=new Map<string,{response:LogSearchResponse|null;selectedMatch:LogMatch|null;scrollTop:number;tailText:string;tailBytes:number;tailOffset:number;tailLevelFilter:TailLevelFilter;tailing:boolean;tailPaused:boolean;tailError:string}>()
 let nextTabNumber=2
 const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), searchProgress=ref<LogSearchProgress|null>(null), searchID=ref('')
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
@@ -79,15 +79,15 @@ function addRecent(path:string){if(!path)return;appSettings.value.recentFiles=[p
 function saveActiveTab(){
  const tab=workspaceTabs.value.find(item=>item.id===activeTabId.value);if(!tab)return
  Object.assign(tab,{title:filePath.value.split(/[\\/]/).filter(Boolean).pop()||'新建日志',filePath:filePath.value,query:query.value,useRegex:useRegex.value,caseSensitive:caseSensitive.value,contextLines:contextLines.value,resultLimit:resultLimit.value,encodingMode:encodingMode.value,multiLineJSON:multiLineJSON.value,timeRangeStart:timeRangeStart.value,timeRangeEnd:timeRangeEnd.value,excludedTerms:excludedTerms.value,searchLevelFilter:searchLevelFilter.value})
- tabSnapshots.set(tab.id,{response:response.value,selectedMatch:selectedMatch.value,scrollTop:scrollTop.value,tailText:tailText.value,tailBytes:tailBytes.value,tailOffset:tailOffset.value,tailLevelFilter:tailLevelFilter.value})
+ tabSnapshots.set(tab.id,{response:response.value,selectedMatch:selectedMatch.value,scrollTop:scrollTop.value,tailText:tailText.value,tailBytes:tailBytes.value,tailOffset:tailOffset.value,tailLevelFilter:tailLevelFilter.value,tailing:tailing.value,tailPaused:tailPaused.value,tailError:tailError.value})
 }
 function restoreTab(tab:LogWorkspaceTab){
  filePath.value=tab.filePath;query.value=tab.query;useRegex.value=tab.useRegex;caseSensitive.value=tab.caseSensitive;contextLines.value=tab.contextLines;resultLimit.value=tab.resultLimit;encodingMode.value=tab.encodingMode;multiLineJSON.value=tab.multiLineJSON;timeRangeStart.value=tab.timeRangeStart;timeRangeEnd.value=tab.timeRangeEnd;excludedTerms.value=tab.excludedTerms;searchLevelFilter.value=tab.searchLevelFilter
- const s=tabSnapshots.get(tab.id);response.value=s?.response??null;selectedMatch.value=s?.selectedMatch??null;scrollTop.value=s?.scrollTop??0;tailText.value=s?.tailText??'';tailBytes.value=s?.tailBytes??0;tailOffset.value=s?.tailOffset??-1;tailLevelFilter.value=s?.tailLevelFilter??'ALL'
+ const s=tabSnapshots.get(tab.id);response.value=s?.response??null;selectedMatch.value=s?.selectedMatch??null;scrollTop.value=s?.scrollTop??0;tailText.value=s?.tailText??'';tailBytes.value=s?.tailBytes??0;tailOffset.value=s?.tailOffset??-1;tailLevelFilter.value=s?.tailLevelFilter??'ALL';tailing.value=s?.tailing??false;tailPaused.value=s?.tailPaused??false;tailError.value=s?.tailError??''
 }
-function switchTab(id:string){if(busy.value||id===activeTabId.value)return;const next=workspaceTabs.value.find(tab=>tab.id===id);if(!next)return;saveActiveTab();stopTail();activeTabId.value=id;restoreTab(next);errorMessage.value=''}
+function switchTab(id:string){if(busy.value||id===activeTabId.value)return;const next=workspaceTabs.value.find(tab=>tab.id===id);if(!next)return;saveActiveTab();stopTail();activeTabId.value=id;restoreTab(next);if(tailing.value&&!tailPaused.value)resumeTail();errorMessage.value=''}
 function newLogTab(){if(busy.value)return;saveActiveTab();stopTail();const id='log-'+nextTabNumber++;const tab=createLogWorkspaceTab(id);workspaceTabs.value.push(tab);activeTabId.value=id;restoreTab(tab)}
-function closeLogTab(id:string){if(busy.value||workspaceTabs.value.length<=1)return;saveActiveTab();if(id===activeTabId.value)stopTail();const current=workspaceTabs.value.findIndex(tab=>tab.id===id);const tabs=workspaceTabs.value.filter(tab=>tab.id!==id);const nextActive=activeTabId.value===id?tabs[Math.min(current,tabs.length-1)].id:activeTabId.value;workspaceTabs.value=tabs;activeTabId.value=nextActive;tabSnapshots.delete(id);const next=workspaceTabs.value.find(tab=>tab.id===nextActive);if(next)restoreTab(next)}
+function closeLogTab(id:string){if(busy.value||workspaceTabs.value.length<=1)return;saveActiveTab();const wasActive=id===activeTabId.value;if(wasActive)stopTail();const current=workspaceTabs.value.findIndex(tab=>tab.id===id);const tabs=workspaceTabs.value.filter(tab=>tab.id!==id);const nextActive=wasActive?tabs[Math.min(current,tabs.length-1)].id:activeTabId.value;workspaceTabs.value=tabs;activeTabId.value=nextActive;tabSnapshots.delete(id);const next=workspaceTabs.value.find(tab=>tab.id===nextActive);if(next){restoreTab(next);if(wasActive&&tailing.value&&!tailPaused.value)resumeTail()}}
 async function loadSettings(){const a=api();if(!a)return;try{appSettings.value=await a.GetAppSettings();contextLines.value=appSettings.value.contextLines??2;resultLimit.value=appSettings.value.resultLimit??500;excludedTerms.value=appSettings.value.excludedTerms??'';searchLevelFilter.value=appSettings.value.searchLevelFilter??'ALL';timeRangeStart.value=appSettings.value.timeRangeStart??'';timeRangeEnd.value=appSettings.value.timeRangeEnd??'';caseSensitive.value=appSettings.value.caseSensitive??true;const savedRecent=appSettings.value.recentFiles.slice();const validRecent=[] as string[];for(const path of savedRecent){if(await a.ValidateLogFile(path))validRecent.push(path)}appSettings.value.recentFiles=validRecent;if(validRecent.length){filePath.value=validRecent[0];workspaceTabs.value[0].filePath=filePath.value;workspaceTabs.value[0].title=filePath.value.split(/[\\/]/).filter(Boolean).pop()||'新建日志'}else if(savedRecent.length)errorMessage.value='最近打开的日志文件已不存在或不可读取，请重新选择文件。';if(validRecent.length!==savedRecent.length)void persistSettings()}catch(e){errorMessage.value='读取设置失败：'+String(e)}}
 function openDroppedFiles(paths:string[]){if(!paths.length)return;if(busy.value){pendingDroppedPaths=paths.slice();return}stopTail();filePath.value=paths[0];response.value=null;selectedMatch.value=null;scrollTop.value=0;const tab=workspaceTabs.value.find(item=>item.id===activeTabId.value);if(tab){tab.filePath=paths[0];tab.title=paths[0].split(/[\\/]/).filter(Boolean).pop()||'新建日志'}addRecent(paths[0]);if(paths.length>1)errorMessage.value='已打开第一个文件；本次共拖入 '+paths.length+' 个文件。'}
 async function chooseFile(){if(busy.value)return;errorMessage.value='';const a=api();if(!a){errorMessage.value='请通过 Wails 桌面应用运行，才能使用系统文件选择器。';return}try{const p=await a.SelectLogFile();if(p&&!busy.value)openDroppedFiles([p])}catch(e){errorMessage.value=String(e)}}
@@ -186,13 +186,18 @@ async function pollTail(generation=tailGeneration){
 async function startTail(){
  if(!filePath.value){tailError.value='请先选择日志文件。';return}
  stopTail()
- const generation=tailGeneration
  tailText.value='';tailBytes.value=0;tailError.value='';tailPaused.value=false;tailOffset.value=-1;tailing.value=true
- await pollTail(generation)
- if(tailing.value&&generation===tailGeneration)tailTimer=window.setInterval(()=>void pollTail(),700)
+ resumeTail()
+}
+function resumeTail(){
+ if(!tailing.value||tailPaused.value||!filePath.value)return
+ if(tailTimer!==undefined)window.clearInterval(tailTimer)
+ const generation=tailGeneration
+ void pollTail(generation)
+ tailTimer=window.setInterval(()=>void pollTail(generation),700)
 }
 function stopTail(){tailGeneration++;tailPoller.invalidate();tailing.value=false;tailPaused.value=false;if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
-function toggleTailPause(){tailPaused.value=!tailPaused.value;tailGeneration++;tailPoller.invalidate();if(!tailPaused.value)void pollTail(tailGeneration)}
+function toggleTailPause(){tailPaused.value=!tailPaused.value;tailGeneration++;tailPoller.invalidate();if(tailPaused.value){if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}else resumeTail()}
 function clearTail(){tailText.value='';tailBytes.value=0}
 function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
