@@ -17,7 +17,7 @@ func TestSearchLogsRejectsDuplicateTaskID(t *testing.T) {
 		completedAt: time.Now(),
 	}
 
-	_, err := app.SearchLogsAdvanced("duplicate", "unused.log", "needle", false, 10, 0, "auto", false)
+	_, err := app.SearchLogsAdvanced("duplicate", "unused.log", "needle", false, 10, 0, "auto", false, true)
 	if err == nil || err.Error() != "检索任务编号重复" {
 		t.Fatalf("重复任务 ID 应被拒绝，实际错误：%v", err)
 	}
