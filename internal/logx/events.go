@@ -57,7 +57,11 @@ func AggregateEvents(lines []string, maxEventLines int) []Event {
 			}
 		}
 		current = &Event{StartLine: lineNo, EndLine: lineNo, Timestamp: ts, Level: level, Content: line}
-		jsonDepth, inString, escaped = jsonBalance(line, 0, false, false)
+		jsonDepth, inString, escaped = 0, false, false
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+			jsonDepth, inString, escaped = jsonBalance(line, 0, false, false)
+		}
 	}
 	appendLine := func(line string, lineNo int) {
 		if current == nil {
