@@ -38,7 +38,22 @@ function timestampOf(line: string): Date | null {
 }
 
 function normalizeError(line: string): string {
-  return line.trim()
+  let source = line.trim()
+  // JSON logs often put the changing timestamp and metadata outside the actual error.
+  // Prefer the message field so identical failures can be grouped across requests.
+  if (source.startsWith('{')) {
+    try {
+      const parsed: unknown = JSON.parse(source)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>
+        const message = record.message ?? record.msg ?? record.error ?? record.exception
+        if (typeof message === 'string') source = message
+        else if (message && typeof message === 'object') source = JSON.stringify(message)
+      }
+    } catch { /* Keep the original line for malformed JSON-like log messages. */ }
+  }
+
+  return source
     .replace(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*/, '')
     .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '<UUID>')
     .replace(/\b0x[0-9a-f]+\b/gi, '<HEX>')
