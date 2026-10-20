@@ -30,7 +30,7 @@ describe('summarizeLogLines', () => {
       { content: '{"ts":1792490400,"level":"WARN"}' },
     ])
     expect(stats.trend.length).toBeGreaterThanOrEqual(2)
-    expect(stats.trend[0].label).toBe('2026-10-20 10:01')
+    expect(stats.trend[0].label).toBe('2026-10-20 10:00')
     expect(stats.trend.some(bucket => bucket.error === 1)).toBe(true)
   })
 
