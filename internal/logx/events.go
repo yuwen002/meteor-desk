@@ -19,7 +19,7 @@ type Event struct {
 
 var (
 	eventTimestampPattern = regexp.MustCompile(`(?i)^\s*(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}([.,]\d{1,9})?(Z|[+-]\d{2}:?\d{2})?|\d{2}:\d{2}:\d{2}([.,]\d{1,9})?)`)
-	eventLevelPattern = regexp.MustCompile(`(?i)\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|PANIC)\b`)
+	eventLevelPattern = regexp.MustCompile(`(?i)\b(TRACE|DEBUG|INFO|WARN(ING)?|ERROR|FATAL|PANIC)\b`)
 )
 
 // AggregateEvents 将原始行聚合为逻辑日志事件。
