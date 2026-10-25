@@ -25,7 +25,11 @@ export function redactSensitiveText(source: string, replacement = '[REDACTED]', 
     replacements++
     return prefix + '"' + replacement + '"'
   })
-  replace(/(\b(?:authorization|x-api-key|api[-_]?key|password|passwd|pwd|secret|token|session(?:id)?|cookie)\b\s*[:=]\s*)([^\s,;"'}\]]+|"[^"]*"|'[^']*')/gi, (whole, prefix) => {
+  replace(/(\bauthorization\b\s*[:=]\s*)(?:(?:bearer|basic)\s+)?([^\s,;]+)/gi, (whole, prefix) => {
+    replacements++
+    return prefix + replacement
+  })
+  replace(/(\b(?:x-api-key|api[-_]?key|password|passwd|pwd|secret|token|session(?:id)?|cookie)\b\s*[:=]\s*)([^\s,;"'}\]]+|"[^"]*"|'[^']*')/gi, (whole, prefix) => {
     replacements++
     return prefix + replacement
   })
