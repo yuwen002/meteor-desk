@@ -9,7 +9,7 @@ export interface RedactionResult { text: string; replacements: number; invalidRu
 const sensitiveTokens = ['password', 'passwd', 'pwd', 'secret', 'token', 'apikey', 'api_key', 'authorization', 'cookie', 'session', 'privatekey', 'private_key', 'accesskey', 'access_key', 'credential']
 
 export function isSensitiveField(name: string): boolean {
-  const normalized = name.toLowerCase().replace(/[-.\s]/g, '')
+  const normalized = name.toLowerCase().replace(/[-_.\s]/g, '')
   return sensitiveTokens.some(token => normalized.includes(token.replace(/[_-]/g, '')))
 }
 
