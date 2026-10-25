@@ -19,3 +19,11 @@ describe('parseCron', () => {
     expect(result.nextRuns[0]?.getDate()).toBe(26)
   })
 })
+
+  it('supports a step starting at a single value and rejects repeated slashes', () => {
+    const from = new Date(2026, 9, 25, 8, 58)
+    const result = parseCron('5/20 9 * * *', from)
+    expect(result.error).toBe('')
+    expect(result.nextRuns[0]?.getMinutes()).toBe(5)
+    expect(parseCron('*/2/3 * * * *', from).error).toContain('无效')
+  })

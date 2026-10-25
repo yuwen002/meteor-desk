@@ -177,13 +177,23 @@ function showJSONValue(value: unknown): string {
 }
 
 const redactInput = ref('Authorization: Bearer secret-token\n{"db_password":"example","service":"api"}')
-const redactOutput = computed(() => redactSensitiveText(redactInput.value))
+const customRedactPattern = ref('\\b1[3-9]\\d{9}\\b')
+const customRedactReplacement = ref('[PHONE]')
+const customRedactEnabled = ref(false)
+const redactOutput = computed(() => redactSensitiveText(
+  redactInput.value,
+  '[REDACTED]',
+  customRedactEnabled.value && customRedactPattern.value.trim()
+    ? [{ pattern: customRedactPattern.value, replacement: customRedactReplacement.value }]
+    : [],
+))
 const cronInput = ref('*/15 9-17 * * 1-5')
 const cronResult = computed(() => parseCron(cronInput.value))
 const diffBefore = ref('server started\nport=8080\nmode=development')
 const diffAfter = ref('server started\nport=8081\nmode=production')
+const diffIgnoreWhitespace = ref(false)
 const textDifference = computed(() => {
-  try { return { error: '', rows: diffText(diffBefore.value, diffAfter.value) } }
+  try { return { error: '', rows: diffText(diffBefore.value, diffAfter.value, 2000, diffIgnoreWhitespace.value) } }
   catch (error) { return { error: String(error), rows: [] } }
 })
 
@@ -369,7 +379,16 @@ function resetJSON() {
       <div class="toolkit-card-heading"><div><h2>日志脱敏</h2><p>敏感字段只在浏览器内替换；原始文本不会离开本机。</p></div><ShieldAlert :size="18" /></div>
       <div class="toolkit-json-grid">
         <div class="toolkit-editor-pane"><label class="toolkit-label" for="redact-input">原始日志或配置</label><textarea id="redact-input" v-model="redactInput" class="toolkit-textarea tall mono" spellcheck="false" placeholder="粘贴日志、JSON、Header 或 URL……"></textarea><div class="toolkit-action-row"><button class="button button-quiet" @click="redactInput = ''">清空</button></div></div>
-        <div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">脱敏结果</label><button class="button button-quiet" :disabled="!redactOutput.text" @click="copyText(redactOutput.text, '脱敏结果')"><Copy :size="13" />复制</button></div><pre class="toolkit-json-output redact-output">{{ redactOutput.text }}</pre><p class="toolkit-help">已替换 {{ redactOutput.replacements }} 处值。覆盖 JSON、键值对、Authorization、URL 查询参数与私钥块。</p></div>
+        <div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">脱敏结果</label><button class="button button-quiet" :disabled="!redactOutput.text" @click="copyText(redactOutput.text, '脱敏结果')"><Copy :size="13" />复制</button></div><pre class="toolkit-json-output redact-output">{{ redactOutput.text }}</pre><p class="toolkit-help">已替换 {{ redactOutput.replacements }} 处值。覆盖 JSON、键值对、Authorization、URL 查询参数与私钥块。</p>
+          <p v-if="redactOutput.invalidRules" class="toolkit-error">有 {{ redactOutput.invalidRules }} 条自定义规则的正则表达式无效，已跳过。</p></div>
+      </div>
+      <div style="margin-top: 16px; display: grid; gap: 10px;">
+        <label class="toolkit-label" style="display:flex; align-items:center; gap:8px;"><input v-model="customRedactEnabled" type="checkbox" />启用自定义正则规则（仅在本机执行）</label>
+        <div class="toolkit-grid-two">
+          <div><label class="toolkit-label" for="redact-custom-pattern">匹配正则表达式</label><input id="redact-custom-pattern" v-model="customRedactPattern" class="toolkit-input mono" placeholder="例如 \\b1[3-9]\\d{9}\\b" /></div>
+          <div><label class="toolkit-label" for="redact-custom-replacement">替换为</label><input id="redact-custom-replacement" v-model="customRedactReplacement" class="toolkit-input mono" placeholder="[PHONE]" /></div>
+        </div>
+        <p class="toolkit-help">自定义规则匹配完整片段；无效的正则表达式会被跳过并提示。默认敏感字段规则始终启用。</p>
       </div>
     </div>
 
@@ -383,6 +402,7 @@ function resetJSON() {
     <div v-else-if="activeTool === 'diff'" class="toolkit-card">
       <div class="toolkit-card-heading"><div><h2>文本差异比较</h2><p>按行比较两段文本，适合配置、响应和日志片段。</p></div><ArrowLeftRight :size="18" /></div>
       <div class="toolkit-json-grid"><div class="toolkit-editor-pane"><label class="toolkit-label" for="diff-before">原始文本</label><textarea id="diff-before" v-model="diffBefore" class="toolkit-textarea tall mono" spellcheck="false"></textarea></div><div class="toolkit-editor-pane"><label class="toolkit-label" for="diff-after">修改后文本</label><textarea id="diff-after" v-model="diffAfter" class="toolkit-textarea tall mono" spellcheck="false"></textarea></div></div>
+      <label class="toolkit-label" style="display:flex;align-items:center;gap:8px;margin:12px 0;"><input v-model="diffIgnoreWhitespace" type="checkbox" />忽略空白字符（仅影响比较，结果保留原文）</label>
       <p v-if="textDifference.error" class="toolkit-error">{{ textDifference.error }}</p><div v-else class="text-diff-output"><div v-for="(row, index) in textDifference.rows" :key="index" :class="row.kind"><b>{{ row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ' ' }}</b><code>{{ row.value }}</code></div></div>
     </div>
 
