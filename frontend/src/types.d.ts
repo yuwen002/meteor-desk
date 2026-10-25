@@ -2,7 +2,8 @@ export {}
 
 declare global {
   interface LogLineContext { lineNumber:number; content:string; contentClipped:boolean }
-  interface LogMatch extends LogLineContext { contextBefore:LogLineContext[]; contextAfter:LogLineContext[] }
+  interface LogEventContext { startLine:number; endLine:number; content:string; contentClipped:boolean }
+  interface LogMatch extends LogLineContext { contextBefore:LogLineContext[]; contextAfter:LogLineContext[]; event?:LogEventContext }
   interface LogSearchResponse { filePath:string; encoding:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean }
   interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string }
   interface SearchMatchesEvent { searchId:string; progress:LogSearchProgress; matches?:LogMatch[] }
@@ -16,7 +17,7 @@ declare global {
   interface JsonField { path:string; value:unknown }
   interface Window { runtime?:{EventsOn:(eventName:string,callback:(event:SearchMatchesEvent)=>void)=>()=>void}; go?:{main?:{App?:{
     SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
-    SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number,encoding:string,multiLineJSON:boolean)=>Promise<LogSearchResponse>;
+    SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number,encoding:string,multiLineJSON:boolean,eventContext:boolean)=>Promise<LogSearchResponse>;
     GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; GetLogSearchMatches:(id:string,afterIndex:number)=>Promise<LogMatch[]>; CancelLogSearch:(id:string)=>Promise<boolean>;
     GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
     GetProcesses:()=>Promise<ProcessView[]>; SaveProcess:(spec:ProcessSpec)=>Promise<ProcessView>; DeleteProcess:(id:string)=>Promise<void>;

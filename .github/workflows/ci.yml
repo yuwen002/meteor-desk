@@ -40,6 +40,9 @@ jobs:
       - name: 运行完整 Go 单元测试
         run: go test ./...
 
+      - name: 日志事件聚合回归测试
+        run: go test ./internal/logx -run '^TestEventAggregation|^TestSearchFileEventContext'
+
       - name: Go 并发数据竞争检查
         run: go test -race ./...
 

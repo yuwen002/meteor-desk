@@ -2,8 +2,11 @@
 import { computed, ref } from 'vue'
 import { ArrowLeftRight, Braces, CheckCircle2, Clock3, Copy, FileJson, KeyRound, Link2, RefreshCw, ShieldAlert } from 'lucide-vue-next'
 import { appendJSONPath } from '../utils/jsonPath'
+import { redactSensitiveText } from '../utils/redact'
+import { parseCron } from '../utils/cron'
+import { diffText } from '../utils/textDiff'
 
-type ToolKey = 'timestamp' | 'json' | 'base64' | 'jwt' | 'url'
+type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'base64' | 'jwt' | 'url'
 interface JsonDiffRow { path: string; kind: '新增' | '删除' | '修改'; before: unknown; after: unknown }
 interface DateParts { year: number; month: number; day: number; hour: number; minute: number; second: number }
 
@@ -13,6 +16,9 @@ const copyStatus = ref('')
 const toolTabs: { key: ToolKey; label: string; description: string }[] = [
   { key: 'timestamp', label: '时间戳 / 时区', description: '秒、毫秒与指定时区互转' },
   { key: 'json', label: 'JSON 工具', description: '格式化、压缩和结构化对比' },
+  { key: 'redact', label: '日志脱敏', description: '本地隐藏常见敏感字段' },
+  { key: 'cron', label: 'Cron 解析', description: '校验表达式并预览下次运行' },
+  { key: 'diff', label: '文本差异', description: '逐行比较两段文本' },
   { key: 'base64', label: 'Base64', description: '支持中文等 UTF-8 文本' },
   { key: 'jwt', label: 'JWT 载荷', description: '查看 Header、Payload 与过期时间' },
   { key: 'url', label: 'URL / 参数', description: '解析 URL、编码和查询参数' },
@@ -170,6 +176,17 @@ function showJSONValue(value: unknown): string {
   return result === undefined ? String(value) : result
 }
 
+const redactInput = ref('Authorization: Bearer secret-token\n{"db_password":"example","service":"api"}')
+const redactOutput = computed(() => redactSensitiveText(redactInput.value))
+const cronInput = ref('*/15 9-17 * * 1-5')
+const cronResult = computed(() => parseCron(cronInput.value))
+const diffBefore = ref('server started\nport=8080\nmode=development')
+const diffAfter = ref('server started\nport=8081\nmode=production')
+const textDifference = computed(() => {
+  try { return { error: '', rows: diffText(diffBefore.value, diffAfter.value) } }
+  catch (error) { return { error: String(error), rows: [] } }
+})
+
 const base64Source = ref('')
 const base64Encoded = ref('')
 const base64Decoded = ref('')
@@ -291,6 +308,9 @@ function resetJSON() {
       <button v-for="tool in toolTabs" :key="tool.key" role="tab" :aria-selected="activeTool === tool.key" class="toolkit-tab" :class="{ active: activeTool === tool.key }" @click="activeTool = tool.key">
         <Clock3 v-if="tool.key === 'timestamp'" :size="16" />
         <Braces v-else-if="tool.key === 'json'" :size="16" />
+        <ShieldAlert v-else-if="tool.key === 'redact'" :size="16" />
+        <Clock3 v-else-if="tool.key === 'cron'" :size="16" />
+        <ArrowLeftRight v-else-if="tool.key === 'diff'" :size="16" />
         <FileJson v-else-if="tool.key === 'base64'" :size="16" />
         <KeyRound v-else-if="tool.key === 'jwt'" :size="16" />
         <Link2 v-else :size="16" />
@@ -343,6 +363,27 @@ function resetJSON() {
       <div v-else-if="!jsonComparison.rows.length" class="toolkit-empty"><CheckCircle2 :size="17" />左右 JSON 内容一致。</div>
       <div v-else class="toolkit-diff-list"><div v-for="row in jsonComparison.rows" :key="row.path" class="toolkit-diff-row" :class="row.kind"><div class="toolkit-diff-path"><span>{{ row.kind }}</span><code>{{ row.path }}</code></div><div class="toolkit-diff-values"><code>{{ showJSONValue(row.before) }}</code><ArrowLeftRight :size="13" /><code>{{ showJSONValue(row.after) }}</code></div></div></div>
       <p class="toolkit-help">比较基于解析后的字段路径；数组按下标比较。大于约 20,000 个叶子字段时会停止差异展开。</p>
+    </div>
+
+    <div v-else-if="activeTool === 'redact'" class="toolkit-card">
+      <div class="toolkit-card-heading"><div><h2>日志脱敏</h2><p>敏感字段只在浏览器内替换；原始文本不会离开本机。</p></div><ShieldAlert :size="18" /></div>
+      <div class="toolkit-json-grid">
+        <div class="toolkit-editor-pane"><label class="toolkit-label" for="redact-input">原始日志或配置</label><textarea id="redact-input" v-model="redactInput" class="toolkit-textarea tall mono" spellcheck="false" placeholder="粘贴日志、JSON、Header 或 URL……"></textarea><div class="toolkit-action-row"><button class="button button-quiet" @click="redactInput = ''">清空</button></div></div>
+        <div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">脱敏结果</label><button class="button button-quiet" :disabled="!redactOutput.text" @click="copyText(redactOutput.text, '脱敏结果')"><Copy :size="13" />复制</button></div><pre class="toolkit-json-output redact-output">{{ redactOutput.text }}</pre><p class="toolkit-help">已替换 {{ redactOutput.replacements }} 处值。覆盖 JSON、键值对、Authorization、URL 查询参数与私钥块。</p></div>
+      </div>
+    </div>
+
+    <div v-else-if="activeTool === 'cron'" class="toolkit-card">
+      <div class="toolkit-card-heading"><div><h2>Cron 表达式解析</h2><p>使用标准五段格式：分 时 日 月 周；按本机时区预览后续执行时间。</p></div><Clock3 :size="18" /></div>
+      <label class="toolkit-label" for="cron-input">Cron 表达式</label><input id="cron-input" v-model="cronInput" class="toolkit-input mono" spellcheck="false" placeholder="*/15 9-17 * * 1-5" />
+      <p v-if="cronResult.error" class="toolkit-error">{{ cronResult.error }}</p>
+      <template v-else><p class="toolkit-help">{{ cronResult.description }}</p><div class="toolkit-diff-heading"><strong>未来执行时间</strong><span>{{ cronResult.nextRuns.length }} 项</span></div><div class="toolkit-param-list"><div v-for="run in cronResult.nextRuns" :key="run.toISOString()"><code>{{ run.toLocaleString('zh-CN') }}</code><span>{{ run.toISOString() }}</span><button @click="copyText(run.toISOString(), '执行时间')"><Copy :size="13" /></button></div></div></template>
+    </div>
+
+    <div v-else-if="activeTool === 'diff'" class="toolkit-card">
+      <div class="toolkit-card-heading"><div><h2>文本差异比较</h2><p>按行比较两段文本，适合配置、响应和日志片段。</p></div><ArrowLeftRight :size="18" /></div>
+      <div class="toolkit-json-grid"><div class="toolkit-editor-pane"><label class="toolkit-label" for="diff-before">原始文本</label><textarea id="diff-before" v-model="diffBefore" class="toolkit-textarea tall mono" spellcheck="false"></textarea></div><div class="toolkit-editor-pane"><label class="toolkit-label" for="diff-after">修改后文本</label><textarea id="diff-after" v-model="diffAfter" class="toolkit-textarea tall mono" spellcheck="false"></textarea></div></div>
+      <p v-if="textDifference.error" class="toolkit-error">{{ textDifference.error }}</p><div v-else class="text-diff-output"><div v-for="(row, index) in textDifference.rows" :key="index" :class="row.kind"><b>{{ row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ' ' }}</b><code>{{ row.value }}</code></div></div>
     </div>
 
     <div v-else-if="activeTool === 'base64'" class="toolkit-card">
@@ -422,6 +463,8 @@ function resetJSON() {
 .toolkit-result-line button{display:grid;place-items:center;padding:4px;border:0;background:transparent;color:#7d9a8e;border-radius:3px}
 .toolkit-result-line button:hover{background:#1a2827;color:#c9f4dd}
 .toolkit-divider{height:1px;margin:22px 0;background:#29313d}
+.redact-output{min-height:210px;white-space:pre-wrap;overflow-wrap:anywhere}
+.text-diff-output{max-height:420px;overflow:auto;margin-top:16px;border:1px solid #29313f;border-radius:6px;background:#0b1018;font:10px/1.65 ui-monospace,monospace}.text-diff-output>div{display:grid;grid-template-columns:22px minmax(0,1fr);padding:5px 8px}.text-diff-output b{color:#738398}.text-diff-output code{white-space:pre-wrap;overflow-wrap:anywhere;color:#bdc9d7}.text-diff-output .added{background:rgba(77,178,125,.12)}.text-diff-output .added b{color:#83edb2}.text-diff-output .removed{background:rgba(214,93,88,.12)}.text-diff-output .removed b{color:#ffaaa1}
 .compact-result{padding:9px 13px}
 .compact-result .toolkit-result-line:first-child{border-top:0}
 .bottom-converter{align-items:start}
@@ -484,6 +527,7 @@ function resetJSON() {
 :global(.theme-light) .toolkit-tab:hover{background:#edf3f8;color:#253247}
 :global(.theme-light) .toolkit-tab.active{background:#e1f5ec;border-color:#c4e8d8;color:#176b50}
 :global(.theme-light) .toolkit-card{background:linear-gradient(150deg,#fff,#fbfcfe);border-color:#dce3ec;box-shadow:0 4px 18px rgba(35,55,80,.035)}
+:global(.theme-light) .text-diff-output{background:#f7f9fc;border-color:#dce3ec}:global(.theme-light) .text-diff-output code{color:#425168}
 :global(.theme-light) .toolkit-card-heading{color:#23815f}
 :global(.theme-light) .toolkit-card-heading h2,:global(.theme-light) .toolkit-card-heading h3{color:#253247}
 :global(.theme-light) .toolkit-card-heading p{color:#6c7b90}

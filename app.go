@@ -102,10 +102,10 @@ func (a *App) PollDroppedFiles()[]string{
 }
 // SearchLogs 执行不带上下文行的日志搜索，保留旧版桥接调用入口。
 func (a *App) SearchLogs(searchID,path,query string,useRegex bool,maxResults int)(logx.SearchResponse,error){
-	return a.SearchLogsAdvanced(searchID,path,query,useRegex,maxResults,0,"auto",false)
+	return a.SearchLogsAdvanced(searchID,path,query,useRegex,maxResults,0,"auto",false,false)
 }
 // SearchLogsAdvanced 注册一个可取消的搜索任务；扫描期间通过进度和增量匹配接口读取状态。
-func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxResults,contextLines int,encoding string,multiLineJSON bool)(logx.SearchResponse,error){
+func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxResults,contextLines int,encoding string,multiLineJSON,eventContext bool)(logx.SearchResponse,error){
 	if a.ctx==nil{return logx.SearchResponse{},errors.New("桌面运行环境尚未就绪")}
 	if searchID==""{return logx.SearchResponse{},errors.New("缺少检索任务编号")}
 	a.mu.Lock();a.pruneSearchesLocked()
@@ -113,7 +113,7 @@ func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxRes
 	searchCtx,cancel:=context.WithCancel(a.ctx)
 	a.searches[searchID]=&searchJob{cancel:cancel,progress:LogSearchProgress{SearchID:searchID,Running:true}}
 	a.mu.Unlock()
-	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding, MultiLineJSON:multiLineJSON},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
+	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding, MultiLineJSON:multiLineJSON, EventContext:eventContext},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
 	a.finishSearchJob(searchID, path, response, err)
 	cancel()
 	return response,err

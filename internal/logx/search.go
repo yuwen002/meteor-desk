@@ -216,6 +216,7 @@ type Match struct {
 	ContentClipped bool `json:"contentClipped"`
 	ContextBefore []LineContext `json:"contextBefore"`
 	ContextAfter []LineContext `json:"contextAfter"`
+	Event *EventContext `json:"event,omitempty"`
 }
 
 // Progress 描述扫描进度，供桌面界面轮询展示。
@@ -236,6 +237,7 @@ type SearchOptions struct {
 	Encoding string `json:"encoding,omitempty"`
 	// MultiLineJSON 将跨行 JSON 对象/数组作为一个文档匹配；单行日志仍按行检索。
 	MultiLineJSON bool `json:"multiLineJSON,omitempty"`
+	EventContext bool `json:"eventContext,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
@@ -348,6 +350,9 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	}
 	if options.MultiLineJSON {
 		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, onProgress)
+	}
+	if options.EventContext {
+		return searchEventContext(ctx, reader, response, query, matcher, maxResults, onProgress)
 	}
 
 	var lineNumber int64
