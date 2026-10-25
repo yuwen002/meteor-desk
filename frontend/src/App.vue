@@ -8,9 +8,14 @@ import { appendJSONPath } from './utils/jsonPath'
 import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
 type PageKey='logs'|'processes'|'toolkit'
+interface LogTabState {
+ id:string; path:string; title:string; query:string; useRegex:boolean; contextLines:number; resultLimit:number; encodingMode:string; multiLineJSON:boolean; eventContext:boolean;
+ response:LogSearchResponse|null; selectedMatch:LogMatch|null; searchProgress:LogSearchProgress|null; scrollTop:number
+}
 const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex=ref(false), contextLines=ref(2), resultLimit=ref(500), encodingMode=ref('auto'), multiLineJSON=ref(false), eventContext=ref(true)
 const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), searchProgress=ref<LogSearchProgress|null>(null), searchID=ref('')
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
+const logTabs=ref<LogTabState[]>([]), activeTabId=ref('')
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
@@ -61,8 +66,17 @@ function api(){return window.go?.main?.App}
 function clearTimer(which:'progress'|'drop'){if(which==='progress'&&progressTimer!==undefined){clearInterval(progressTimer);progressTimer=undefined}if(which==='drop'&&dropTimer!==undefined){clearInterval(dropTimer);dropTimer=undefined}}
 async function persistSettings(){const a=api();if(!a)return;const settings:AppSettings={recentFiles:appSettings.value.recentFiles.slice(0,12),searchHistory:appSettings.value.searchHistory.slice(0,30),contextLines:contextLines.value,resultLimit:resultLimit.value};appSettings.value=settings;try{await enqueueSettingsSave(()=>a.SaveAppSettings(settings))}catch(e){errorMessage.value='保存本地设置失败：'+String(e)}}
 function addRecent(path:string){if(!path)return;appSettings.value.recentFiles=[path,...appSettings.value.recentFiles.filter(x=>x.toLowerCase()!==path.toLowerCase())].slice(0,12);void persistSettings()}
-async function loadSettings(){const a=api();if(!a)return;try{appSettings.value=await a.GetAppSettings();contextLines.value=appSettings.value.contextLines??2;resultLimit.value=appSettings.value.resultLimit??500;if(appSettings.value.recentFiles.length)filePath.value=appSettings.value.recentFiles[0]}catch(e){errorMessage.value='读取设置失败：'+String(e)}}
-function openDroppedFiles(paths:string[]){if(!paths.length)return;if(busy.value){pendingDroppedPaths=paths.slice();return}filePath.value=paths[0];response.value=null;selectedMatch.value=null;scrollTop.value=0;addRecent(paths[0]);if(paths.length>1)errorMessage.value='已打开第一个文件；本次共拖入 '+paths.length+' 个文件。'}
+async function loadSettings(){const a=api();if(!a)return;try{appSettings.value=await a.GetAppSettings();contextLines.value=appSettings.value.contextLines??2;resultLimit.value=appSettings.value.resultLimit??500;if(appSettings.value.recentFiles.length)openOrSwitchTab(appSettings.value.recentFiles[0])}catch(e){errorMessage.value='读取设置失败：'+String(e)}}
+function captureActiveTab():LogTabState|null{
+ if(!activeTabId.value)return null
+ return {id:activeTabId.value,path:filePath.value,title:filePath.value.split(/[\\/]/).filter(Boolean).pop()||'未命名日志',query:query.value,useRegex:useRegex.value,contextLines:contextLines.value,resultLimit:resultLimit.value,encodingMode:encodingMode.value,multiLineJSON:multiLineJSON.value,eventContext:eventContext.value,response:response.value,selectedMatch:selectedMatch.value,searchProgress:searchProgress.value,scrollTop:scrollTop.value}
+}
+function saveActiveTab(){const snapshot=captureActiveTab();if(!snapshot)return;const index=logTabs.value.findIndex(tab=>tab.id===snapshot.id);if(index>=0)logTabs.value[index]=snapshot}
+function applyTab(tab:LogTabState){activeTabId.value=tab.id;filePath.value=tab.path;query.value=tab.query;useRegex.value=tab.useRegex;contextLines.value=tab.contextLines;resultLimit.value=tab.resultLimit;encodingMode.value=tab.encodingMode;multiLineJSON.value=tab.multiLineJSON;eventContext.value=tab.eventContext;response.value=tab.response;selectedMatch.value=tab.selectedMatch;searchProgress.value=tab.searchProgress;scrollTop.value=tab.scrollTop;jsonFilter.value='';errorMessage.value=''}
+function openOrSwitchTab(path:string){const existing=logTabs.value.find(tab=>tab.path.toLowerCase()===path.toLowerCase());if(existing){saveActiveTab();applyTab(existing);addRecent(path);return}saveActiveTab();const tab:LogTabState={id:Date.now()+'-'+Math.random().toString(16).slice(2),path,title:path.split(/[\\/]/).filter(Boolean).pop()||path,query:query.value,useRegex:useRegex.value,contextLines:contextLines.value,resultLimit:resultLimit.value,encodingMode:encodingMode.value,multiLineJSON:multiLineJSON.value,eventContext:eventContext.value,response:null,selectedMatch:null,searchProgress:null,scrollTop:0};logTabs.value.push(tab);applyTab(tab);addRecent(path)}
+function switchLogTab(id:string){if(busy.value||id===activeTabId.value)return;saveActiveTab();const tab=logTabs.value.find(item=>item.id===id);if(tab)applyTab(tab)}
+function closeLogTab(id:string){if(busy.value)return;const index=logTabs.value.findIndex(tab=>tab.id===id);if(index<0)return;const wasActive=activeTabId.value===id;logTabs.value.splice(index,1);if(!wasActive)return;if(logTabs.value.length){applyTab(logTabs.value[Math.min(index,logTabs.value.length-1)])}else{activeTabId.value='';filePath.value='';response.value=null;selectedMatch.value=null;searchProgress.value=null;scrollTop.value=0;errorMessage.value=''}}
+function openDroppedFiles(paths:string[]){if(!paths.length)return;if(busy.value){pendingDroppedPaths=paths.slice();return}for(const path of paths){if(path)openOrSwitchTab(path)}}
 async function chooseFile(){if(busy.value)return;errorMessage.value='';const a=api();if(!a){errorMessage.value='请通过 Wails 桌面应用运行，才能使用系统文件选择器。';return}try{const p=await a.SelectLogFile();if(p&&!busy.value)openDroppedFiles([p])}catch(e){errorMessage.value=String(e)}}
 async function pollDrop(){const a=api();if(!a)return;try{const paths=await a.PollDroppedFiles();if(paths.length)openDroppedFiles(paths)}catch{/* 等待桌面运行时就绪 */}}
 // 每轮只追加尚未展示的匹配项，并同步进度元数据；不重复拉取完整结果集。
@@ -120,7 +134,7 @@ async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePa
   searchProgress.value={searchId:id,bytesScanned:completed.bytesScanned,fileSizeBytes:completed.fileSizeBytes,scannedLines:completed.scannedLines,matchesFound:completed.matches.length,percent:finalPercent,running:false,canceled:completed.canceled}
   await pollProgress(id)
   if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:input.query,path:input.path,useRegex:input.useRegex,contextLines:input.contextLines,encoding:input.encoding,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines&&x.encoding===record.encoding))].slice(0,30);addRecent(input.path);await persistSettings()}}
- catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false;if(pendingDroppedPaths.length){const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}}
+ catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false;saveActiveTab();if(pendingDroppedPaths.length){const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}}
 function applyHistory(r:SearchRecord){if(busy.value)return;filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';multiLineJSON.value=false;activePage.value='logs';response.value=null;selectedMatch.value=null;scrollTop.value=0}
 function updateScroll(e:Event){if(e.target instanceof HTMLElement)scrollTop.value=e.target.scrollTop}
 async function moveMatch(delta:number){
@@ -157,6 +171,12 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
   <div class="page-wrap">
    <section v-if="activePage==='logs'" class="page-content">
     <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>可观测性 / 文件分析</div><h1>日志分析<span class="title-period">。</span></h1><p class="page-subtitle">逐块读取大体积日志，支持关键字、正则、上下文、跨行 JSON 文档检索、字段过滤和常见文本编码。</p></div><button class="button button-secondary" :disabled="busy" @click="chooseFile"><FolderOpen :size="16"/>选择日志</button></div>
+    <div v-if="logTabs.length" class="log-tabs" role="tablist" aria-label="已打开的日志文件">
+     <div v-for="tab in logTabs" :key="tab.id" class="log-tab" :class="{active:tab.id===activeTabId}" role="presentation">
+      <button class="log-tab-select" role="tab" :aria-selected="tab.id===activeTabId" :disabled="busy" :title="tab.path" @click="switchLogTab(tab.id)"><FileSearch :size="13"/><span>{{tab.title}}</span><small v-if="tab.response">{{tab.response.matches.length}}</small></button>
+      <button class="log-tab-close" type="button" :aria-label="'关闭 '+tab.title" :disabled="busy" title="关闭标签页" @click.stop="closeLogTab(tab.id)"><X :size="13"/></button>
+     </div>
+    </div>
     <div class="metric-grid">
      <div class="metric-card"><div class="metric-top"><span class="metric-icon mint"><Gauge :size="16"/></span><span class="metric-kicker">检索方式</span></div><div class="metric-value">流式扫描</div><div class="metric-foot"><CheckCircle2 :size="12"/>固定大小缓冲区</div></div>
      <div class="metric-card"><div class="metric-top"><span class="metric-icon blue"><HardDrive :size="16"/></span><span class="metric-kicker">数据处理</span></div><div class="metric-value">仅限本地</div><div class="metric-foot"><CheckCircle2 :size="12"/>不上传日志内容</div></div>
