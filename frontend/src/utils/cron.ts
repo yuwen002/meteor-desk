@@ -8,14 +8,18 @@ function parseField(input: string, min: number, max: number): CronField | null {
   const values = new Set<number>()
   if (!input) return null
   for (const part of input.split(',')) {
-    const [rangePart, stepPart] = part.split('/')
-    const step = stepPart === undefined ? 1 : Number(stepPart)
+    const slashParts = part.split('/')
+    if (slashParts.length > 2) return null
+    const rangePart = slashParts[0]
+    const step = slashParts.length === 1 ? 1 : Number(slashParts[1])
     if (!Number.isInteger(step) || step <= 0) return null
     let start = min, end = max
     if (rangePart !== '*') {
       const bounds = rangePart.split('-').map(Number)
       if (bounds.some(value => !Number.isInteger(value)) || bounds.length > 2) return null
-      start = bounds[0]; end = bounds.length === 2 ? bounds[1] : start
+      start = bounds[0]
+      if (bounds.length === 2) end = bounds[1]
+      else end = slashParts.length === 2 ? max : start
     }
     if (start < min || end > max || start > end) return null
     for (let value = start; value <= end; value += step) values.add(value)
