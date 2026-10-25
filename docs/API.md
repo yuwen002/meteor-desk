@@ -113,3 +113,10 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - 配置导出中的完整环境变量值可能是凭据。脱敏导出应作为默认选项。
 - 取消搜索不会撤销已经发现的结果。
 - 本项目当前没有远程 API 身份认证层，因为其接口属于本机 Wails 桌面桥接而不是网络服务。
+
+
+## 6. 本地日志脱敏规则
+
+前端 frontend/src/utils/redact.ts 提供纯本地的 redactSensitiveText(source, replacement?, customRules?)。默认规则识别常见 JSON 敏感字段、键值对、Authorization、URL 查询参数和私钥块；可选 customRules 接受 { pattern, replacement }[]，其中 pattern 是 JavaScript 正则表达式源码，按全局匹配替换。无效正则不会中断脱敏，会通过返回值中的 invalidRules 计数提示。返回值包含脱敏后的 text、替换次数 replacements 和无效规则数 invalidRules。
+
+工具箱的自定义规则开关默认关闭，输入内容和规则只在前端本机执行，不调用远程服务。自定义规则按匹配到的完整片段替换；请避免配置过于宽泛的表达式，以免误删日志内容。此工具是文本遮蔽而非凭据吊销或安全审计，分享日志前仍应人工检查输出。
