@@ -31,8 +31,8 @@ func TestAggregateEventsKeepsMultilineJSONAsSingleEvent(t *testing.T) {
 	lines := []string{
 		"2026-10-20 12:00:00 INFO payload:",
 		"{",
-		"  "message": "text with } and INFO inside"",
-		"  ,"nested": {"ok": true}",
+		"  \"message\": \"text with } and INFO inside\"",
+		"  ,\"nested\": {\"ok\": true}",
 		"}",
 		"2026-10-20 12:00:01 WARN next",
 	}
@@ -40,7 +40,7 @@ func TestAggregateEventsKeepsMultilineJSONAsSingleEvent(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("事件数量=%d，期望 2：%+v", len(got), got)
 	}
-	if got[0].StartLine != 1 || got[0].EndLine != 5 || !strings.Contains(got[0].Content, ""nested"") {
+	if got[0].StartLine != 1 || got[0].EndLine != 5 || !strings.Contains(got[0].Content, "\"nested\"") {
 		t.Fatalf("JSON 事件边界错误：%+v", got[0])
 	}
 }
