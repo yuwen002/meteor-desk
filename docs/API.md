@@ -120,3 +120,10 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 前端 frontend/src/utils/redact.ts 提供纯本地的 redactSensitiveText(source, replacement?, customRules?)。默认规则识别常见 JSON 敏感字段、键值对、Authorization、URL 查询参数和私钥块；可选 customRules 接受 { pattern, replacement }[]，其中 pattern 是 JavaScript 正则表达式源码，按全局匹配替换。无效正则不会中断脱敏，会通过返回值中的 invalidRules 计数提示。返回值包含脱敏后的 text、替换次数 replacements 和无效规则数 invalidRules。
 
 工具箱的自定义规则开关默认关闭，输入内容和规则只在前端本机执行，不调用远程服务。自定义规则按匹配到的完整片段替换；请避免配置过于宽泛的表达式，以免误删日志内容。此工具是文本遮蔽而非凭据吊销或安全审计，分享日志前仍应人工检查输出。
+
+
+## 7. Cron 与文本 Diff
+
+`parseCron(expression, from?)` 解析标准五字段 Cron 表达式（分、时、日、月、周），支持 `*`、列表、范围和步长；返回错误信息、字段说明以及从指定时间之后的最多 8 个执行时间。当前实现按本机时区计算，不支持秒字段、月份/星期名称或 Quartz 扩展语法。
+
+`diffText(before, after, maxLines?, ignoreWhitespace?)` 返回逐行 `equal`、`added`、`removed` 结果。默认逐字符比较每行；启用 `ignoreWhitespace` 时，比较前移除空白字符，但输出行仍保留原始内容。输入总行数受 `maxLines` 限制，默认 2000 行，超限会抛出错误。
