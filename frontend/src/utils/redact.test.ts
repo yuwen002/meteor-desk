@@ -20,3 +20,26 @@ describe('redactSensitiveText', () => {
     expect(isSensitiveField('requestId')).toBe(false)
   })
 })
+
+
+describe('custom redaction rules', () => {
+  it('applies user-defined regular expressions and replacement text', () => {
+    const result = redactSensitiveText('phone=13812345678 email=dev@example.com', '[REDACTED]', [
+      { pattern: '\\b1[3-9]\\d{9}\\b', replacement: '[PHONE]' },
+      { pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', replacement: '[EMAIL]' },
+    ])
+    expect(result.text).toBe('phone=[PHONE] email=[EMAIL]')
+    expect(result.replacements).toBe(2)
+    expect(result.invalidRules).toBe(0)
+  })
+
+  it('skips invalid patterns without throwing and reports them', () => {
+    const result = redactSensitiveText('keep this text', '[REDACTED]', [
+      { pattern: '[', replacement: 'x' },
+      { pattern: '', replacement: 'x' },
+    ])
+    expect(result.text).toBe('keep this text')
+    expect(result.invalidRules).toBe(1)
+    expect(result.replacements).toBe(0)
+  })
+})
