@@ -177,7 +177,16 @@ function showJSONValue(value: unknown): string {
 }
 
 const redactInput = ref('Authorization: Bearer secret-token\n{"db_password":"example","service":"api"}')
-const redactOutput = computed(() => redactSensitiveText(redactInput.value))
+const customRedactPattern = ref('\\b1[3-9]\\d{9}\\b')
+const customRedactReplacement = ref('[PHONE]')
+const customRedactEnabled = ref(false)
+const redactOutput = computed(() => redactSensitiveText(
+  redactInput.value,
+  '[REDACTED]',
+  customRedactEnabled.value && customRedactPattern.value.trim()
+    ? [{ pattern: customRedactPattern.value, replacement: customRedactReplacement.value }]
+    : [],
+))
 const cronInput = ref('*/15 9-17 * * 1-5')
 const cronResult = computed(() => parseCron(cronInput.value))
 const diffBefore = ref('server started\nport=8080\nmode=development')
@@ -369,7 +378,16 @@ function resetJSON() {
       <div class="toolkit-card-heading"><div><h2>日志脱敏</h2><p>敏感字段只在浏览器内替换；原始文本不会离开本机。</p></div><ShieldAlert :size="18" /></div>
       <div class="toolkit-json-grid">
         <div class="toolkit-editor-pane"><label class="toolkit-label" for="redact-input">原始日志或配置</label><textarea id="redact-input" v-model="redactInput" class="toolkit-textarea tall mono" spellcheck="false" placeholder="粘贴日志、JSON、Header 或 URL……"></textarea><div class="toolkit-action-row"><button class="button button-quiet" @click="redactInput = ''">清空</button></div></div>
-        <div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">脱敏结果</label><button class="button button-quiet" :disabled="!redactOutput.text" @click="copyText(redactOutput.text, '脱敏结果')"><Copy :size="13" />复制</button></div><pre class="toolkit-json-output redact-output">{{ redactOutput.text }}</pre><p class="toolkit-help">已替换 {{ redactOutput.replacements }} 处值。覆盖 JSON、键值对、Authorization、URL 查询参数与私钥块。</p></div>
+        <div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">脱敏结果</label><button class="button button-quiet" :disabled="!redactOutput.text" @click="copyText(redactOutput.text, '脱敏结果')"><Copy :size="13" />复制</button></div><pre class="toolkit-json-output redact-output">{{ redactOutput.text }}</pre><p class="toolkit-help">已替换 {{ redactOutput.replacements }} 处值。覆盖 JSON、键值对、Authorization、URL 查询参数与私钥块。</p>
+          <p v-if="redactOutput.invalidRules" class="toolkit-error">有 {{ redactOutput.invalidRules }} 条自定义规则的正则表达式无效，已跳过。</p></div>
+      </div>
+      <div style="margin-top: 16px; display: grid; gap: 10px;">
+        <label class="toolkit-label" style="display:flex; align-items:center; gap:8px;"><input v-model="customRedactEnabled" type="checkbox" />启用自定义正则规则（仅在本机执行）</label>
+        <div class="toolkit-grid-two">
+          <div><label class="toolkit-label" for="redact-custom-pattern">匹配正则表达式</label><input id="redact-custom-pattern" v-model="customRedactPattern" class="toolkit-input mono" placeholder="例如 \\b1[3-9]\\d{9}\\b" /></div>
+          <div><label class="toolkit-label" for="redact-custom-replacement">替换为</label><input id="redact-custom-replacement" v-model="customRedactReplacement" class="toolkit-input mono" placeholder="[PHONE]" /></div>
+        </div>
+        <p class="toolkit-help">自定义规则匹配完整片段；无效的正则表达式会被跳过并提示。默认敏感字段规则始终启用。</p>
       </div>
     </div>
 
