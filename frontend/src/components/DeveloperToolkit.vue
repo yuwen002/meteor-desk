@@ -191,6 +191,7 @@ const cronInput = ref('*/15 9-17 * * 1-5')
 const cronResult = computed(() => parseCron(cronInput.value))
 const diffBefore = ref('server started\nport=8080\nmode=development')
 const diffAfter = ref('server started\nport=8081\nmode=production')
+const diffIgnoreWhitespace = ref(false)
 const textDifference = computed(() => {
   try { return { error: '', rows: diffText(diffBefore.value, diffAfter.value, 2000, diffIgnoreWhitespace.value) } }
   catch (error) { return { error: String(error), rows: [] } }
