@@ -1,0 +1,56 @@
+frontend/src/utils/textDiff.ts
+  s_25f1e996618fb3::t_b10073e9ac983f 1-19
+frontend/src/types.d.ts
+  s_25f1e996618fb3::t_96fe5c37edf7c8 5-6,20
+internal/logx/events_test.go
+  s_25f1e996618fb3::t_526b354ce9e5b4 1-3,7-24,46-70
+  s_25f1e996618fb3::t_9c0f80bf80abc1 4-6,25-45
+internal/logx/search.go
+  s_25f1e996618fb3::t_526b354ce9e5b4 219,240,354-356
+app_test.go
+  s_25f1e996618fb3::t_ced57ca0ecd017 20
+docs/API.md
+  s_25f1e996618fb3::t_ced57ca0ecd017 18
+frontend/src/components/DeveloperToolkit.vue
+  s_25f1e996618fb3::t_6dc6e9eb574ba8 5-7,9,19-21,179-189,311-313,368-388,466-467,530
+frontend/src/utils/cron.ts
+  s_25f1e996618fb3::t_c47521df572433 35
+  s_25f1e996618fb3::t_b10073e9ac983f 1-34,36-42,47-50
+  s_25f1e996618fb3::t_52c57d14b8ce1e 43-46
+internal/logx/events.go
+  s_25f1e996618fb3::t_526b354ce9e5b4 1-3,5,9-93
+  s_25f1e996618fb3::t_9c0f80bf80abc1 4,6-8,94-166
+frontend/src/utils/textDiff.test.ts
+  s_25f1e996618fb3::t_b10073e9ac983f 1-11
+.github/workflows/ci.yml
+  s_25f1e996618fb3::t_526b354ce9e5b4 43-45
+app.go
+  s_25f1e996618fb3::t_526b354ce9e5b4 105,108,116
+frontend/src/App.vue
+  s_25f1e996618fb3::t_96fe5c37edf7c8 11,47-49,107,112,166,170,180,183
+frontend/src/utils/redact.ts
+  s_25f1e996618fb3::t_b10073e9ac983f 1-34
+frontend/src/utils/redact.test.ts
+  s_25f1e996618fb3::t_b10073e9ac983f 1-22
+frontend/src/utils/cron.test.ts
+  s_25f1e996618fb3::t_52c57d14b8ce1e 16-20
+  s_25f1e996618fb3::t_b10073e9ac983f 1-5,7,11-15,21
+  s_25f1e996618fb3::t_c47521df572433 6,8-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "99c7656c72f1f482e0a3e9384202b28a32c00d61",
+  "prompts": {},
+  "sessions": {
+    "s_25f1e996618fb3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1587b-d7a7-7411-96c5-f2f426eae46a",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "liuxingyu <yuwen002@163.com>",
+      "generated_lines": 401
+    }
+  }
+}
