@@ -14,9 +14,17 @@ describe('redactSensitiveText', () => {
     expect(result.text).toContain('session_id=%5BREDACTED%5D')
     expect(result.text).toContain('mode=dev')
   })
+  it('redacts bearer credentials completely and recognizes underscore-separated API keys', () => {
+    const result = redactSensitiveText('Authorization: Bearer super-secret-value\n{"api_key":"key-value","requestId":"safe"}')
+    expect(result.text).not.toContain('super-secret-value')
+    expect(result.text).toContain('Authorization: [REDACTED]')
+    expect(result.text).toContain('"api_key":"[REDACTED]"')
+    expect(result.text).toContain('"requestId":"safe"')
+  })
   it('recognizes common sensitive field spellings', () => {
     expect(isSensitiveField('DB_PASSWORD')).toBe(true)
     expect(isSensitiveField('x-api-key')).toBe(true)
+    expect(isSensitiveField('API_KEY')).toBe(true)
     expect(isSensitiveField('requestId')).toBe(false)
   })
 })
