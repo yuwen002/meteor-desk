@@ -9,3 +9,9 @@ describe('diffText', () => {
   })
   it('bounds pathological input', () => { expect(() => diffText('a\nb\nc', 'a', 3)).toThrow('最多比较') })
 })
+
+  it('can ignore whitespace differences while preserving original output', () => {
+    expect(diffText('  service = api  ', 'service=api', 2000, true)).toEqual([
+      { kind: 'equal', value: '  service = api  ' },
+    ])
+  })
