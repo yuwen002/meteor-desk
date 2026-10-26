@@ -145,3 +145,34 @@ func TestReadTailChunkDetectsReplacedFileThatIsLarger(t *testing.T) {
 		t.Fatalf("expected replacement contents from offset zero, got %#v", chunk)
 	}
 }
+
+func TestReadTailChunkPreservesUTF8AcrossChunkBoundary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "utf8.log")
+	prefix := bytes.Repeat([]byte("a"), maxTailChunkBytes-1)
+	payload := append(prefix, []byte("界尾\n")...)
+	if err := os.WriteFile(path, payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := ReadTailChunk(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal([]byte(first.Content), prefix) {
+		t.Fatalf("first chunk should stop before a partial UTF-8 rune: content bytes=%d want=%d", len(first.Content), len(prefix))
+	}
+	if first.Offset != int64(len(prefix)) {
+		t.Fatalf("offset must stop before the partial rune: got=%d want=%d", first.Offset, len(prefix))
+	}
+
+	second, err := ReadTailChunk(path, first.Offset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Content != "界尾\n" {
+		t.Fatalf("second chunk should contain intact UTF-8 text, got %q", second.Content)
+	}
+	if first.Content+second.Content != string(payload) {
+		t.Fatal("concatenating tail chunks must reproduce the original UTF-8 payload")
+	}
+}
