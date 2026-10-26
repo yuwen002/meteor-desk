@@ -88,3 +88,63 @@ func TestParseEventTimestamp(t *testing.T) {
 		t.Fatal("非法时间戳不应解析成功")
 	}
 }
+
+func TestAggregateEventsHandlesEscapedJSONAndTimestampLikePayload(t *testing.T) {
+	lines := []string{
+		"2026-10-20 12:00:00 INFO payload:",
+		"{",
+			"  \"message\": \"escaped quote: \\\" and braces } ] 2026-10-20 12:00:01 ERROR inside string\",",
+			"  \"nested\": {\"items\": [1, 2, 3]}",
+		"}",
+		"2026-10-20 12:00:01 ERROR next real event",
+	}
+	got := AggregateEvents(lines, 100)
+	if len(got) != 2 {
+		t.Fatalf("事件数量=%d，期望 2：%+v", len(got), got)
+	}
+	if got[0].StartLine != 1 || got[0].EndLine != 5 || !strings.Contains(got[0].Content, "inside string") {
+		t.Fatalf("JSON 字符串中的括号或时间戳不应切分事件：%+v", got[0])
+	}
+	if got[1].StartLine != 6 {
+		t.Fatalf("真实时间戳边界错误：%+v", got[1])
+	}
+}
+
+func TestAggregateEventsLineLimitOneAndEmptyInput(t *testing.T) {
+	if got := AggregateEvents(nil, 1); len(got) != 0 {
+		t.Fatalf("空输入应返回空事件：%+v", got)
+	}
+	got := AggregateEvents([]string{
+		"2026-10-20 12:00:00 ERROR first",
+		"stack line",
+		"2026-10-20 12:00:01 INFO next",
+	}, 1)
+	if len(got) != 3 {
+		t.Fatalf("单行上限下事件数量=%d，期望 3：%+v", len(got), got)
+	}
+	if !got[0].Truncated || got[0].StartLine != 1 || got[0].EndLine != 1 {
+		t.Fatalf("第一条事件截断标记/行号错误：%+v", got[0])
+	}
+	if got[1].StartLine != 2 || got[1].EndLine != 2 || got[2].StartLine != 3 {
+		t.Fatalf("达到行数上限后不应丢失或错位：%+v", got)
+	}
+}
+
+func TestParseEventTimestampWithExplicitOffset(t *testing.T) {
+	got, ok := ParseEventTimestamp("2026-10-20 12:00:00.123+08:00", time.UTC)
+	if !ok {
+		t.Fatal("带时区偏移的空格分隔时间戳应能解析")
+	}
+	_, offset := got.Zone()
+	if offset != 8*60*60 || got.Nanosecond() != 123000000 {
+		t.Fatalf("时区偏移或小数秒错误：%v", got)
+	}
+	got, ok = ParseEventTimestamp("2026/10/20 12:00:00-0700", time.UTC)
+	if !ok {
+		t.Fatal("斜杠日期和紧凑时区偏移应能解析")
+	}
+	_, offset = got.Zone()
+	if offset != -7*60*60 {
+		t.Fatalf("时区偏移错误：%v", got)
+	}
+}
