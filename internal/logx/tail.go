@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -17,7 +18,7 @@ type TailChunk struct {
 	FileSize int64  `json:"fileSize"`
 }
 
-// ReadTailChunk 从指定字节偏移读取一小段新增内容。
+// TailFileState stores the last observed file identity and a small content checkpoint.
 type TailFileState struct {
 	Info os.FileInfo
 	Anchor []byte
@@ -52,7 +53,9 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous *TailFileStat
 
 	if offset == -1 {
 		state, stateErr := makeTailFileState(f, info, info.Size())
-		if stateErr != nil { return TailChunk{}, nil, stateErr }
+		if stateErr != nil {
+			return TailChunk{}, nil, stateErr
+		}
 		return TailChunk{Offset: info.Size(), FileSize: info.Size()}, state, nil
 	}
 	// os.SameFile 在各支持平台比较文件身份；仅比较大小无法发现更大的轮转替换文件。
@@ -74,7 +77,9 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous *TailFileStat
 	remaining := info.Size() - offset
 	if remaining <= 0 {
 		state, stateErr := makeTailFileState(f, info, offset)
-		if stateErr != nil { return TailChunk{}, nil, stateErr }
+		if stateErr != nil {
+			return TailChunk{}, nil, stateErr
+		}
 		return TailChunk{Offset: offset, Reset: reset, FileSize: info.Size()}, state, nil
 	}
 	if remaining > maxTailChunkBytes {
@@ -93,7 +98,9 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous *TailFileStat
 	}
 	newOffset := offset + int64(n)
 	state, stateErr := makeTailFileState(f, info, newOffset)
-	if stateErr != nil { return TailChunk{}, nil, stateErr }
+	if stateErr != nil {
+			return TailChunk{}, nil, stateErr
+		}
 	return TailChunk{
 		Content:  string(buf[:n]),
 		Offset:   newOffset,
@@ -106,7 +113,9 @@ const tailAnchorBytes = 64
 
 func makeTailFileState(f *os.File, info os.FileInfo, end int64) (*TailFileState, error) {
 	start := end - tailAnchorBytes
-	if start < 0 { start = 0 }
+	if start < 0 {
+		start = 0
+	}
 	anchor := make([]byte, int(end-start))
 	if len(anchor) > 0 {
 		n, err := f.ReadAt(anchor, start)
@@ -117,7 +126,9 @@ func makeTailFileState(f *os.File, info os.FileInfo, end int64) (*TailFileState,
 }
 
 func tailAnchorMatches(f *os.File, previous *TailFileState) bool {
-	if previous == nil || len(previous.Anchor) == 0 { return true }
+	if previous == nil || len(previous.Anchor) == 0 {
+		return true
+	}
 	current := make([]byte, len(previous.Anchor))
 	n, err := f.ReadAt(current, previous.AnchorOffset)
 	if err != nil && err != io.EOF { return false }
