@@ -14,9 +14,9 @@ export type LogEventOptions = {
   splitOnLevel?: boolean
 }
 const DEFAULT_MAX_EVENT_BYTES = 64 * 1024
-const LEVEL = /^\s*(?:\[[^\]]+\]\s*)?(?:\d{4}-\d{2}-\d{2}[T ][^ ]+\s+)?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL|DEBUG|TRACE)\b/i
-const TIMESTAMP = /^\s*(\d{4}-\d{2}-\d{2}[T ][0-9:.+-]+Z?)/
-const CONTINUATION = /^\s+(?:at\s+|\.\.\. \d+ more|Caused by:|Suppressed:|goroutine \d+|File ".+", line \d+|Traceback \(most recent call last\):)|^\s*\^/
+const LEVEL = /^\s*(?:\[[^\]]+\]\s*)?(?:\d{4}[-/]\d{2}[-/]\d{2}[T ][^ ]+\s+)?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL|DEBUG|TRACE)\b/i
+const TIMESTAMP = /^\s*(\d{4}[-/]\d{2}[-/]\d{2}(?:[T ][0-9:.+-]+Z?)?)/
+const CONTINUATION = /^\s*(?:at\s+|\.\.\. \d+ more|Caused by:|Suppressed:|goroutine \d+|File \".+\", line \d+|Traceback \(most recent call last\):)|^\s*\^/
 function levelOf(line: string): LogEvent['level'] {
   const match = line.match(LEVEL)
   if (!match) return 'UNKNOWN'
@@ -30,10 +30,18 @@ function timestampOf(line: string, pattern?: RegExp): string | null {
   const match = pattern ? line.match(pattern) : line.match(TIMESTAMP)
   return match?.[1] ?? null
 }
+function utf8Length(character: string): number {
+  const code = character.codePointAt(0) ?? 0
+  if (code <= 0x7f) return 1
+  if (code <= 0x7ff) return 2
+  if (code <= 0xffff) return 3
+  return 4
+}
 /**
  * Group line-oriented logs into bounded events. A new timestamped record or
- * recognized level header starts a new event; stack traces and indented lines
- * remain attached to the preceding event. Original line numbers are preserved.
+ * recognized level header starts a new event; stack traces and continuation
+ * lines remain attached to the preceding event. maxEventBytes is a UTF-8 byte
+ * limit (not a JavaScript UTF-16 string-length limit).
  */
 export function aggregateLogEvents(input: string, options: LogEventOptions = {}): LogEvent[] {
   if (!input) return []
@@ -48,9 +56,11 @@ export function aggregateLogEvents(input: string, options: LogEventOptions = {})
   const lines = input.split(/\r?\n/)
   const events: LogEvent[] = []
   let current: LogEvent | null = null
+  let currentBytes = 0
   const flush = () => {
     if (current) events.push(current)
     current = null
+    currentBytes = 0
   }
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -58,21 +68,27 @@ export function aggregateLogEvents(input: string, options: LogEventOptions = {})
     const level = levelOf(line)
     const timestamp = timestampOf(line, timestampPattern)
     const startsNew = current === null || (timestamp !== null && current.content.length > 0) ||
-      (splitOnLevel && level !== 'UNKNOWN' && current.level !== 'UNKNOWN' && !CONTINUATION.test(line))
+      (splitOnLevel && level !== 'UNKNOWN' && current.content.length > 0 && !CONTINUATION.test(line))
     if (startsNew) {
       flush()
       current = { startLine: i + 1, endLine: i + 1, level, timestamp, content: '', truncated: false }
     }
     if (!current) continue
     current.endLine = i + 1
-    const separator = current.content ? '\n' : ''
-    const next = separator + line
-    const remaining = maxBytes - current.content.length
-    if (remaining <= 0) current.truncated = true
-    else if (next.length > remaining) {
-      current.content += next.slice(0, remaining)
-      current.truncated = true
-    } else current.content += next
+    const next = (current.content ? '\n' : '') + line
+    let added = ''
+    let exceeded = false
+    for (const character of next) {
+      const bytes = utf8Length(character)
+      if (currentBytes + bytes > maxBytes) {
+        exceeded = true
+        break
+      }
+      added += character
+      currentBytes += bytes
+    }
+    current.content += added
+    if (exceeded) current.truncated = true
   }
   flush()
   return events
