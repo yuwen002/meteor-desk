@@ -46,7 +46,7 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous os.FileInfo) 
 		return TailChunk{Offset: info.Size(), FileSize: info.Size()}, info, nil
 	}
 	// os.SameFile 在各支持平台比较文件身份；仅比较大小无法发现更大的轮转替换文件。
-	reset := offset > info.Size() || (previous != nil && !os.SameFile(previous, info))
+	reset := offset > info.Size() || (previous != nil && (!os.SameFile(previous, info) || info.Size() < previous.Size()))
 	if reset {
 		offset = 0
 	}
