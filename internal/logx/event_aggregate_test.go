@@ -81,6 +81,9 @@ func TestParseEventTimestamp(t *testing.T) {
 	if !ok || got.Hour() != 12 || got.Nanosecond() != 123000000 {
 		t.Fatalf("时间戳解析错误：%v, %v", got, ok)
 	}
+	if got, ok := ParseEventTimestamp("2026/10/20 12:00:00,123", loc); !ok || got.Nanosecond() != 123000000 {
+		t.Fatalf("逗号小数时间戳解析错误：%v, %v", got, ok)
+	}
 	if _, ok := ParseEventTimestamp("not-a-time", loc); ok {
 		t.Fatal("非法时间戳不应解析成功")
 	}
