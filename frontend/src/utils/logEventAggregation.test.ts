@@ -118,7 +118,7 @@ describe('aggregateLogEvents', () => {
       '2026-10-20T10:00:00Z ERROR request failed',
       ...stack,
       '2026-10-20T10:00:01Z INFO recovered',
-    ].join('\\n'), { maxEventBytes: 128 })
+    ].join('\n'), { maxEventBytes: 128 })
     expect(events).toHaveLength(2)
     expect(events[0].truncated).toBe(true)
     expect(new TextEncoder().encode(events[0].content).length).toBeLessThanOrEqual(128)
