@@ -203,20 +203,22 @@ func TestReadTailChunkDetectsTruncateAndRewriteBeforeNextPoll(t *testing.T) {
 
 func TestReadTailChunkDetectsSameFileRewriteToLargerContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rewrite.log")
-	if err := os.WriteFile(path, []byte("old\\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("old\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	first, previous, err := ReadTailChunkWithPrevious(path, -1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Offset != int64(len("old\\n")) {
+	if first.Offset != int64(len("old\n")) {
 		t.Fatalf("unexpected initial offset: %#v", first)
 	}
 
 	// os.WriteFile truncates and rewrites the same inode; the new file is larger than before.
-	replacement := []byte("replacement content that is much longer than the old log\\n")
-	if err := os.WriteFile(path, replacement, 0600); err != nil { t.Fatal(err) }
+	replacement := []byte("replacement content that is much longer than the old log\n")
+	if err := os.WriteFile(path, replacement, 0600); err != nil {
+		t.Fatal(err)
+	}
 	chunk, _, err := ReadTailChunkWithPrevious(path, first.Offset, previous)
 	if err != nil {
 		t.Fatal(err)
