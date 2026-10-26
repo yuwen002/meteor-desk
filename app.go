@@ -60,7 +60,7 @@ type App struct {
 	settings config.Settings
 	startupErr error
 }
-func NewApp() *App { return &App{searches:map[string]*searchJob{},tailFiles:map[string]os.FileInfo{},settings:config.DefaultSettings()} }
+func NewApp() *App { return &App{searches:map[string]*searchJob{},tailFiles:map[string]*logx.TailFileState{},settings:config.DefaultSettings()} }
 func (a *App) startup(ctx context.Context) {
 	a.ctx=ctx
 	a.eventsEnabled=true
