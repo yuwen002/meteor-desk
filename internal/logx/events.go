@@ -263,7 +263,7 @@ func AggregateEvents(lines []string, maxEventLines int) []Event {
 		isJSONStart := strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 		currentText := strings.TrimSpace(current.Content)
 		jsonContinuesCurrent := isJSONStart && (current.Timestamp != "" || strings.HasSuffix(currentText, ":"))
-		if trimmed != "" && (isTimestamp || (isLevelLine && current.Timestamp == "") || (isJSONStart && !jsonContinuesCurrent)) {
+		if trimmed != "" && (isTimestamp || isLevelLine || (isJSONStart && !jsonContinuesCurrent)) {
 			flush()
 			start(line, lineNo)
 			continue
@@ -318,6 +318,7 @@ func ParseEventTimestamp(value string, location *time.Location) (time.Time, bool
 		"15:04:05.999999999",
 		"15:04:05",
 	}
+	value = strings.ReplaceAll(value, ",", ".")
 	for _, layout := range layouts {
 		if parsed, err := time.ParseInLocation(layout, value, location); err == nil {
 			return parsed, true
