@@ -234,3 +234,18 @@ button.shortcut-hint:hover{color:#b8f8dc;background:rgba(134,247,197,.06)}
 .theme-light .stats-local-pill{border-color:#dce3ec;color:#65758a}
 .theme-light .log-duplicate-row{border-color:#e0e6ee}
 @media(max-width:700px){.log-stats-panel{margin:0 12px 12px;padding:11px}.log-stats-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.log-duplicate-row{align-items:flex-start;flex-direction:column;gap:5px}.log-duplicate-row>span{width:100%}}
+
+/* Anomaly overview: readable contrast and compact narrow-window layout. */
+.theme-light .log-trend-row>span,
+.theme-light .log-trend-row>small{color:#65758a}
+.theme-light .log-trend-track{background:#e9eef4}
+@media(max-width:480px){
+  .log-stats-heading{align-items:flex-start;flex-direction:column}
+  .log-stats-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .log-stat-card{padding:8px}
+  .log-stat-card strong{font-size:18px}
+  .log-trend-row{grid-template-columns:minmax(72px,88px) minmax(24px,1fr) 42px;gap:6px}
+  .log-trend-row>span,.log-trend-row>small{font-size:9px}
+  .log-duplicate-row{gap:6px;padding:8px}
+  .log-duplicate-row code{white-space:normal;overflow-wrap:anywhere;line-height:1.45}
+}
