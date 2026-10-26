@@ -200,3 +200,58 @@ button.shortcut-hint:hover{color:#b8f8dc;background:rgba(134,247,197,.06)}
 .theme-light .process-config-toolbar{box-shadow:0 2px 8px rgba(35,55,80,.025)}
 .theme-light .process-form-actions .button:disabled{opacity:.55}
 
+
+
+/* Live tail: bounded, readable output in both themes. */
+.tail-panel{margin-top:18px;border:1px solid #29313f;border-radius:10px;background:linear-gradient(150deg,rgba(20,26,37,.98),rgba(16,21,31,.98));overflow:hidden;min-width:0}
+.tail-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 21px;border-bottom:1px solid #252d3a}
+.tail-heading h3{margin:0 0 5px;color:#e4eaf2;font-size:13px;font-weight:650}
+.tail-heading p{margin:0;color:#7f8b9e;font-size:10px;line-height:1.6}
+.tail-actions,.tail-toolbar,.tail-level-filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.tail-actions{justify-content:flex-end}
+.tail-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 21px;color:#8492a5;font-size:10px;border-bottom:1px solid #252d3a}
+.tail-status .status-dot{background:#8ff0be}
+.tail-status .tail-status-paused{background:#718096;box-shadow:none}
+.tail-error{color:#ff9e95;overflow-wrap:anywhere}
+.tail-toolbar{justify-content:space-between;gap:12px;padding:11px 21px;border-bottom:1px solid #252d3a}
+.tail-level-filters>span{font-size:10px;color:#8492a5;margin-right:3px}
+.tail-level-filters .button{height:28px}
+.tail-level-filters .tail-filter-active{border-color:#70cda8;background:rgba(134,247,197,.12);color:#a4f8d3}
+.tail-event-toggle{display:flex;align-items:center;gap:7px;color:#9aa7b8;font-size:10px;white-space:nowrap}
+.tail-event-toggle input{accent-color:#80e8b8}
+.tail-output,.tail-event-list{margin:0;padding:14px 18px;max-height:360px;min-height:125px;overflow:auto;background:#0d121b;color:#c6d2df;font:11px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
+.tail-output{border:0}
+.tail-event-list{display:flex;flex-direction:column;gap:10px}
+.tail-event-card{min-width:0;border:1px solid #2b3544;border-radius:7px;background:#121925;padding:10px 12px}
+.tail-event-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;color:#8795a8;font:10px/1.5 ui-monospace,monospace}
+.tail-event-card pre{margin:0;color:#cbd6e4;font:11px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.event-level-error{color:#ff928a}.event-level-warn{color:#f5cb7a}.event-level-info{color:#8ce9bd}.event-level-unknown{color:#a4b1c3}
+.tail-panel .muted{margin:8px 0;color:#8290a3;font-size:11px}
+.theme-light .tail-panel{background:#fff;border-color:#dce3ec;box-shadow:0 4px 18px rgba(35,55,80,.035)}
+.theme-light .tail-heading,.theme-light .tail-status,.theme-light .tail-toolbar{border-color:#e0e7ef}
+.theme-light .tail-heading h3{color:#253247}
+.theme-light .tail-heading p,.theme-light .tail-status,.theme-light .tail-level-filters>span{color:#6c7b90}
+.theme-light .tail-output,.theme-light .tail-event-list{background:#f7f9fc;color:#425168}
+.theme-light .tail-event-card{background:#fff;border-color:#dce3ec}
+.theme-light .tail-event-card pre{color:#34445b}
+.theme-light .tail-event-meta{color:#68788e}
+.theme-light .tail-event-toggle{color:#52637a}
+.theme-light .tail-level-filters .tail-filter-active{color:#176b50;background:#e1f5ec;border-color:#b8e4d1}
+.theme-light .tail-panel .muted{color:#6c7b90}
+@media(max-width:900px){
+ .page-wrap{padding:24px 18px}
+ .tail-heading{flex-direction:column}
+ .tail-actions{justify-content:flex-start}
+ .tail-toolbar{align-items:flex-start;flex-direction:column}
+}
+@media(max-width:700px){
+ body{min-width:320px}
+ .sidebar{width:68px;min-width:68px;padding:18px 8px}
+ .brand{justify-content:center;padding:0 0 28px}
+ .brand-copy,.workspace-label,.sidebar-divider,.local-card,.sidebar-bottom,.nav-item span:nth-child(2),.nav-item kbd{display:none}
+ .nav-item{justify-content:center;padding:0}
+ .page-wrap{padding:18px 10px}
+ .tail-heading,.tail-status,.tail-toolbar{padding-left:12px;padding-right:12px}
+ .tail-output,.tail-event-list{padding:10px;max-height:300px}
+ .tail-actions .button{padding:0 8px}
+}
