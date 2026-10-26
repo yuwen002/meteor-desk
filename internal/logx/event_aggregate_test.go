@@ -148,3 +148,13 @@ func TestParseEventTimestampWithExplicitOffset(t *testing.T) {
 		t.Fatalf("时区偏移错误：%v", got)
 	}
 }
+
+func TestAggregateEventsDoesNotInferLevelFromJSONFields(t *testing.T) {
+	got := AggregateEvents([]string{`{"level":"ERROR","message":"INFO is payload data"}`}, 100)
+	if len(got) != 1 {
+		t.Fatalf("JSON 单行应为一个事件：%+v", got)
+	}
+	if got[0].Level != "" {
+		t.Fatalf("不应从 JSON 字段内容误判日志级别：%+v", got[0])
+	}
+}
