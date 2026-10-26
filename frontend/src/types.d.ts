@@ -16,7 +16,7 @@ declare global {
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
   interface JsonField { path:string; value:unknown }
   interface Window { runtime?:{EventsOn:(eventName:string,callback:(event:SearchMatchesEvent)=>void)=>()=>void}; go?:{main?:{App?:{
-    SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
+    SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>; ReadLogTailChunk:(path:string,offset:number)=>Promise<{content:string;offset:number;reset:boolean;fileSize:number}>;
     SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number,encoding:string,multiLineJSON:boolean,eventContext:boolean)=>Promise<LogSearchResponse>;
     GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; GetLogSearchMatches:(id:string,afterIndex:number)=>Promise<LogMatch[]>; CancelLogSearch:(id:string)=>Promise<boolean>;
     GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
