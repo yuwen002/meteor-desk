@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const maxEventBytes = 512 * 1024
@@ -163,4 +164,164 @@ func searchEventContext(ctx context.Context, reader *bufio.Reader, response Sear
 	response.BytesScanned = response.FileSizeBytes
 	notify(true)
 	return response, nil
+}
+
+
+// Event 表示由多行原始日志组成的一条逻辑事件。
+// StartLine 和 EndLine 均为从 1 开始的原始行号。
+type Event struct {
+	StartLine int
+	EndLine   int
+	Timestamp string
+	Level     string
+	Content   string
+	Truncated bool
+}
+
+var (
+	eventTimestampPattern = regexp.MustCompile(`(?i)^\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{2}:\d{2}:\d{2}([.,]\d{1,9})?(Z|[+-]\d{2}:?\d{2})?|\d{2}:\d{2}:\d{2}([.,]\d{1,9})?)`)
+	eventLevelPattern     = regexp.MustCompile(`(?i)^\s*(?:\[[^\]]+\]\s*)?(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|PANIC)\b`)
+	eventLevelWordPattern = regexp.MustCompile(`(?i)\b(TRACE|DEBUG|INFO|WARN(ING)?|ERROR|FATAL|PANIC)\b`)
+)
+
+// AggregateEvents 将原始日志行聚合为逻辑事件。
+// 新时间戳行开启新事件；堆栈、普通续行和未闭合的多行 JSON 保留在当前事件。
+// maxEventLines 限制单事件行数，小于 1 时默认 10000 行。
+func AggregateEvents(lines []string, maxEventLines int) []Event {
+	if len(lines) == 0 {
+		return nil
+	}
+	if maxEventLines < 1 {
+		maxEventLines = 10000
+	}
+
+	events := make([]Event, 0, min(len(lines), 256))
+	var current *Event
+	var jsonDepth int
+	var inString, escaped bool
+
+	flush := func() {
+		if current == nil {
+			return
+		}
+		events = append(events, *current)
+		current = nil
+		jsonDepth = 0
+		inString, escaped = false, false
+	}
+	start := func(line string, lineNo int) {
+		ts := strings.TrimSpace(eventTimestampPattern.FindString(line))
+		level := ""
+		if match := eventLevelWordPattern.FindStringSubmatch(line); len(match) > 1 {
+			level = strings.ToUpper(match[1])
+			if level == "WARNING" {
+				level = "WARN"
+			}
+		}
+		current = &Event{StartLine: lineNo, EndLine: lineNo, Timestamp: ts, Level: level, Content: line}
+		jsonDepth, inString, escaped = 0, false, false
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+			jsonDepth, inString, escaped = jsonBalance(line, 0, false, false)
+		}
+	}
+	appendLine := func(line string, lineNo int) {
+		if current == nil {
+			start(line, lineNo)
+			return
+		}
+		if current.EndLine-current.StartLine+1 >= maxEventLines {
+			current.Truncated = true
+			flush()
+			start(line, lineNo)
+			return
+		}
+		current.Content += "\n" + line
+		current.EndLine = lineNo
+		jsonDepth, inString, escaped = jsonBalance(line, jsonDepth, inString, escaped)
+	}
+
+	for i, line := range lines {
+		lineNo := i + 1
+		trimmed := strings.TrimSpace(line)
+		if current == nil {
+			start(line, lineNo)
+			continue
+		}
+
+		// JSON 尚未闭合时，即使字符串中出现时间戳或日志级别，也不能切分事件。
+		if jsonDepth > 0 || inString {
+			appendLine(line, lineNo)
+			continue
+		}
+
+		isTimestamp := eventTimestampPattern.MatchString(line)
+		isLevelLine := eventLevelPattern.MatchString(line) &&
+			!strings.HasPrefix(trimmed, "at ") &&
+			!strings.HasPrefix(trimmed, "Caused by:") &&
+			!strings.HasPrefix(trimmed, "... ")
+		isJSONStart := strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
+		currentText := strings.TrimSpace(current.Content)
+		jsonContinuesCurrent := isJSONStart && (current.Timestamp != "" || strings.HasSuffix(currentText, ":"))
+		if trimmed != "" && (isTimestamp || (isLevelLine && current.Timestamp == "") || (isJSONStart && !jsonContinuesCurrent)) {
+			flush()
+			start(line, lineNo)
+			continue
+		}
+		appendLine(line, lineNo)
+	}
+	flush()
+	return events
+}
+
+// jsonBalance 在字符串之外统计 JSON 对象/数组括号，并处理转义引号。
+func jsonBalance(line string, depth int, inString, escaped bool) (int, bool, bool) {
+	for _, r := range line {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch r {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch r {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return depth, inString, escaped
+}
+
+// ParseEventTimestamp 按指定时区解析事件时间戳；无时区值按 location 解释。
+func ParseEventTimestamp(value string, location *time.Location) (time.Time, bool) {
+	if location == nil {
+		location = time.Local
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006/01/02 15:04:05.999999999",
+		"2006/01/02 15:04:05",
+		"15:04:05.999999999",
+		"15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, value, location); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
 }
