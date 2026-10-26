@@ -129,6 +129,7 @@ async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePa
   await pollProgress(id)
   if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:input.query,path:input.path,useRegex:input.useRegex,contextLines:input.contextLines,encoding:input.encoding,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines&&x.encoding===record.encoding))].slice(0,30);addRecent(input.path);await persistSettings()}}
  catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false;if(pendingDroppedPaths.length){const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}}
+function boundedTailText(text:string){const limit=1024*1024;if(text.length<=limit)return text;let start=text.length-limit;const first=text.charCodeAt(start);if(first>=0xdc00&&first<=0xdfff)start++;return text.slice(start)}
 async function pollTail(generation=tailGeneration){
  if(generation!==tailGeneration||!tailing.value||tailPaused.value||tailPollInFlight)return
  const a=api()
@@ -140,7 +141,7 @@ async function pollTail(generation=tailGeneration){
   if(chunk.reset){tailText.value='';tailBytes.value=0}
   tailOffset.value=chunk.offset
   if(chunk.content){
-   tailText.value=(tailText.value+chunk.content).slice(-1024*1024)
+   tailText.value=boundedTailText(tailText.value+chunk.content)
    tailBytes.value+=new TextEncoder().encode(chunk.content).length
    await nextTick()
    if(generation===tailGeneration&&tailOutput.value)tailOutput.value.scrollTop=tailOutput.value.scrollHeight
