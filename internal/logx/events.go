@@ -180,8 +180,7 @@ type Event struct {
 
 var (
 	eventTimestampPattern = regexp.MustCompile(`(?i)^\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{2}:\d{2}:\d{2}([.,]\d{1,9})?(Z|[+-]\d{2}:?\d{2})?|\d{2}:\d{2}:\d{2}([.,]\d{1,9})?)`)
-	eventLevelPattern     = regexp.MustCompile(`(?i)^\s*(?:\[[^\]]+\]\s*)?(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|PANIC)\b`)
-	eventLevelWordPattern = regexp.MustCompile(`(?i)\b(TRACE|DEBUG|INFO|WARN(ING)?|ERROR|FATAL|PANIC)\b`)
+	eventLevelPattern     = regexp.MustCompile(`(?i)^\s*(?:\[[^\]]+\]\s*)?(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|PANIC)\b`)
 )
 
 // AggregateEvents 将原始日志行聚合为逻辑事件。
@@ -212,7 +211,11 @@ func AggregateEvents(lines []string, maxEventLines int) []Event {
 	start := func(line string, lineNo int) {
 		ts := strings.TrimSpace(eventTimestampPattern.FindString(line))
 		level := ""
-		if match := eventLevelWordPattern.FindStringSubmatch(line); len(match) > 1 {
+		levelText := line
+		if timestamp := eventTimestampPattern.FindString(line); timestamp != "" {
+			levelText = strings.TrimSpace(strings.TrimPrefix(line, timestamp))
+		}
+		if match := eventLevelPattern.FindStringSubmatch(levelText); len(match) > 1 {
 			level = strings.ToUpper(match[1])
 			if level == "WARNING" {
 				level = "WARN"
