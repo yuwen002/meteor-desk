@@ -53,12 +53,14 @@ type App struct {
 	mu sync.RWMutex
 	settingsSaveMu sync.Mutex
 	searches map[string]*searchJob
+	tailMu sync.Mutex
+	tailFiles map[string]*logx.TailFileState
 	droppedFiles []string
 	processes *process.Manager
 	settings config.Settings
 	startupErr error
 }
-func NewApp() *App { return &App{searches:map[string]*searchJob{},settings:config.DefaultSettings()} }
+func NewApp() *App { return &App{searches:map[string]*searchJob{},tailFiles:map[string]*logx.TailFileState{},settings:config.DefaultSettings()} }
 func (a *App) startup(ctx context.Context) {
 	a.ctx=ctx
 	a.eventsEnabled=true
@@ -99,6 +101,25 @@ func (a *App) SelectLogFile()(string,error){
 // PollDroppedFiles 取出并清空桌面拖放事件中积累的文件路径。
 func (a *App) PollDroppedFiles()[]string{
 	a.mu.Lock();defer a.mu.Unlock();paths:=append([]string(nil),a.droppedFiles...);a.droppedFiles=a.droppedFiles[:0];return paths
+}
+// ReadLogTailChunk 返回指定日志文件从 offset 开始的新内容。
+// offset 为 -1 时从当前文件末尾开始；检测到截断或文件替换时会重置到开头。
+func (a *App) ReadLogTailChunk(path string, offset int64) (logx.TailChunk, error) {
+	if strings.TrimSpace(path) == "" {
+		return logx.TailChunk{}, errors.New("日志文件路径不能为空")
+	}
+	key := filepath.Clean(path)
+	a.tailMu.Lock()
+	defer a.tailMu.Unlock()
+	if a.tailFiles == nil {
+		a.tailFiles = make(map[string]*logx.TailFileState)
+	}
+	chunk, info, err := logx.ReadTailChunkWithPrevious(path, offset, a.tailFiles[key])
+	if err != nil {
+		return logx.TailChunk{}, err
+	}
+	a.tailFiles[key] = info
+	return chunk, nil
 }
 // SearchLogs 执行不带上下文行的日志搜索，保留旧版桥接调用入口。
 func (a *App) SearchLogs(searchID,path,query string,useRegex bool,maxResults int)(logx.SearchResponse,error){

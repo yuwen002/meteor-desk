@@ -4,6 +4,8 @@ import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, C
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
+import { aggregateLogEvents } from './utils/logEventAggregation'
+import { filterTailLines, type TailLevelFilter } from './utils/logLevel'
 import { appendJSONPath } from './utils/jsonPath'
 import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
@@ -12,6 +14,12 @@ const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex
 const busy=ref(false), cancelRequested=ref(false), errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), searchProgress=ref<LogSearchProgress|null>(null), searchID=ref('')
 const inputRef=ref<HTMLInputElement|null>(null), selectedMatch=ref<LogMatch|null>(null), jsonFilter=ref(''), scrollTop=ref(0), resultListElement=ref<HTMLElement|null>(null)
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
+const tailing=ref(false), tailPaused=ref(false), tailText=ref(''), tailError=ref(''), tailOffset=ref(-1), tailBytes=ref(0), tailOutput=ref<HTMLElement|null>(null), tailLevelFilter=ref<TailLevelFilter>('ALL')
+const tailEventMode=ref(false)
+const tailLevelFilters:TailLevelFilter[]=['ALL','INFO','WARN','ERROR']
+const filteredTailText=computed(()=>filterTailLines(tailText.value,tailLevelFilter.value))
+const filteredTailEvents=computed(()=>aggregateLogEvents(tailText.value).filter(event=>tailLevelFilter.value==='ALL'||event.level===tailLevelFilter.value))
+let tailTimer:number|undefined, tailGeneration=0, tailPollInFlight=false
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
 const shortcutsError=ref('')
@@ -62,7 +70,7 @@ function clearTimer(which:'progress'|'drop'){if(which==='progress'&&progressTime
 async function persistSettings(){const a=api();if(!a)return;const settings:AppSettings={recentFiles:appSettings.value.recentFiles.slice(0,12),searchHistory:appSettings.value.searchHistory.slice(0,30),contextLines:contextLines.value,resultLimit:resultLimit.value};appSettings.value=settings;try{await enqueueSettingsSave(()=>a.SaveAppSettings(settings))}catch(e){errorMessage.value='保存本地设置失败：'+String(e)}}
 function addRecent(path:string){if(!path)return;appSettings.value.recentFiles=[path,...appSettings.value.recentFiles.filter(x=>x.toLowerCase()!==path.toLowerCase())].slice(0,12);void persistSettings()}
 async function loadSettings(){const a=api();if(!a)return;try{appSettings.value=await a.GetAppSettings();contextLines.value=appSettings.value.contextLines??2;resultLimit.value=appSettings.value.resultLimit??500;if(appSettings.value.recentFiles.length)filePath.value=appSettings.value.recentFiles[0]}catch(e){errorMessage.value='读取设置失败：'+String(e)}}
-function openDroppedFiles(paths:string[]){if(!paths.length)return;if(busy.value){pendingDroppedPaths=paths.slice();return}filePath.value=paths[0];response.value=null;selectedMatch.value=null;scrollTop.value=0;addRecent(paths[0]);if(paths.length>1)errorMessage.value='已打开第一个文件；本次共拖入 '+paths.length+' 个文件。'}
+function openDroppedFiles(paths:string[]){if(!paths.length)return;if(busy.value){pendingDroppedPaths=paths.slice();return}stopTail();filePath.value=paths[0];response.value=null;selectedMatch.value=null;scrollTop.value=0;addRecent(paths[0]);if(paths.length>1)errorMessage.value='已打开第一个文件；本次共拖入 '+paths.length+' 个文件。'}
 async function chooseFile(){if(busy.value)return;errorMessage.value='';const a=api();if(!a){errorMessage.value='请通过 Wails 桌面应用运行，才能使用系统文件选择器。';return}try{const p=await a.SelectLogFile();if(p&&!busy.value)openDroppedFiles([p])}catch(e){errorMessage.value=String(e)}}
 async function pollDrop(){const a=api();if(!a)return;try{const paths=await a.PollDroppedFiles();if(paths.length)openDroppedFiles(paths)}catch{/* 等待桌面运行时就绪 */}}
 // 每轮只追加尚未展示的匹配项，并同步进度元数据；不重复拉取完整结果集。
@@ -121,6 +129,52 @@ async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePa
   await pollProgress(id)
   if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:input.query,path:input.path,useRegex:input.useRegex,contextLines:input.contextLines,encoding:input.encoding,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines&&x.encoding===record.encoding))].slice(0,30);addRecent(input.path);await persistSettings()}}
  catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false;if(pendingDroppedPaths.length){const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}}
+function boundedTailText(text:string){const limit=1024*1024;if(text.length<=limit)return text;let start=text.length-limit;const first=text.charCodeAt(start);if(first>=0xdc00&&first<=0xdfff)start++;return text.slice(start)}
+async function pollTail(generation=tailGeneration){
+ if(generation!==tailGeneration||!tailing.value||tailPaused.value||tailPollInFlight)return
+ const a=api()
+ if(!a?.ReadLogTailChunk){tailError.value='当前桌面桥接尚未就绪，请重启桌面应用后重试。';return}
+ tailPollInFlight=true
+ try{
+  const chunk=await a.ReadLogTailChunk(filePath.value,tailOffset.value)
+  if(generation!==tailGeneration||!tailing.value)return
+  if(chunk.reset){tailText.value='';tailBytes.value=0}
+  tailOffset.value=chunk.offset
+  if(chunk.content){
+   tailText.value=boundedTailText(tailText.value+chunk.content)
+   tailBytes.value+=new TextEncoder().encode(chunk.content).length
+   await nextTick()
+   if(generation===tailGeneration&&tailOutput.value)tailOutput.value.scrollTop=tailOutput.value.scrollHeight
+  }
+  tailError.value=''
+ }catch(e){if(generation===tailGeneration){tailError.value='实时跟踪失败：'+String(e);stopTail()}}
+ finally{tailPollInFlight=false}
+}
+function startTail(){
+ if(!filePath.value){tailError.value='请先选择日志文件。';return}
+ stopTail()
+ tailText.value='';tailBytes.value=0;tailError.value='';tailPaused.value=false;tailOffset.value=-1;tailing.value=true
+ resumeTail()
+}
+function resumeTail(){
+ if(!tailing.value||tailPaused.value||!filePath.value)return
+ if(tailTimer!==undefined)window.clearInterval(tailTimer)
+ const generation=tailGeneration
+ void pollTail(generation)
+ tailTimer=window.setInterval(()=>void pollTail(generation),700)
+}
+function stopTail(){
+ tailGeneration++
+ tailing.value=false;tailPaused.value=false
+ if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}
+}
+function toggleTailPause(){
+ tailPaused.value=!tailPaused.value
+ tailGeneration++
+ if(tailPaused.value){if(tailTimer!==undefined){window.clearInterval(tailTimer);tailTimer=undefined}}
+ else resumeTail()
+}
+function clearTail(){tailText.value='';tailBytes.value=0}
 function applyHistory(r:SearchRecord){if(busy.value)return;filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';multiLineJSON.value=false;activePage.value='logs';response.value=null;selectedMatch.value=null;scrollTop.value=0}
 function updateScroll(e:Event){if(e.target instanceof HTMLElement)scrollTop.value=e.target.scrollTop}
 async function moveMatch(delta:number){
@@ -137,7 +191,7 @@ function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
 function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key==='Enter'?'Enter':e.key.toLowerCase();const action=resolveShortcutAction(shortcutsConfig.value,k);if(!action)return;if(action==='runSearch'&&activePage.value!=='logs')return;e.preventDefault();switch(action){case'openFile':void chooseFile();break;case'focusSearch':setPage('logs');void nextTick(()=>inputRef.value?.focus());break;case'runSearch':if(!busy.value)void runSearch();break;case'logs':setPage('logs');break;case'processes':setPage('processes');break;case'toolkit':setPage('toolkit');break}}
 onMounted(()=>{loadShortcuts();loadTheme();window.addEventListener('keydown',shortcuts);stopSearchUpdates=window.runtime?.EventsOn('log-search:update',onSearchUpdate);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
-onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop')})
+onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop');stopTail()})
 </script>
 
 <template>
@@ -183,6 +237,13 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
       <div v-else class="raw-view"><div class="json-subtitle">{{selectedMatch.event?'完整事件内容':'原始日志内容'}}</div><pre>{{detailContent}}</pre><p>{{detailContentClipped?'该事件超过 512 KiB，仅展示安全上限内的内容。':selectedMatch.event?'该异常的完整事件上下文已保留在本机内存中。':'当前行不是可解析的 JSON 对象或数组；NDJSON 可逐行查看。'}}</p></div>
      </section>
      <div class="panel-footer"><span><span class="footer-led"></span>日志内容仅在本机处理</span><span>流式检索 <span class="footer-divider">/</span>单行预览最多 8 KiB</span></div>
+    </section>
+    <section class="tail-panel">
+     <div class="tail-heading"><div><h3>实时日志跟踪</h3><p>从文件末尾开始读取新增内容；轮转或截断后自动重置。</p></div><div class="tail-actions"><button class="button button-primary" :disabled="!filePath||tailing" @click="startTail">开始跟踪</button><button class="button button-secondary" :disabled="!tailing" @click="toggleTailPause">{{tailPaused?'继续':'暂停'}}</button><button class="button button-quiet" :disabled="!tailing" @click="stopTail">停止</button><button class="button button-quiet" @click="clearTail">清屏</button></div></div>
+     <div class="tail-status"><span class="status-dot" :class="{'tail-status-paused':tailPaused||!tailing}"></span>{{!tailing?'未跟踪':tailPaused?'已暂停':'跟踪中'}} · 本次接收 {{fmtBytes(tailBytes)}} <span v-if="tailError" class="tail-error">{{tailError}}</span></div>
+     <div class="tail-toolbar"><div class="tail-level-filters" role="group" aria-label="实时日志级别过滤"><span>级别</span><button v-for="level in tailLevelFilters" :key="level" type="button" class="button button-quiet" :class="{'tail-filter-active':tailLevelFilter===level}" :aria-pressed="tailLevelFilter===level" @click="tailLevelFilter=level">{{level==='ALL'?'全部':level}}</button></div><label class="tail-event-toggle"><input v-model="tailEventMode" type="checkbox"/>按事件聚合</label></div>
+     <div v-if="tailEventMode" ref="tailOutput" class="tail-event-list"><div v-for="event in filteredTailEvents" :key="event.startLine+'-'+event.endLine" class="tail-event-card"><div class="tail-event-meta"><span :class="'event-level-'+event.level.toLowerCase()">{{event.level}}</span><span>缓冲区行 {{event.startLine}}–{{event.endLine}}</span><span v-if="event.timestamp">{{event.timestamp}}</span><span v-if="event.truncated">事件内容已截断</span></div><pre>{{event.content}}</pre></div><p v-if="!filteredTailEvents.length" class="muted">当前没有可显示的事件。</p></div>
+     <pre v-else ref="tailOutput" class="tail-output">{{filteredTailText||'启动实时跟踪后，新写入的日志会显示在这里。'}}</pre>
     </section>
     <div class="bottom-note"><Braces :size="15"/><span>快捷键：{{shortcutLabel('openFile')}} 打开文件，{{shortcutLabel('focusSearch')}} 聚焦搜索，{{shortcutLabel('runSearch')}} 检索。</span><button @click="setPage('processes')">管理本地服务 <ArrowRight :size="13"/></button></div>
    </section>
