@@ -26,8 +26,8 @@ describe('summarizeLogMatches', () => {
     expect(stats.duplicates).toHaveLength(1)
     expect(stats.duplicates[0].count).toBe(2)
     expect(stats.trend).toEqual([
-      { bucket: '00:00', errors: 2, warnings: 0 },
-      { bucket: '00:01', errors: 0, warnings: 1 },
+      { bucket: '2026-10-26 10:00', errors: 2, warnings: 0 },
+      { bucket: '2026-10-26 10:01', errors: 0, warnings: 1 },
     ])
   })
 
