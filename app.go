@@ -54,7 +54,7 @@ type App struct {
 	settingsSaveMu sync.Mutex
 	searches map[string]*searchJob
 	tailMu sync.Mutex
-	tailFiles map[string]os.FileInfo
+	tailFiles map[string]*logx.TailFileState
 	droppedFiles []string
 	processes *process.Manager
 	settings config.Settings
@@ -112,7 +112,7 @@ func (a *App) ReadLogTailChunk(path string, offset int64) (logx.TailChunk, error
 	a.tailMu.Lock()
 	defer a.tailMu.Unlock()
 	if a.tailFiles == nil {
-		a.tailFiles = make(map[string]os.FileInfo)
+		a.tailFiles = make(map[string]*logx.TailFileState)
 	}
 	chunk, info, err := logx.ReadTailChunkWithPrevious(path, offset, a.tailFiles[key])
 	if err != nil {
