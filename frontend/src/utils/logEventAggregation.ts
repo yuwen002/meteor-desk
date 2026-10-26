@@ -15,7 +15,7 @@ export type LogEventOptions = {
 }
 const DEFAULT_MAX_EVENT_BYTES = 64 * 1024
 const LEVEL = /^\s*(?:\[[^\]]+\]\s*)?(?:\d{4}[-/]\d{2}[-/]\d{2}[T ][^ ]+\s+)?(INFO|INFORMATION|WARN|WARNING|ERROR|FATAL|CRITICAL|DEBUG|TRACE)\b/i
-const TIMESTAMP = /^\s*(\d{4}[-/]\d{2}[-/]\d{2}(?:[T ][0-9:.+-]+Z?)?)/
+const TIMESTAMP = /^\s*(\d{4}[-/]\d{2}[-/]\d{2}(?:[T ][0-9:.,+-]+Z?)?)/
 const CONTINUATION = /^\s*(?:at\s+|\.\.\. \d+ more|Caused by:|Suppressed:|goroutine \d+|File \".+\", line \d+|Traceback \(most recent call last\):)|^\s*\^/
 function levelOf(line: string): LogEvent['level'] {
   const match = line.match(LEVEL)
@@ -67,8 +67,8 @@ export function aggregateLogEvents(input: string, options: LogEventOptions = {})
     if (i === lines.length - 1 && line === '') break
     const level = levelOf(line)
     const timestamp = timestampOf(line, timestampPattern)
-    const startsNew = current === null || (timestamp !== null && current.content.length > 0) ||
-      (splitOnLevel && level !== 'UNKNOWN' && current.content.length > 0 && !CONTINUATION.test(line))
+    const startsNew = current === null || (timestamp !== null && current !== null) ||
+      (splitOnLevel && level !== 'UNKNOWN' && current !== null && !CONTINUATION.test(line))
     if (startsNew) {
       flush()
       current = { startLine: i + 1, endLine: i + 1, level, timestamp, content: '', truncated: false }
