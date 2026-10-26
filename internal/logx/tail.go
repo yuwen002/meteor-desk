@@ -4,7 +4,8 @@ import (
 	"errors"
 	"io"
 	"os"
- )
+	"unicode/utf8"
+)
 
 const maxTailChunkBytes = 256 * 1024
 
@@ -65,10 +66,30 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous os.FileInfo) 
 	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
 		return TailChunk{}, nil, readErr
 	}
+	// Keep UTF-8 code points intact across chunk boundaries. The byte offset
+	// advances only through bytes returned to the caller, so the next poll
+	// rereads any incomplete trailing rune instead of replacing it with �.
+	if offset+int64(n) < info.Size() {
+		n = completeUTF8Prefix(buf[:n])
+	}
 	return TailChunk{
 		Content:  string(buf[:n]),
 		Offset:   offset + int64(n),
 		Reset:    reset,
 		FileSize: info.Size(),
 	}, info, nil
+}
+
+func completeUTF8Prefix(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	start := len(data) - 1
+	for start > 0 && !utf8.RuneStart(data[start]) {
+		start--
+	}
+	if !utf8.FullRune(data[start:]) {
+		return start
+	}
+	return len(data)
 }
