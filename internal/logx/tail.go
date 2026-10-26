@@ -18,13 +18,21 @@ type TailChunk struct {
 }
 
 // ReadTailChunk 从指定字节偏移读取一小段新增内容。
+type TailFileState struct {
+	Info os.FileInfo
+	Anchor []byte
+	AnchorOffset int64
+}
+
+// ReadTailChunk 从指定字节偏移读取一小段新增内容。
 func ReadTailChunk(path string, offset int64) (TailChunk, error) {
 	chunk, _, err := ReadTailChunkWithPrevious(path, offset, nil)
 	return chunk, err
 }
 
-// ReadTailChunkWithPrevious 同时返回文件元信息，以便调用方识别路径指向的文件是否被替换。
-func ReadTailChunkWithPrevious(path string, offset int64, previous os.FileInfo) (TailChunk, os.FileInfo, error) {
+// ReadTailChunkWithPrevious 返回下一段内容及校验状态。
+// Anchor 用于识别同一文件在两次轮询之间被截断并迅速重写为更大文件的情况。
+func ReadTailChunkWithPrevious(path string, offset int64, previous *TailFileState) (TailChunk, *TailFileState, error) {
 	if offset < -1 {
 		return TailChunk{}, nil, errors.New("日志偏移量不能小于 -1")
 	}
@@ -43,10 +51,19 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous os.FileInfo) 
 	}
 
 	if offset == -1 {
-		return TailChunk{Offset: info.Size(), FileSize: info.Size()}, info, nil
+		state, stateErr := makeTailFileState(f, info, info.Size())
+		if stateErr != nil { return TailChunk{}, nil, stateErr }
+		return TailChunk{Offset: info.Size(), FileSize: info.Size()}, state, nil
 	}
 	// os.SameFile 在各支持平台比较文件身份；仅比较大小无法发现更大的轮转替换文件。
-	reset := offset > info.Size() || (previous != nil && (!os.SameFile(previous, info) || info.Size() < previous.Size()))
+	reset := offset > info.Size()
+	if previous != nil {
+		if previous.Info == nil || !os.SameFile(previous.Info, info) || info.Size() < previous.Info.Size() {
+			reset = true
+		} else if len(previous.Anchor) > 0 && !tailAnchorMatches(f, previous) {
+			reset = true
+		}
+	}
 	if reset {
 		offset = 0
 	}
@@ -56,7 +73,9 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous os.FileInfo) 
 
 	remaining := info.Size() - offset
 	if remaining <= 0 {
-		return TailChunk{Offset: offset, Reset: reset, FileSize: info.Size()}, info, nil
+		state, stateErr := makeTailFileState(f, info, offset)
+		if stateErr != nil { return TailChunk{}, nil, stateErr }
+		return TailChunk{Offset: offset, Reset: reset, FileSize: info.Size()}, state, nil
 	}
 	if remaining > maxTailChunkBytes {
 		remaining = maxTailChunkBytes
@@ -72,12 +91,37 @@ func ReadTailChunkWithPrevious(path string, offset int64, previous os.FileInfo) 
 	if offset+int64(n) < info.Size() {
 		n = completeUTF8Prefix(buf[:n])
 	}
+	newOffset := offset + int64(n)
+	state, stateErr := makeTailFileState(f, info, newOffset)
+	if stateErr != nil { return TailChunk{}, nil, stateErr }
 	return TailChunk{
 		Content:  string(buf[:n]),
-		Offset:   offset + int64(n),
+		Offset:   newOffset,
 		Reset:    reset,
 		FileSize: info.Size(),
-	}, info, nil
+	}, state, nil
+}
+
+const tailAnchorBytes = 64
+
+func makeTailFileState(f *os.File, info os.FileInfo, end int64) (*TailFileState, error) {
+	start := end - tailAnchorBytes
+	if start < 0 { start = 0 }
+	anchor := make([]byte, int(end-start))
+	if len(anchor) > 0 {
+		n, err := f.ReadAt(anchor, start)
+		if err != nil && err != io.EOF { return nil, err }
+		anchor = anchor[:n]
+	}
+	return &TailFileState{Info: info, Anchor: anchor, AnchorOffset: start}, nil
+}
+
+func tailAnchorMatches(f *os.File, previous *TailFileState) bool {
+	if previous == nil || len(previous.Anchor) == 0 { return true }
+	current := make([]byte, len(previous.Anchor))
+	n, err := f.ReadAt(current, previous.AnchorOffset)
+	if err != nil && err != io.EOF { return false }
+	return n == len(previous.Anchor) && bytes.Equal(current, previous.Anchor)
 }
 
 func completeUTF8Prefix(data []byte) int {
