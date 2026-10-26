@@ -216,7 +216,7 @@ button.shortcut-hint:hover{color:#b8f8dc;background:rgba(134,247,197,.06)}
 .log-stat-card .severity-error{color:#f07878}.log-stat-card .severity-warn{color:#e6b35c}
 .log-stats-trend,.log-duplicate-list{display:flex;flex-direction:column;gap:9px}
 .log-trend-list{display:flex;flex-direction:column;gap:6px}
-.log-trend-row{display:grid;grid-template-columns:54px minmax(30px,1fr) 52px;align-items:center;gap:8px}
+.log-trend-row{display:grid;grid-template-columns:minmax(105px,auto) minmax(30px,1fr) 52px;align-items:center;gap:8px}
 .log-trend-row>span,.log-trend-row>small{font-size:10px;color:var(--text-muted,#8794a8);font-variant-numeric:tabular-nums}
 .log-trend-row>small{text-align:right}
 .log-trend-track{height:7px;display:flex;overflow:hidden;border-radius:8px;background:rgba(127,145,170,.12)}
