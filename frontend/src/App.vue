@@ -4,6 +4,7 @@ import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, C
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
+import { summarizeLogMatches } from './utils/logStats'
 import { appendJSONPath } from './utils/jsonPath'
 import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
@@ -41,6 +42,8 @@ const virtualTop=computed(()=>virtualStart.value*rowHeight)
 const virtualBottom=computed(()=>Math.max(0,((response.value?.matches.length??0)-virtualStart.value-visibleMatches.value.length)*rowHeight))
 const selectedIndex=computed(()=>response.value?.matches.findIndex(m=>m.lineNumber===selectedMatch.value?.lineNumber)??-1)
 const fileName=computed(()=>filePath.value.split(/[\\/]/).filter(Boolean).pop()||'')
+const logStats=computed(()=>summarizeLogMatches(response.value?.matches??[]))
+const maxTrendCount=computed(()=>Math.max(1,...logStats.value.trend.map(item=>item.errors+item.warnings)))
 
 const fmtBytes=(bytes:number)=>{if(bytes<1024)return bytes+' B';const u=['KB','MB','GB','TB'];let v=bytes/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v>=100?0:1)+' '+u[i]}
 const fileSize=computed(()=>fmtBytes(response.value?.fileSizeBytes??0))
@@ -173,6 +176,17 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
      <details v-if="appSettings.searchHistory.length" class="history-panel query-history"><summary><History :size="14"/>最近检索 <span class="history-count">{{appSettings.searchHistory.length}}</span></summary><div class="history-items"><button v-for="(r,i) in appSettings.searchHistory" :key="r.createdAt+r.query+i" class="history-item" :disabled="busy" @click="applyHistory(r)"><Search :size="13"/><span><strong>{{r.query}}</strong><small>{{r.path}} · {{r.useRegex?'正则':'文本'}} · {{!r.encoding||r.encoding==='auto'?'自动识别':r.encoding}}</small></span><ArrowRight :size="12"/></button></div></details>
      <div v-if="errorMessage" class="notice notice-error"><span>!</span>{{errorMessage}}</div>
      <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{response.matches.length}}</span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><span v-if="response.resultLimitReached" class="limit-pill">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
+     <section v-if="response&&response.matches.length" class="log-stats-panel" aria-label="当前检索结果统计">
+      <div class="log-stats-heading"><div><strong>检索结果分析</strong><small>仅统计当前返回的 {{response.matches.length.toLocaleString()}} 条命中结果，不代表整个文件的完整分布。</small></div><span class="stats-local-pill"><ShieldCheck :size="12"/> 本地统计</span></div>
+      <div class="log-stats-cards">
+       <div class="log-stat-card"><span>错误</span><strong class="severity-error">{{logStats.errors}}</strong></div>
+       <div class="log-stat-card"><span>警告</span><strong class="severity-warn">{{logStats.warnings}}</strong></div>
+       <div class="log-stat-card"><span>信息</span><strong>{{logStats.info}}</strong></div>
+       <div class="log-stat-card"><span>调试/其他</span><strong>{{logStats.debug+logStats.other}}</strong></div>
+      </div>
+      <div v-if="logStats.trend.length" class="log-stats-trend"><strong>错误 / 警告时间分布</strong><div class="log-trend-list"><div v-for="item in logStats.trend" :key="item.bucket" class="log-trend-row"><span>{{item.bucket}}</span><div class="log-trend-track"><i class="trend-error" :style="{width:(item.errors/maxTrendCount*100)+'%'}"></i><i class="trend-warn" :style="{width:(item.warnings/maxTrendCount*100)+'%'}"></i></div><small>{{item.errors}} / {{item.warnings}}</small></div></div></div>
+      <div v-if="logStats.duplicates.length" class="log-duplicate-list"><strong>重复错误（最多展示 8 类）</strong><button v-for="item in logStats.duplicates" :key="item.signature" type="button" class="log-duplicate-row" @click="selectedMatch=response?.matches.find(m=>(m.event?.startLine??m.lineNumber)===item.firstLine)??null;jsonFilter=''"><span><b>{{item.count}} 次</b><code>{{item.message}}</code></span><small>首行 {{item.firstLine}}</small></button></div>
+     </section>
      <div v-if="response&&response.matches.length" ref="resultListElement" class="result-list" @scroll="updateScroll"><div class="result-spacer" :style="{height:virtualTop+'px'}"></div><div v-for="(m,i) in visibleMatches" :key="m.lineNumber" class="result-row" :class="{selected:selectedMatch?.lineNumber===m.lineNumber}" role="button" tabindex="0" :title="m.content" @click="selectedMatch=m;jsonFilter=''" @keydown.enter="selectedMatch=m"><span class="line-number">{{String(m.lineNumber).padStart(5,'0')}}</span><span class="result-marker" :class="{first:virtualStart+i===0}"></span><code>{{m.content}}<span v-if="m.contentClipped" class="clipped-note"> [预览已截断]</span></code><ArrowRight :size="13" class="row-chevron"/></div><div class="result-spacer" :style="{height:virtualBottom+'px'}"></div></div>
      <div v-else-if="response" class="empty-results"><div class="empty-icon"><Search :size="20"/></div><strong>没有找到匹配内容</strong><span>尝试更换关键字，或启用正则表达式。</span></div>
      <div v-else class="empty-results initial-empty"><div class="empty-illustration"><div class="empty-orbit orbit-one"></div><div class="empty-orbit orbit-two"></div><div class="empty-center"><FileSearch :size="24"/></div><span class="orbit-dot dot-a"></span><span class="orbit-dot dot-b"></span></div><strong>准备就绪</strong><span>选择本地日志文件并输入搜索内容，即可开始分析。</span></div>
