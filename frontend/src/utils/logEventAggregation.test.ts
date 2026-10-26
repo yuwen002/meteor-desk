@@ -112,4 +112,18 @@ describe('aggregateLogEvents', () => {
     expect(events[2].level).toBe('ERROR')
   })
 
+  it('bounds long stack traces while preserving the next timestamped event', () => {
+    const stack = Array.from({ length: 80 }, (_, i) => `    at worker.step${i} (worker.go:${i + 1})`)
+    const events = aggregateLogEvents([
+      '2026-10-20T10:00:00Z ERROR request failed',
+      ...stack,
+      '2026-10-20T10:00:01Z INFO recovered',
+    ].join('\\n'), { maxEventBytes: 128 })
+    expect(events).toHaveLength(2)
+    expect(events[0].truncated).toBe(true)
+    expect(new TextEncoder().encode(events[0].content).length).toBeLessThanOrEqual(128)
+    expect(events[0].endLine).toBe(81)
+    expect(events[1]).toMatchObject({ startLine: 82, level: 'INFO' })
+  })
+
 })
