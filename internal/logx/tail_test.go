@@ -176,3 +176,26 @@ func TestReadTailChunkPreservesUTF8AcrossChunkBoundary(t *testing.T) {
 		t.Fatal("concatenating tail chunks must reproduce the original UTF-8 payload")
 	}
 }
+
+
+func TestReadTailChunkDetectsTruncateAndRewriteBeforeNextPoll(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "truncate.log")
+	initial := []byte("a previous log payload that is longer than replacement\\n")
+	if err := os.WriteFile(path, initial, 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, previous, err := ReadTailChunkWithPrevious(path, int64(len(initial)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("new\\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	chunk, _, err := ReadTailChunkWithPrevious(path, first.Offset, previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !chunk.Reset || chunk.Content != "new\\n" || chunk.Offset != int64(len("new\\n")) {
+		t.Fatalf("expected same-file truncation to reset from byte zero, got %#v", chunk)
+	}
+}
