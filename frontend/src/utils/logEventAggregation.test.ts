@@ -31,12 +31,12 @@ describe('aggregateLogEvents', () => {
     expect(events[0].truncated).toBe(true)
   })
 
-  it('supports a custom timestamp expression and tolerates an invalid one', () => {
+  it('supports custom timestamps and falls back to built-in parsing for invalid expressions', () => {
     const input = '2026/10/20 10:00:00 ERROR first\n2026/10/20 10:00:01 ERROR second'
     const events = aggregateLogEvents(input, { timestampPattern: '^(\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2})' })
     expect(events).toHaveLength(2)
     expect(events[1].timestamp).toBe('2026/10/20 10:00:01')
-    expect(aggregateLogEvents(input, { timestampPattern: '[' })).toHaveLength(1)
+    expect(aggregateLogEvents(input, { timestampPattern: '[' })).toHaveLength(2)
   })
 
   it('returns no events for empty input', () => {
