@@ -25,8 +25,8 @@ export interface LogStats {
   trend: Array<{ bucket: string; errors: number; warnings: number }>
 }
 
-const timestampPrefix = /^\s*(?:\[[^\]]+\]\s*)?(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*)/i
-const levelPattern = /\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|PANIC)\b/i
+const timestampPrefix = /^\s*(?:\[[^\]]+\]\s*)?(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*|\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\s*)/i
+const levelPattern = /^\s*(?:\[[^\]]+\]\s*)?(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|PANIC)\b/i
 const stackLine = /^(?:at\s+\S+|\s*at\s+|Caused by:|Suppressed:|\.\.\. \d+ more)/i
 
 export function classifyLogSeverity(content: string): LogSeverity {
@@ -44,7 +44,7 @@ export function classifyLogSeverity(content: string): LogSeverity {
 function eventMessage(input: LogStatsInput): string {
   const content = input.event?.content ?? input.content
   const lines = content.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-  return (lines.find(line => !stackLine.test(line) && levelPattern.test(line)) ?? lines.find(line => !stackLine.test(line)) ?? lines[0] ?? '').replace(timestampPrefix, '').trim()
+  return (lines.find(line => !stackLine.test(line)) ?? lines[0] ?? '').replace(timestampPrefix, '').trim()
 }
 
 function normalizeSignature(message: string): string {
@@ -53,7 +53,7 @@ function normalizeSignature(message: string): string {
     .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '<UUID>')
     .replace(/\b0x[0-9a-f]+\b/gi, '<HEX>')
     .replace(/\b\d{4,}\b/g, '<N>')
-    .replace(/\b(?:request|trace|span|session|user|order|id)[_-]?[=: ]+[\w-]+/gi, '$1=<ID>')
+    .replace(/\b((?:request|trace|span|session|user|order)[_-]?id)\s*[=: ]+[^\s,;]+/gi, '$1=<ID>')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase()
@@ -62,7 +62,8 @@ function normalizeSignature(message: string): string {
 function minuteBucket(content: string): string | null {
   const match = content.match(/(?:^|\s|\[)(\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{2}:\d{2}|\d{2}:\d{2})/)
   if (!match) return null
-  return match[1].replace('T', ' ').replace(/\//g, '-').slice(-5)
+  const bucket = match[1].replace('T', ' ').replace(/\//g, '-')
+  return /^\d{4}-/.test(bucket) ? bucket : bucket.slice(-5)
 }
 
 export function summarizeLogMatches(matches: LogStatsInput[]): LogStats {
