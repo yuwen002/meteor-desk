@@ -12,6 +12,7 @@ import { buildSearchExportCSV, buildSearchExportJSON, searchExportFileName, type
 import { highlightSegments } from './utils/highlight'
 import { BOOKMARK_STORAGE_KEY, bookmarkKey, parseBookmarks, toggleBookmark, type BookmarkEntry } from './utils/bookmarks'
 import { LEVEL_LABEL, summarizeMatches, summaryText } from './utils/aggregate'
+import { buildTimeDistribution, type TimeBucket } from './utils/timeDistribution'
 import { DEFAULT_SHORTCUTS, parseShortcutSettings, resolveShortcutAction, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
 type PageKey='logs'|'processes'|'toolkit'
@@ -80,6 +81,13 @@ const filteredMatches=computed(()=>{
  return resultSort.value==='desc'?[...list].reverse():list
 })
 const resultSummary=computed(()=>summarizeMatches(filteredMatches.value))
+// 时间分布同样只读当前过滤结果，柱高按最密集的时间格归一化。
+const TIMELINE_MAX_HEIGHT=64
+const timeDistribution=computed(()=>buildTimeDistribution(filteredMatches.value))
+function timelineHeight(count:number){return count?Math.max(3,Math.round(count*TIMELINE_MAX_HEIGHT/(timeDistribution.value.maxCount||1))):0}
+function timelineTitle(bucket:TimeBucket){const parts:string[]=[];if(bucket.error)parts.push('ERROR '+bucket.error);if(bucket.warn)parts.push('WARN '+bucket.warn);return bucket.label+(parts.length?' · '+parts.join(' / '):' · 无错误')}
+// 时间格多时按比例抽稀标签，保证首尾两端始终可见。
+function timelineLabelVisible(index:number,total:number){return index%(Math.ceil(total/6)||1)===0||index===total-1}
 const virtualStart=computed(()=>Math.max(0,Math.floor(scrollTop.value/rowHeight)-3))
 const visibleMatches=computed(()=>filteredMatches.value.slice(virtualStart.value,virtualStart.value+24))
 const virtualTop=computed(()=>virtualStart.value*rowHeight)
@@ -265,6 +273,17 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
       <div class="summary-levels"><span v-for="item in resultSummary.levels" :key="item.level" class="level-chip" :class="'level-'+item.level">{{LEVEL_LABEL[item.level]}}<em>{{item.count}}</em></span><span v-if="!resultSummary.levels.length" class="summary-muted">未识别到日志级别。</span></div>
       <div v-if="resultSummary.signatures.length" class="summary-signatures"><div class="summary-subtitle">高频错误 / 警告 · Top {{resultSummary.signatures.length}}</div><ol><li v-for="item in resultSummary.signatures" :key="item.text"><code>{{item.text}}</code><em>{{item.count}} 次</em></li></ol></div>
       <p v-else class="summary-muted">当前结果中没有 error/warn 行，暂无错误签名。</p>
+      <div v-if="timeDistribution.errorTotal||timeDistribution.warnTotal" class="summary-timeline">
+       <div class="summary-subtitle">错误时间分布 · 每格 {{timeDistribution.stepLabel}} · ERROR {{timeDistribution.errorTotal}} / WARN {{timeDistribution.warnTotal}}</div>
+       <div class="timeline-bars">
+        <div v-for="(bucket,index) in timeDistribution.buckets" :key="bucket.start" class="timeline-bucket">
+         <div class="timeline-bar" :style="{height:timelineHeight(bucket.error+bucket.warn)+'px'}" :title="timelineTitle(bucket)"><span v-if="bucket.warn" class="timeline-warn" :style="{flexGrow:bucket.warn}"></span><span v-if="bucket.error" class="timeline-error" :style="{flexGrow:bucket.error}"></span></div>
+         <span class="timeline-label">{{timelineLabelVisible(index,timeDistribution.buckets.length)?bucket.label:''}}</span>
+        </div>
+       </div>
+      </div>
+      <p v-else class="summary-muted">当前结果中没有带时间戳的 error/warn 行，暂无时间分布。</p>
+      <p v-if="timeDistribution.undated" class="summary-muted">{{timeDistribution.undated}} 条错误/警告行缺少可识别的时间戳，未计入时间分布。</p>
       <p v-if="summaryMessage" class="summary-note" role="status">{{summaryMessage}}</p>
      </div>
      <div v-if="exportMessage" class="notice notice-success"><span>✓</span>{{exportMessage}}</div>

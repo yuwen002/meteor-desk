@@ -286,6 +286,21 @@ describe('log search options', () => {
     expect(signatures).toHaveLength(2)
     expect(signatures[0].text()).toContain('connection refused')
     expect(signatures[0].text()).toContain('2 次')
+    // 时间分布只统计 error/warn，10:00:03 的 INFO 行不占时间格。
+    const timeline = wrapper.get('.summary-timeline')
+    expect(timeline.get('.summary-subtitle').text()).toContain('每格 1 秒')
+    expect(timeline.get('.summary-subtitle').text()).toContain('ERROR 2')
+    expect(timeline.get('.summary-subtitle').text()).toContain('WARN 1')
+    const timelineBuckets = timeline.findAll('.timeline-bucket')
+    expect(timelineBuckets).toHaveLength(3)
+    expect(timelineBuckets[0].get('.timeline-bar').attributes('title')).toBe('10-30 10:00:00 · ERROR 1')
+    expect(timelineBuckets[1].get('.timeline-bar').attributes('title')).toBe('10-30 10:00:01 · WARN 1')
+    expect(timelineBuckets[0].get('.timeline-bar').attributes('style')).toContain('height: 64px')
+    expect(timelineBuckets[0].find('.timeline-error').exists()).toBe(true)
+    expect(timelineBuckets[0].find('.timeline-warn').exists()).toBe(false)
+    expect(timelineBuckets[1].find('.timeline-warn').exists()).toBe(true)
+    expect(timelineBuckets[1].find('.timeline-error').exists()).toBe(false)
+    expect(timelineBuckets[0].get('.timeline-label').text()).toBe('10-30 10:00:00')
 
     const copyButton = wrapper.findAll('button').find(button => button.text().includes('复制摘要'))
     if (!copyButton) throw new Error('复制摘要按钮未渲染')
@@ -293,6 +308,34 @@ describe('log search options', () => {
     await flushPromises()
     expect(clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('检索结果摘要\n总计：4 条（行号 2–12）'))
     expect(wrapper.get('.summary-note').text()).toContain('摘要已复制到剪贴板')
+    wrapper.unmount()
+  })
+
+  it('flags error lines without timestamps in the time distribution', async () => {
+    const { wrapper, bridge } = await mountApp()
+    bridge.SearchLogsAdvanced.mockResolvedValue({
+      filePath: 'C:/logs/app.log',
+      encoding: 'utf-8',
+      fileSizeBytes: 120,
+      bytesScanned: 120,
+      scannedLines: 5,
+      resultLimitReached: false,
+      canceled: false,
+      matches: [
+        { lineNumber: 2, content: '2026-10-30 10:00:00 ERROR connection refused', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 4, content: 'ERROR bare message without timestamp', contentClipped: false, contextBefore: [], contextAfter: [] },
+      ],
+    })
+    await wrapper.get('#search-query').setValue('ERROR')
+    await wrapper.get('button[type="submit"]').trigger('click')
+    await flushPromises()
+    const toggle = wrapper.findAll('button').find(button => button.text() === '统计')
+    if (!toggle) throw new Error('统计按钮未渲染')
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.timeline-bucket')).toHaveLength(1)
+    expect(wrapper.get('.summary-panel').text()).toContain('1 条错误/警告行缺少可识别的时间戳')
     wrapper.unmount()
   })
 })
