@@ -42,7 +42,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|
-| `SendHTTPRequest(request)` | `HttpRequest` | `HttpResponse` | 由用户显式触发的本地 HTTP 请求。支持 GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS，URL 必须为 http/https；请求与响应正文各限制 2 MiB，超时 30 秒。非 2xx 状态不作为错误，响应原样返回。 |
+| `SendHTTPRequest(request)` | `HttpRequest` | `HttpResponse` | 由用户显式触发的本地 HTTP 请求。支持 GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS，URL 必须为 http/https；请求与响应正文各限制 2 MiB，超时默认 30 秒、可配置上限 120 秒，默认最多跟随 10 次重定向。非 2xx 状态不作为错误，响应原样返回。 |
 
 ### 设置和本地数据
 
@@ -91,13 +91,13 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### HttpRequest / HttpResponse
 
-请求字段包括 `method`、`url`、`headers`（字符串键值对象）和 `body`。响应字段包括：`status`（状态码）、`statusText`（标准状态文本，如 `Created`）、`headers`（同名多值以 `, ` 合并）、`body`（最多保留 2 MiB，非法 UTF-8 字节替换为 `�`）、`bodyTruncated`、`sizeBytes`（实际接收字节数，可能大于保留的正文长度）和 `durationMs`（毫秒）。
+请求字段包括 `method`、`url`、`headers`（字符串键值对象）、`body`，以及可选的调优字段：`timeoutMs`（毫秒，0 或缺省时按 30 秒处理，超过 120 秒直接报错）、`followRedirects`（`false` 时不跟随重定向并直接返回 3xx；缺省保持默认跟随，最多 10 次）和 `insecureSkipVerify`（`true` 时跳过 TLS 证书校验，仅用于本机自签证书调试）。响应字段包括：`status`（状态码）、`statusText`（标准状态文本，如 `Created`）、`headers`（同名多值以 `, ` 合并）、`body`（最多保留 2 MiB，非法 UTF-8 字节替换为 `�`）、`bodyTruncated`、`sizeBytes`（实际接收字节数，可能大于保留的正文长度）、`durationMs`（毫秒）、`finalUrl`（跟随重定向后的最终地址）、`redirects`（实际跟随次数）和 `binary`（正文含 NUL 或非法 UTF-8）。
 
 ## 4. Go 包 API
 
 ### `internal/httpx`
 
-- `Send(Request)`：执行一次受限的本机 HTTP 请求；校验方法、URL 协议、请求头数量与正文大小，返回状态、响应头、受限正文、实际接收字节数与耗时。
+- `Send(Request)`：执行一次受限的本机 HTTP 请求；校验方法、URL 协议、请求头数量、正文大小与超时上限，按需配置重定向跟随与 TLS 校验，返回状态、响应头、受限正文、最终地址、重定向次数、实际接收字节数、二进制标记与耗时。
 
 ### `internal/logx`
 

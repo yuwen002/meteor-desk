@@ -1,0 +1,132 @@
+name: 发布
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建并打包 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: meteordesk-linux-amd64
+          - os: windows-latest
+            artifact: meteordesk-windows-amd64
+          - os: macos-latest
+            artifact: meteordesk-macos-arm64
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 安装 Linux 桌面依赖
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 校验 tag 与前端版本一致
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(node -p "require('./frontend/package.json').version")
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 frontend/package.json 版本 $version 不一致"
+            exit 1
+          fi
+
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: 下载并校验 Go 依赖
+        run: |
+          go mod download
+          go mod verify
+
+      - name: 运行 Go 单元测试
+        run: go test ./...
+
+      - name: 构建桌面应用
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build -clean -ldflags "-s -w"
+
+      - name: 打包 Windows 产物
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $name = "MeteorDesk-$env:GITHUB_REF_NAME-windows-amd64.zip"
+          Compress-Archive -Path "build/bin/MeteorDesk.exe" -DestinationPath $name
+          "ASSET=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 打包 macOS 产物
+        if: ${{ runner.os == 'macOS' }}
+        run: |
+          name="MeteorDesk-${GITHUB_REF_NAME}-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent build/bin/MeteorDesk.app "$name"
+          echo "ASSET=$name" >> "$GITHUB_ENV"
+
+      - name: 打包 Linux 产物
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          name="MeteorDesk-${GITHUB_REF_NAME}-linux-amd64.tar.gz"
+          tar -czf "$name" -C build/bin MeteorDesk
+          echo "ASSET=$name" >> "$GITHUB_ENV"
+
+      - name: 上传待发布安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: 创建 GitHub Release
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: 下载所有安装包
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 生成 SHA256 校验和
+        run: |
+          cd dist
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "MeteorDesk $GITHUB_REF_NAME" \
+              --generate-notes
+          fi

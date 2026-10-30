@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ArrowLeftRight, Braces, CheckCircle2, Clock3, Copy, FileJson, KeyRound, Link2, RefreshCw, Send, ShieldAlert } from 'lucide-vue-next'
 import { appendJSONPath } from '../utils/jsonPath'
 import { parseRequestHeaders } from '../utils/httpRequest'
@@ -189,6 +189,35 @@ const textDifference = computed(() => {
   catch (error) { return { error: String(error), rows: [] } }
 })
 const httpMethod = ref('GET'), httpURL = ref(''), httpHeaders = ref('{\n  "Accept": "application/json"\n}'), httpBody = ref(''), httpResponse = ref<HttpResponse | null>(null), httpError = ref(''), httpBusy = ref(false)
+const httpTimeoutMs = ref(30000), httpFollowRedirects = ref(true), httpInsecureSkipVerify = ref(false)
+interface HTTPHistoryEntry { method: string; url: string; headers: string; body: string; at: string }
+const httpHistoryKey = 'meteordesk.httpHistory.v1'
+const httpHistory = ref<HTTPHistoryEntry[]>([])
+function loadHTTPHistory() {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(httpHistoryKey) ?? '[]')
+    httpHistory.value = Array.isArray(parsed) ? parsed.filter((item): item is HTTPHistoryEntry => !!item && typeof item.url === 'string' && typeof item.method === 'string').slice(0, 10) : []
+  } catch { httpHistory.value = [] }
+}
+function saveHTTPHistory() {
+  try { window.localStorage.setItem(httpHistoryKey, JSON.stringify(httpHistory.value.slice(0, 10))) } catch { /* 历史仅在本机保留 */ }
+}
+function recordHTTPHistory(entry: HTTPHistoryEntry) {
+  httpHistory.value = [entry, ...httpHistory.value.filter(item => !(item.method === entry.method && item.url === entry.url && item.headers === entry.headers && item.body === entry.body))].slice(0, 10)
+  saveHTTPHistory()
+}
+function applyHTTPHistory(entry: HTTPHistoryEntry) {
+  if (httpBusy.value) return
+  httpMethod.value = entry.method
+  httpURL.value = entry.url
+  httpHeaders.value = entry.headers
+  httpBody.value = entry.body
+}
+function clearHTTPHistory() {
+  httpHistory.value = []
+  saveHTTPHistory()
+}
+onMounted(loadHTTPHistory)
 const httpResponseHeaders = computed(() => httpResponse.value ? Object.entries(httpResponse.value.headers).sort(([a], [b]) => a.localeCompare(b)) : [])
 async function sendHTTPRequest() {
   const api = window.go?.main?.App
@@ -197,8 +226,10 @@ async function sendHTTPRequest() {
   if (!httpURL.value.trim()) { httpError.value = '请输入请求 URL 后再发送。'; return }
   let headers: Record<string, string>
   try { headers = parseRequestHeaders(httpHeaders.value) } catch (error) { httpError.value = error instanceof Error ? error.message : String(error); return }
+  const request: HttpRequest = { method: httpMethod.value, url: httpURL.value.trim(), headers, body: httpBody.value, timeoutMs: httpTimeoutMs.value, followRedirects: httpFollowRedirects.value, insecureSkipVerify: httpInsecureSkipVerify.value }
+  recordHTTPHistory({ method: request.method, url: request.url, headers: httpHeaders.value, body: httpBody.value, at: new Date().toISOString() })
   httpBusy.value = true
-  try { httpResponse.value = await api.SendHTTPRequest({ method: httpMethod.value, url: httpURL.value.trim(), headers, body: httpBody.value }) } catch (error) { httpError.value = error instanceof Error ? error.message : String(error) } finally { httpBusy.value = false }
+  try { httpResponse.value = await api.SendHTTPRequest(request) } catch (error) { httpError.value = error instanceof Error ? error.message : String(error) } finally { httpBusy.value = false }
 }
 
 const base64Source = ref('')
@@ -404,9 +435,21 @@ function resetJSON() {
     <div v-else-if="activeTool === 'http'" class="toolkit-card">
       <div class="toolkit-card-heading"><div><h2>HTTP 调试器</h2><p>请求由你显式发送、在桌面端本机执行；不会自动联网，也不会访问未填写的地址。</p></div><Send :size="18" /></div>
       <div class="http-request-line"><select v-model="httpMethod" class="toolkit-select" aria-label="HTTP 方法"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option></select><input v-model="httpURL" class="toolkit-input mono" aria-label="请求 URL" placeholder="https://api.example.com/v1/health" /><button class="button button-primary" :disabled="httpBusy" @click="sendHTTPRequest"><span v-if="httpBusy" class="spinner"></span><Send v-else :size="14" />{{ httpBusy ? '发送中' : '发送' }}</button></div>
+      <div class="http-options">
+        <label><input v-model="httpFollowRedirects" type="checkbox" />自动跟随重定向</label>
+        <label><input v-model="httpInsecureSkipVerify" type="checkbox" />跳过 TLS 证书校验</label>
+        <label>超时<select v-model.number="httpTimeoutMs" class="toolkit-select" aria-label="请求超时"><option :value="5000">5 秒</option><option :value="10000">10 秒</option><option :value="30000">30 秒</option><option :value="60000">60 秒</option><option :value="120000">120 秒</option></select></label>
+      </div>
+      <p class="toolkit-help">关闭跟随重定向时会直接返回 3xx 响应；跳过证书校验仅用于本机自签证书调试。</p>
       <div class="toolkit-json-grid http-editors"><div class="toolkit-editor-pane"><label class="toolkit-label" for="http-headers">请求 Header（JSON）</label><textarea id="http-headers" v-model="httpHeaders" class="toolkit-textarea short mono" spellcheck="false"></textarea></div><div class="toolkit-editor-pane"><label class="toolkit-label" for="http-body">请求 Body</label><textarea id="http-body" v-model="httpBody" class="toolkit-textarea short mono" spellcheck="false" placeholder="可选，请求正文最大 2 MiB"></textarea></div></div>
       <p v-if="httpError" class="toolkit-error">{{ httpError }}</p>
-      <template v-else-if="httpResponse"><div class="http-response-summary"><strong :class="{ error: httpResponse.status >= 400 }">{{ httpResponse.status }} {{ httpResponse.statusText }}</strong><span>{{ httpResponse.durationMs }} ms</span><span>接收 {{ httpResponse.sizeBytes.toLocaleString() }} B</span><button class="button button-quiet" @click="copyText(httpResponse.body, '响应正文')"><Copy :size="13" />复制正文</button></div><p v-if="httpResponse.bodyTruncated" class="toolkit-help">响应正文超过 2 MiB，界面仅保留前 2 MiB；上方字节数为实际接收量。</p><div class="toolkit-json-grid"><div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">响应 Header</label><span>{{ httpResponseHeaders.length }} 项</span></div><div class="toolkit-param-list"><div v-for="([key, value]) in httpResponseHeaders" :key="key"><code>{{ key }}</code><span>{{ value }}</span></div></div></div><div class="toolkit-editor-pane"><label class="toolkit-label">响应 Body</label><pre class="toolkit-json-output http-response-body">{{ httpResponse.body }}</pre></div></div></template>
+      <template v-else-if="httpResponse"><div class="http-response-summary"><strong :class="{ error: httpResponse.status >= 400 }">{{ httpResponse.status }} {{ httpResponse.statusText }}</strong><span>{{ httpResponse.durationMs }} ms</span><span>接收 {{ httpResponse.sizeBytes.toLocaleString() }} B</span><span v-if="httpResponse.redirects">重定向 {{ httpResponse.redirects }} 次</span><button class="button button-quiet" @click="copyText(httpResponse.body, '响应正文')"><Copy :size="13" />复制正文</button></div><p v-if="httpResponse.finalUrl && httpResponse.finalUrl !== httpURL.trim()" class="toolkit-help">最终地址：<code class="http-final-url">{{ httpResponse.finalUrl }}</code></p><p v-if="httpResponse.binary" class="toolkit-help">响应正文不是有效 UTF-8（可能是二进制内容），预览中的异常字节已显示为替换字符。</p><p v-if="httpResponse.bodyTruncated" class="toolkit-help">响应正文超过 2 MiB，界面仅保留前 2 MiB；上方字节数为实际接收量。</p><div class="toolkit-json-grid"><div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">响应 Header</label><span>{{ httpResponseHeaders.length }} 项</span></div><div class="toolkit-param-list"><div v-for="([key, value]) in httpResponseHeaders" :key="key"><code>{{ key }}</code><span>{{ value }}</span></div></div></div><div class="toolkit-editor-pane"><label class="toolkit-label">响应 Body</label><pre class="toolkit-json-output http-response-body">{{ httpResponse.body }}</pre></div></div></template>
+      <div v-if="httpHistory.length" class="http-history">
+        <div class="toolkit-output-heading"><strong>最近请求（仅保存在本机）</strong><button class="button button-quiet" @click="clearHTTPHistory">清空历史</button></div>
+        <div class="http-history-list">
+          <button v-for="entry in httpHistory" :key="entry.at + entry.url" type="button" class="http-history-item" :disabled="httpBusy" @click="applyHTTPHistory(entry)"><span>{{ entry.method }}</span><code>{{ entry.url }}</code><time>{{ new Date(entry.at).toLocaleString('zh-CN') }}</time></button>
+        </div>
+      </div>
     </div>
 
     <div v-else-if="activeTool === 'base64'" class="toolkit-card">
@@ -488,7 +531,7 @@ function resetJSON() {
 .toolkit-divider{height:1px;margin:22px 0;background:#29313d}
 .redact-output{min-height:210px;white-space:pre-wrap;overflow-wrap:anywhere}
 .text-diff-output{max-height:420px;overflow:auto;margin-top:16px;border:1px solid #29313f;border-radius:6px;background:#0b1018;font:10px/1.65 ui-monospace,monospace}.text-diff-output>div{display:grid;grid-template-columns:22px minmax(0,1fr);padding:5px 8px}.text-diff-output b{color:#738398}.text-diff-output code{white-space:pre-wrap;overflow-wrap:anywhere;color:#bdc9d7}.text-diff-output .added{background:rgba(77,178,125,.12)}.text-diff-output .added b{color:#83edb2}.text-diff-output .removed{background:rgba(214,93,88,.12)}.text-diff-output .removed b{color:#ffaaa1}
-.http-request-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;margin-bottom:16px}.http-request-line .button{height:38px;padding:0 13px;font-size:10px}.http-editors{margin-bottom:15px}.http-response-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:15px 0;border:1px solid #2b3943;border-radius:6px;background:rgba(9,15,21,.7);padding:10px 12px;color:#8291a4;font:10px ui-monospace,monospace}.http-response-summary strong{color:#92ebbc}.http-response-summary strong.error{color:#ffaaa1}.http-response-summary .button{margin-left:auto;height:28px;font-size:9px}.http-response-body{min-height:220px;max-height:420px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.http-request-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;margin-bottom:12px}.http-request-line .button{height:38px;padding:0 13px;font-size:10px}.http-options{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 4px;color:#8696aa;font-size:10px}.http-options label{display:flex;align-items:center;gap:6px}.http-options input[type=checkbox]{accent-color:#6ed2a5}.http-options .toolkit-select{max-width:84px;padding:6px 8px;font-size:10px}.http-final-url{overflow-wrap:anywhere;color:#a1cdb9;font:10px ui-monospace,monospace}.http-history{margin-top:20px}.http-history .toolkit-output-heading{margin-bottom:9px}.http-history-list{display:flex;flex-direction:column;border:1px solid #293442;border-radius:5px;overflow:hidden}.http-history-item{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 11px;border:0;border-bottom:1px solid #26303c;background:rgba(10,15,22,.35);color:#b9c8d8;text-align:left}.http-history-item:last-child{border-bottom:0}.http-history-item:hover{background:#1a232f}.http-history-item:disabled{opacity:.55;cursor:not-allowed}.http-history-item>span{color:#93dcb8;font:9px ui-monospace,monospace}.http-history-item code{font:10px/1.5 ui-monospace,monospace;overflow-wrap:anywhere;color:#c2d1e1}.http-history-item time{color:#718196;font-size:9px;white-space:nowrap}.http-editors{margin-bottom:15px}.http-response-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:15px 0;border:1px solid #2b3943;border-radius:6px;background:rgba(9,15,21,.7);padding:10px 12px;color:#8291a4;font:10px ui-monospace,monospace}.http-response-summary strong{color:#92ebbc}.http-response-summary strong.error{color:#ffaaa1}.http-response-summary .button{margin-left:auto;height:28px;font-size:9px}.http-response-body{min-height:220px;max-height:420px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .compact-result{padding:9px 13px}
 .compact-result .toolkit-result-line:first-child{border-top:0}
 .bottom-converter{align-items:start}
@@ -543,7 +586,7 @@ function resetJSON() {
 .toolkit-footer-note{display:flex;align-items:flex-start;gap:8px;margin-top:15px;padding:0 3px;color:#748499;font-size:9px;line-height:1.7}
 .toolkit-footer-note svg{flex-shrink:0;color:#88c6a9}
 @media(max-width:980px){.toolkit-grid-two,.toolkit-json-grid{grid-template-columns:1fr}.toolkit-textarea{min-height:180px}.toolkit-url-meta{grid-template-columns:1fr}.toolkit-card{padding:14px}}
-@media(max-width:600px){.http-request-line{grid-template-columns:1fr}.http-request-line .toolkit-select{max-width:none;width:100%}}
+@media(max-width:600px){.http-request-line{grid-template-columns:1fr}.http-request-line .toolkit-select{max-width:none;width:100%}.http-history-item{grid-template-columns:48px minmax(0,1fr)}.http-history-item time{display:none}}
 @media(max-width:680px){.toolkit-tabs{display:grid;grid-template-columns:1fr 1fr}.toolkit-tab{justify-content:flex-start}.toolkit-diff-values{grid-template-columns:minmax(0,1fr)}.toolkit-diff-values svg{display:none}.toolkit-result-line{grid-template-columns:70px minmax(0,1fr) 25px}}
 
 /* 浅色主题：工具箱使用独立 scoped 样式，必须显式响应应用级主题状态。 */
@@ -588,6 +631,14 @@ function resetJSON() {
 :global(.theme-light) .toolkit-jwt-status.valid{color:#176b50;border-color:#c4e8d8}
 :global(.theme-light) .toolkit-jwt-status.expired{color:#b93832;border-color:#f0cdca}
 :global(.theme-light) .http-response-summary{background:#f7f9fc;border-color:#dce3ec}
+:global(.theme-light) .http-options{color:#718096}
+:global(.theme-light) .http-final-url{color:#23815f}
+:global(.theme-light) .http-history-list{border-color:#dce3ec}
+:global(.theme-light) .http-history-item{background:#fff;border-color:#e5ebf2;color:#52647b}
+:global(.theme-light) .http-history-item:hover{background:#f0f5fa}
+:global(.theme-light) .http-history-item>span{color:#23815f}
+:global(.theme-light) .http-history-item code{color:#34445b}
+:global(.theme-light) .http-history-item time{color:#8291a4}
 :global(.theme-light) .toolkit-url-meta>div{background:#f7f9fc;border-color:#dce3ec}
 :global(.theme-light) .toolkit-url-meta span{color:#718096}
 :global(.theme-light) .toolkit-url-meta code{color:#28664f}

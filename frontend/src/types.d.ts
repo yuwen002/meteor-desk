@@ -15,8 +15,8 @@ declare global {
   interface ProcessView { spec:ProcessSpec; status:ProcessStatus }
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
   interface JsonField { path:string; value:unknown }
-  interface HttpRequest { method:string; url:string; headers:Record<string,string>; body:string }
-  interface HttpResponse { status:number; statusText:string; headers:Record<string,string>; body:string; bodyTruncated:boolean; sizeBytes:number; durationMs:number }
+  interface HttpRequest { method:string; url:string; headers:Record<string,string>; body:string; timeoutMs?:number; followRedirects?:boolean; insecureSkipVerify?:boolean }
+  interface HttpResponse { status:number; statusText:string; headers:Record<string,string>; body:string; bodyTruncated:boolean; sizeBytes:number; durationMs:number; finalUrl?:string; redirects?:number; binary?:boolean }
   interface Window { runtime?:{EventsOn:(eventName:string,callback:(event:SearchMatchesEvent)=>void)=>()=>void}; go?:{main?:{App?:{
     SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
     SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,contextLines:number,encoding:string,multiLineJSON:boolean,eventContext:boolean,eventBoundary:string,eventBoundaryPattern:string)=>Promise<LogSearchResponse>;
