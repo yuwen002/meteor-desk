@@ -108,7 +108,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 检索结果和进程输出由前端 `frontend/src/utils/exporters.ts` 生成文本，后端只负责写入文件。
 
-- 检索结果 CSV：列为 `matchLine`、`type`、`lineNumber`、`endLine`、`query`、`content`；`type` 为 `match`、`context-before`、`context-after`、`event` 或 `document`，上下文行与事件内容逐条展开。文件带 UTF-8 BOM，使用 CRLF 换行并按 RFC 4180 转义。
+- 检索结果 CSV：列为 `matchLine`、`type`、`lineNumber`、`endLine`、`query`、`content`；`type` 为 `match`、`context-before`、`context-after`、`event` 或 `document`，上下文行与事件内容逐条展开。文件带 UTF-8 BOM，使用 CRLF 换行并按 RFC 4180 转义。导出列表为前端当前过滤与排序后的结果，没有过滤时等同完整结果。
 - 检索结果 JSON：包含 `exportedAt`、文件路径、检索词、是否正则、编码、上下文行数、`resultLimitReached`、`canceled`、`total` 和完整 `matches`。
 - 进程日志 CSV：列为 `sequence`、`time`、`stream`、`text`；JSON 额外包含 `processId`、`processName` 和 `total`。导出范围仅限界面缓存的最近 1,500 条输出。
 

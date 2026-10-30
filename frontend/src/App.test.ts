@@ -73,6 +73,7 @@ describe('log search options', () => {
   afterEach(() => {
     delete (window as Window & { go?: unknown }).go
     document.body.innerHTML = ''
+    window.localStorage.clear()
   })
 
   it('passes the custom event boundary to the desktop bridge', async () => {
@@ -171,6 +172,80 @@ describe('log search options', () => {
     await new Promise(resolve => setTimeout(resolve, 1100))
     await flushPromises()
     expect(bridge.ReadLogTail.mock.calls.length).toBe(calls)
+    wrapper.unmount()
+  })
+
+  it('filters, sorts and highlights the current results', async () => {
+    const { wrapper, bridge } = await mountApp()
+    bridge.SearchLogsAdvanced.mockResolvedValue({
+      filePath: 'C:/logs/app.log',
+      encoding: 'utf-8',
+      fileSizeBytes: 120,
+      bytesScanned: 120,
+      scannedLines: 12,
+      resultLimitReached: false,
+      canceled: false,
+      matches: [
+        { lineNumber: 2, content: 'boom happened', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 5, content: 'timeout waiting', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 9, content: 'boom retry', contentClipped: false, contextBefore: [], contextAfter: [] },
+      ],
+    })
+    await wrapper.get('#search-query').setValue('boom')
+    await wrapper.get('button[type="submit"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('.result-row')).toHaveLength(3)
+    expect(wrapper.findAll('.result-row mark').map(mark => mark.text())).toEqual(['boom', 'boom'])
+    expect(wrapper.get('.filter-summary').text()).toBe('3 / 3 条')
+
+    await wrapper.get('.result-filter input').setValue('timeout')
+    await flushPromises()
+    expect(wrapper.findAll('.result-row')).toHaveLength(1)
+    expect(wrapper.get('.result-row').text()).toContain('timeout waiting')
+    expect(wrapper.get('.filter-summary').text()).toBe('1 / 3 条')
+
+    await wrapper.get('.result-filter input').setValue('')
+    await flushPromises()
+    await wrapper.get('.sort-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.sort-button').text()).toContain('行号降序')
+    expect(wrapper.findAll('.result-row .line-number').map(item => item.text())).toEqual(['00009', '00005', '00002'])
+    wrapper.unmount()
+  })
+
+  it('stores bookmarks locally and can show only bookmarked results', async () => {
+    const { wrapper, bridge } = await mountApp()
+    bridge.SearchLogsAdvanced.mockResolvedValue({
+      filePath: 'C:/logs/app.log',
+      encoding: 'utf-8',
+      fileSizeBytes: 120,
+      bytesScanned: 120,
+      scannedLines: 12,
+      resultLimitReached: false,
+      canceled: false,
+      matches: [
+        { lineNumber: 2, content: 'boom happened', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 5, content: 'timeout waiting', contentClipped: false, contextBefore: [], contextAfter: [] },
+      ],
+    })
+    await wrapper.get('#search-query').setValue('boom')
+    await wrapper.get('button[type="submit"]').trigger('click')
+    await flushPromises()
+
+    const bookmarkButtons = wrapper.findAll('.bookmark-button')
+    expect(bookmarkButtons).toHaveLength(2)
+    await bookmarkButtons[1].trigger('click')
+    await flushPromises()
+    const stored = JSON.parse(window.localStorage.getItem('meteordesk.bookmarks.v1') ?? '[]')
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({ path: 'C:/logs/app.log', lineNumber: 5, query: 'boom' })
+    expect(bookmarkButtons[1].classes()).toContain('active')
+
+    await wrapper.get('.toolbar-toggle input').setValue(true)
+    await flushPromises()
+    expect(wrapper.findAll('.result-row')).toHaveLength(1)
+    expect(wrapper.get('.result-row').text()).toContain('timeout waiting')
     wrapper.unmount()
   })
 })

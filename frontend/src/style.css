@@ -257,3 +257,31 @@ button.version-tag:hover{color:#b8f8dc;border-color:#477a6b}
 .policy-hint{margin:7px 0 0;color:#7f8da0;font-size:9px;line-height:1.6}
 .theme-light .policy-hint{color:#6c7b90}
 
+/* v0.5.24: 结果内过滤、排序、收藏与命中高亮 */
+.results-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:0 21px 10px}
+.result-filter{display:flex;align-items:center;gap:7px;flex:1;min-width:180px;padding:0 9px;height:30px;border:1px solid #2b3644;border-radius:5px;background:rgba(11,16,24,.65);color:#6f8298}
+.result-filter input{flex:1;min-width:0;height:100%;border:0;background:transparent;color:#cdd8e4;font-size:10px;outline:none}
+.result-filter input::placeholder{color:#5d6d80}
+.filter-clear{display:grid;place-items:center;width:18px;height:18px;border:0;border-radius:50%;background:#263141;color:#9cabbc}
+.toolbar-toggle{display:flex;align-items:center;gap:6px;color:#93a1b3;font-size:10px;cursor:pointer}
+.toolbar-toggle input{position:absolute;opacity:0;pointer-events:none}
+.toolbar-toggle .custom-checkbox{display:grid;place-items:center;width:14px;height:14px;border:1px solid #39485b;border-radius:3px;background:#141b26;color:#8ff0c8}
+.toolbar-toggle em{font-style:normal;color:#7d8b9e;font:9px ui-monospace,monospace}
+.sort-button{font-size:10px}
+.filter-summary{margin-left:auto;color:#7d8b9e;font:9px ui-monospace,monospace}
+mark{background:rgba(230,190,112,.22);color:#ffdda0;border-radius:2px;padding:0 1px}
+.bookmark-button{display:grid;place-items:center;width:22px;height:22px;flex-shrink:0;border:0;border-radius:4px;background:transparent;color:#526174}
+.bookmark-button:hover{background:rgba(230,190,112,.12);color:#e8c98c}
+.bookmark-button.active{color:#f0c36d}
+.filtered-empty .button{margin-top:4px}
+.theme-light .result-filter{background:#fff;border-color:#d8e1eb;color:#6c7b90}
+.theme-light .result-filter input{color:#2f3f55}
+.theme-light .result-filter input::placeholder{color:#93a1b2}
+.theme-light .filter-clear{background:#e7eef6;color:#5a6c82}
+.theme-light .toolbar-toggle{color:#5a6c82}
+.theme-light .toolbar-toggle .custom-checkbox{background:#fff;border-color:#c6d2e0;color:#2f9d74}
+.theme-light .filter-summary{color:#718096}
+.theme-light mark{background:#fdf0cf;color:#8a5a09}
+.theme-light .bookmark-button{color:#9aa9bb}
+.theme-light .bookmark-button.active{color:#c98a12}
+
