@@ -75,7 +75,8 @@ func TestManagerAutoRestartsFailedProcessUntilLimit(t *testing.T) {
 		t.Fatalf("自动重启后应保留退出码 9：%+v", status)
 	}
 	// 首次启动加两次自动重启，共三次启动记录。
-	deadline := time.Now().Add(2 * time.Second)
+	// 慢机器或并行跑测试时单次拉起 helper 进程可能耗时数秒，等待窗口需留出余量。
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if starts := countLogs(manager, view.Spec.ID, "服务已启动"); starts == 3 && countLogs(manager, view.Spec.ID, "自动重启次数已达上限") == 1 {
 			return
