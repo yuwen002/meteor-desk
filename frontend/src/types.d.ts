@@ -17,6 +17,7 @@ declare global {
   interface ProcessView { spec:ProcessSpec; status:ProcessStatus }
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
   interface ProcessResourceSample { at:string; cpuPercent:number; memoryBytes:number }
+  interface ProcessEvent { at:string; kind:'start'|'ready'|'restart'|'exit'; detail?:string; durationMs?:number }
   interface ProcessPortStatus { port:number; state:'free'|'owned'|'occupied'|'unknown'; pid?:number; process?:string }
   interface ProcessPortReport { specId:string; declared:number[]; ports:ProcessPortStatus[]; listening:ProcessPortStatus[]; scannedAt:string; scanError?:string }
   interface JsonField { path:string; value:unknown }
@@ -33,7 +34,7 @@ declare global {
     StartProcess:(id:string)=>Promise<void>; StopProcess:(id:string)=>Promise<void>; RestartProcess:(id:string)=>Promise<void>;
     StartProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>; StopProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>;
     GetProcessLogs:(id:string,after:number)=>Promise<ProcessOutput[]>;
-    GetResourceHistory:(id:string)=>Promise<ProcessResourceSample[]>; GetPortDiagnostics:(id:string)=>Promise<ProcessPortReport>;
+    GetResourceHistory:(id:string)=>Promise<ProcessResourceSample[]>; GetPortDiagnostics:(id:string)=>Promise<ProcessPortReport>; GetProcessTimeline:(id:string)=>Promise<ProcessEvent[]>;
     ExportProcessConfigs:(redactSensitive:boolean)=>Promise<string>; ImportProcessConfigs:()=>Promise<ProcessView[]>;
     SendHTTPRequest:(request:HttpRequest)=>Promise<HttpResponse>;
     GetRuntimeInfo:()=>Promise<RuntimeInfo>;

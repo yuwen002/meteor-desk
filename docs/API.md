@@ -38,6 +38,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `GetProcessLogs(id, after)` | 服务 ID、上次输出序号 | `ProcessOutput[]` | 仅返回序号大于 `after` 的输出行。 |
 | `GetResourceHistory(id)` | 服务 ID | `ResourceSample[]` | 返回最近 5 分钟资源采样点（最多 150 个，按时间升序）；停止后仍保留本次运行的最后一段。 |
 | `GetPortDiagnostics(id)` | 服务 ID | `PortReport` | 扫描本机监听端口，返回配置端口的占用情况与本服务实际监听的端口；扫描失败时 `scanError` 说明原因。 |
+| `GetProcessTimeline(id)` | 服务 ID | `ProcessEvent[]` | 返回最近的生命周期事件（启动、就绪、自动重启、退出），按发生顺序排列，内存中每个服务保留最近 40 条；`ready` 的 `durationMs` 为启动耗时，`exit` 的为本次运行时长。 |
 | `ExportProcessConfigs(redactSensitive)` | 是否脱敏 | `string` | 通过系统对话框写入 JSON 文件并返回提示文本。 |
 | `ImportProcessConfigs()` | 无 | `ProcessView[]` | 通过系统文件选择器导入 JSON 配置。 |
 

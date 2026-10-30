@@ -81,6 +81,12 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 每次写入快照时同时追加一个 `ResourceSample` 到实例内的历史窗口，超过 `metricsHistoryLimit`（150 个）只保留最新 5 分钟；`ResourceHistory` 在锁内复制后返回，前端按 3 秒轮询绘制曲线。
 - 历史窗口跟随实例生命周期：重新启动会产生新实例并从头积累；进程退出后快照指标清空，但历史保留本次运行的最后一段曲线供事后查看。
 
+## 进程生命周期事件
+
+- `Manager.events` 按服务 ID 保存 `ProcessEvent`（`start`/`ready`/`restart`/`exit`），在 `m.mu` 内追加并只保留最近 `maxProcessEvents`（40）条；与配置、输出缓存一致，只在内存中保存，应用退出即清空。
+- 启动成功入 `start`（自动重启会标明第几次），`cmd.Start` 失败入一条 `exit` 说明启动失败原因；进程退出时在同一把锁内先写 `exit`（含退出码与运行时长）再写 `restart`（待重启或次数用尽），保证时间线顺序与状态快照一致。
+- 启动耗时来自就绪事件：本次运行的第一行 stdout/stderr 或首次健康通过先到即写 `ready`，`durationMs` 为距离启动成功的毫秒数；`readyDone` 与实例绑定，重启后重新计时；启动失败的实例没有启动时间，写入 stderr 不会产生就绪事件。
+
 ## 端口诊断
 
 - `ports.go` 只在需要时调用系统命令，不在采样循环里执行：Windows 解析 `netstat -ano -p TCP`，macOS 优先 `lsof -nP -iTCP -sTCP:LISTEN -Fpc`、回退 `netstat -an -p tcp`，Linux 优先 `ss -ltnp`、回退 `lsof` 与 `netstat`；单次命令 5 秒超时。

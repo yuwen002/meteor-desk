@@ -24,6 +24,7 @@ function createBridge(views: ProcessView[] = []) {
     GetProcesses: vi.fn().mockResolvedValue(views),
     GetProcessLogs: vi.fn().mockResolvedValue([]),
     GetResourceHistory: vi.fn().mockResolvedValue([]),
+    GetProcessTimeline: vi.fn().mockResolvedValue([]),
     GetPortDiagnostics: vi.fn().mockResolvedValue({ specId: '', declared: [], ports: [], listening: [], scannedAt: new Date().toISOString() }),
     SaveProcess: vi.fn(async (spec: ProcessSpec): Promise<ProcessView> => ({ spec, status: { id: spec.id, name: spec.name, state: 'stopped' } })),
     DeleteProcess: vi.fn().mockResolvedValue(undefined),
@@ -233,6 +234,38 @@ describe('process management', () => {
     expect(wrapper.findAll('.graph-node')).toHaveLength(2)
     expect(wrapper.findAll('.graph-edge.cyclic')).toHaveLength(2)
     expect(wrapper.get('.graph-hint').text()).toContain('虚线表示循环依赖')
+    wrapper.unmount()
+  })
+
+  it('renders the lifecycle timeline with the latest startup duration', async () => {
+    const bridge = createBridge([processView('api', 'API', {}, { state: 'running', pid: 4321 })])
+    bridge.GetProcessTimeline.mockResolvedValue([
+      { at: '2026-10-31T00:00:00Z', kind: 'start', detail: '手动启动' },
+      { at: '2026-10-31T00:00:02Z', kind: 'ready', detail: '首次输出', durationMs: 1800 },
+      { at: '2026-10-31T00:00:09Z', kind: 'exit', detail: '异常退出（退出码 7）', durationMs: 9000 },
+      { at: '2026-10-31T00:00:09Z', kind: 'restart', detail: '第 1 次自动重启，等待 1s' },
+      { at: '2026-10-31T00:00:10Z', kind: 'start', detail: '自动重启第 1 次' },
+      { at: '2026-10-31T00:00:11Z', kind: 'ready', detail: '首次输出', durationMs: 640 },
+    ])
+    const wrapper = await mountPanel(bridge)
+    await wrapper.findAll('.process-item')[0].trigger('click')
+    await flushPromises()
+
+    expect(bridge.GetProcessTimeline).toHaveBeenCalledWith('api')
+    const head = wrapper.get('.process-timeline .timeline-head')
+    expect(head.text()).toContain('6 条事件')
+    expect(head.text()).toContain('最近启动耗时 640 毫秒')
+    expect(head.text()).toContain('自动重启 1 次')
+    const rows = wrapper.findAll('.event-row')
+    expect(rows).toHaveLength(6)
+    expect(rows[0].classes()).toContain('start')
+    expect(rows[0].text()).toContain('启动')
+    expect(rows[1].text()).toContain('就绪')
+    expect(rows[1].text()).toContain('耗时 1.8 秒')
+    expect(rows[2].classes()).toContain('exit')
+    expect(rows[2].text()).toContain('异常退出（退出码 7）')
+    expect(rows[2].text()).toContain('运行 9.0 秒')
+    expect(wrapper.get('.timeline-hint').text()).toContain('首次输出或健康检查通过')
     wrapper.unmount()
   })
 })

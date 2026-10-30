@@ -59,6 +59,8 @@ func runHealthProbe(m *Manager, id string, instance *managedProcess, check Healt
 			}
 			instance.snapshot.Health = HealthHealthy
 			instance.snapshot.HealthMessage = ""
+			// 首次健康通过同样是一次运行的就绪信号，用于与首次输出抢占的时间线。
+			m.markReadyLocked(id, "健康检查通过")
 		} else {
 			failures++
 			if failures >= threshold {

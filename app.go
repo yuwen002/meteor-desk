@@ -259,6 +259,8 @@ func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){
 func (a *App) GetResourceHistory(id string)([]process.ResourceSample,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.ResourceHistory(id),nil}
 // GetPortDiagnostics 扫描本机监听端口，返回服务声明端口的占用情况与本服务实际监听的端口。
 func (a *App) GetPortDiagnostics(id string)(process.PortReport,error){if a.startupErr!=nil{return process.PortReport{},a.startupErr};if a.processes==nil{return process.PortReport{},errors.New("进程管理器尚未初始化")};return a.processes.PortDiagnostics(id)}
+// GetProcessTimeline 返回服务最近的生命周期事件（启动、就绪、自动重启、退出），只在内存保留最近 40 条。
+func (a *App) GetProcessTimeline(id string)([]process.ProcessEvent,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Timeline(id),nil}
 // ReadLogTail 返回日志文件在 offset 之后新增的完整行；offset 为负时从文件末尾开始跟踪。
 func (a *App) ReadLogTail(path string, offset int64, encoding string) (logx.TailResult, error) {
 	return logx.TailFile(path, logx.TailOptions{Offset: offset, Encoding: encoding})

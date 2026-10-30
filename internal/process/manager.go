@@ -21,6 +21,7 @@ import (
 )
 
 const maxOutputLines = 1500
+const maxProcessEvents = 40
 const maxOutputLineBytes = 64 * 1024
 const maxConfigImportBytes = 1 << 20
 const maxServiceConfigs = 500
@@ -64,6 +65,8 @@ type managedProcess struct {
 	metricsOnce sync.Once
 	// history 是资源采样的环形窗口，只在 m.mu 下读写。
 	history []ResourceSample
+	// readyDone 标记本次运行是否已记录就绪事件（首次输出或健康通过，先到为准）。
+	readyDone bool
 	snapshot Snapshot
 }
 
@@ -107,6 +110,8 @@ type Manager struct {
 	outputs map[string][]OutputLine
 	outputSequence map[string]int64
 	restartTimers map[string]*time.Timer
+	// events 按服务保存最近 maxProcessEvents 条生命周期事件，跨重启保留，进程退出后仍可回看。
+	events map[string][]ProcessEvent
 }
 
 // NewManager 在当前用户配置目录中创建进程管理器。
@@ -118,7 +123,7 @@ func NewManager() (*Manager, error) {
 
 // NewManagerAt 从指定文件加载服务定义，主要用于隔离测试或自定义本地路径。
 func NewManagerAt(path string) (*Manager, error) {
-	m := &Manager{configPath:path, specs:map[string]Spec{}, instances:map[string]*managedProcess{}, outputs:map[string][]OutputLine{}, outputSequence:map[string]int64{}, restartTimers:map[string]*time.Timer{}}
+	m := &Manager{configPath:path, specs:map[string]Spec{}, instances:map[string]*managedProcess{}, outputs:map[string][]OutputLine{}, outputSequence:map[string]int64{}, restartTimers:map[string]*time.Timer{}, events:map[string][]ProcessEvent{}}
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) { return nil, fmt.Errorf("读取进程配置失败：%w", err) }
 	if err == nil {
@@ -393,7 +398,7 @@ func (m *Manager) Delete(id string) error {
 			}
 		}
 	}
-	delete(m.specs,id); delete(m.instances,id); delete(m.outputs,id); delete(m.outputSequence,id); m.cancelRestartLocked(id)
+	delete(m.specs,id); delete(m.instances,id); delete(m.outputs,id); delete(m.outputSequence,id); delete(m.events,id); m.cancelRestartLocked(id)
 	return m.persistLocked()
 }
 
@@ -450,19 +455,24 @@ func (m *Manager) startOneCounted(id string, restarts int) error {
 		_ = stdout.Close()
 		_ = stderr.Close()
 		finishedAt := time.Now()
+		reason := diagnoseStartError(spec, err)
 		m.instances[id] = &managedProcess{snapshot: Snapshot{
 			ID: id, Name: spec.Name, State: StateFailed, ExitReason: ExitReasonStartFailed, Restarts: restarts,
-			Error: diagnoseStartError(spec, err), FinishedAt: finishedAt.Format(time.RFC3339Nano),
+			Error: reason, FinishedAt: finishedAt.Format(time.RFC3339Nano),
 		}}
+		m.appendEventLocked(id, ProcessEvent{At: finishedAt.Format(time.RFC3339Nano), Kind: EventExit, Detail: "启动失败：" + reason})
 		m.mu.Unlock()
-		m.appendOutput(id, "stderr", diagnoseStartError(spec, err))
-		return fmt.Errorf("%s: %w", diagnoseStartError(spec, err), err)
+		m.appendOutput(id, "stderr", reason)
+		return fmt.Errorf("%s: %w", reason, err)
 	}
 	startedAt := time.Now()
 	healthState := ""
 	if spec.Health != nil { healthState = HealthChecking }
 	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, stdout:stdout, stderr:stderr, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano),Restarts:restarts,Health:healthState}}
 	m.instances[id] = instance
+	startDetail := "手动启动"
+	if restarts > 0 { startDetail = fmt.Sprintf("自动重启第 %d 次", restarts) }
+	m.appendEventLocked(id, ProcessEvent{At: startedAt.Format(time.RFC3339Nano), Kind: EventStart, Detail: startDetail})
 	startHealthProbe(m, id, instance, spec.Health)
 	// 采样协程与健康探测一样在锁内启动，避免 stopSamplers 在锁内读到未初始化的 metricsStop。
 	startMetricsSampler(m, id, instance, cmd.Process.Pid)
@@ -525,6 +535,13 @@ func (m *Manager) startOneCounted(id string, restarts int) error {
 						restartExhausted = true
 					}
 				}
+			}
+			// 退出与重启事件在同一把锁内追加，保证时间线顺序与状态快照一致。
+			m.appendEventLocked(id, ProcessEvent{At: finishedAt.Format(time.RFC3339Nano), Kind: EventExit, Detail: exitEventDetail(current.snapshot.ExitReason, exitCode), DurationMs: durationMs})
+			if restartAttempt > 0 {
+				m.appendEventLocked(id, ProcessEvent{At: time.Now().Format(time.RFC3339Nano), Kind: EventRestart, Detail: fmt.Sprintf("第 %d 次自动重启，等待 %s", restartAttempt, restartDelay)})
+			} else if restartExhausted {
+				m.appendEventLocked(id, ProcessEvent{At: time.Now().Format(time.RFC3339Nano), Kind: EventRestart, Detail: "自动重启次数已达上限"})
 			}
 		}
 		m.mu.Unlock()
@@ -863,6 +880,46 @@ func (m *Manager) appendOutput(id,stream,text string) {
 	lines:=append(m.outputs[id],line)
 	if len(lines)>maxOutputLines { lines=append([]OutputLine(nil),lines[len(lines)-maxOutputLines:]...) }
 	m.outputs[id]=lines
+	// 首行进程输出视为启动完成信号；没有健康检查时也能量出启动耗时。
+	if stream=="stdout"||stream=="stderr" { m.markReadyLocked(id,"首次输出") }
+}
+
+// appendEventLocked 追加生命周期事件并保留最近 maxProcessEvents 条；调用方需持有 m.mu。
+func (m *Manager) appendEventLocked(id string, event ProcessEvent) {
+	events:=append(m.events[id],event)
+	if len(events)>maxProcessEvents { events=append([]ProcessEvent(nil),events[len(events)-maxProcessEvents:]...) }
+	m.events[id]=events
+}
+
+// markReadyLocked 记录本次运行的就绪事件：首次输出与首次健康通过先到为准，只记一次。
+// 调用方需持有 m.mu。
+func (m *Manager) markReadyLocked(id,source string) {
+	instance:=m.instances[id]
+	// 启动失败的实例没有启动时间，写它的 stderr 不能当成就绪信号。
+	if instance==nil||instance.readyDone||instance.startedAt.IsZero() { return }
+	instance.readyDone=true
+	now:=time.Now()
+	durationMs:=now.Sub(instance.startedAt).Milliseconds()
+	if durationMs<0 { durationMs=0 }
+	m.appendEventLocked(id,ProcessEvent{At:now.Format(time.RFC3339Nano),Kind:EventReady,Detail:source,DurationMs:&durationMs})
+}
+
+// Timeline 返回指定服务最近的生命周期事件，按发生顺序排列，进程退出后仍可回看；返回副本。
+func (m *Manager) Timeline(id string) []ProcessEvent {
+	m.mu.RLock(); defer m.mu.RUnlock()
+	return append([]ProcessEvent(nil),m.events[id]...)
+}
+
+// exitEventDetail 把退出原因转为可读说明；启动失败的原因由调用方拼在事件里。
+func exitEventDetail(reason ExitReason, code *int) string {
+	switch reason {
+	case ExitReasonNormal: return "正常退出"
+	case ExitReasonManualStop: return "已手动停止"
+	case ExitReasonSignal: return "被信号终止"
+	case ExitReasonStartFailed: return "启动失败"
+	}
+	if code!=nil&&*code!=0 { return fmt.Sprintf("异常退出（退出码 %d）",*code) }
+	return "异常退出"
 }
 func readOutput(reader io.Reader,emit func(string)) {
 	br:=bufio.NewReaderSize(reader,32*1024); line:=make([]byte,0,4096); clipped:=false

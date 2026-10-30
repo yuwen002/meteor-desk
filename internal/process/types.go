@@ -110,6 +110,25 @@ type ResourceSample struct {
 	MemoryBytes uint64  `json:"memoryBytes"`
 }
 
+// EventKind 区分服务生命周期事件的类型，供前端时间线着色与命名。
+type EventKind string
+
+const (
+	EventStart   EventKind = "start"
+	EventReady   EventKind = "ready"
+	EventRestart EventKind = "restart"
+	EventExit    EventKind = "exit"
+)
+
+// ProcessEvent 是一次启停生命周期事件，只在内存中保留最近若干条。
+// DurationMs 的含义随 Kind 变化：ready 为启动耗时（启动到首次输出或健康通过），exit 为本次运行时长。
+type ProcessEvent struct {
+	At         string    `json:"at"`
+	Kind       EventKind `json:"kind"`
+	Detail     string    `json:"detail,omitempty"`
+	DurationMs *int64    `json:"durationMs,omitempty"`
+}
+
 // BatchResult 描述批量操作中单个服务的执行结果。
 type BatchResult struct {
 	ID string `json:"id"`
