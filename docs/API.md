@@ -129,6 +129,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 - `extractLogTime(line)`：从行内解析 `YYYY-MM-DD HH:mm:ss`、ISO 时间戳（含毫秒）或 `HH:mm:ss`，按 UTC 返回毫秒时间戳；只有时间时锚定到 1970-01-01，无时间或时间值越界时返回 `undefined`。
 - `buildTimeDistribution(matches, maxBuckets = 24)`：只统计 error/warn 行，按跨度自适应选择 1 秒至 1 天的步长，返回 `buckets`（`start`、`label`、`error`、`warn`）、`stepMs`、`stepLabel`、`maxCount`、`errorTotal`、`warnTotal` 与无时间戳的 `undated`；溢出上限的样本归入最后一桶。
+- `filterMatchesByTime(matches, start, stepMs)`：保留时间戳落在 `[start, start + stepMs)` 内的行，用于点击时间格后的联动过滤；没有时间戳的行不会被选中，区间右边界开放，避免相邻两格重复计数。
 
 聚合只依赖已返回的结果，不会重新读文件，也不影响导出内容。
 

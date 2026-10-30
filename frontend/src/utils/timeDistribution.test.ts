@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTimeDistribution, extractLogTime, MAX_TIME_BUCKETS } from './timeDistribution'
+import { buildTimeDistribution, extractLogTime, filterMatchesByTime, MAX_TIME_BUCKETS } from './timeDistribution'
 
 const match = (content:string) => ({ content })
 
@@ -74,5 +74,25 @@ describe('buildTimeDistribution', () => {
     ])
     expect(distribution.buckets).toHaveLength(MAX_TIME_BUCKETS)
     expect(distribution.errorTotal).toBe(2)
+  })
+})
+
+describe('filterMatchesByTime', () => {
+  it('keeps only lines inside the bucket window', () => {
+    const matches = [
+      match('2026-10-30 10:00:00 ERROR first'),
+      match('2026-10-30 10:00:01 WARN second'),
+      match('2026-10-30 10:00:02 INFO third'),
+      match('ERROR no timestamp'),
+    ]
+    const start = Date.UTC(2026, 9, 30, 10, 0, 1)
+    // 上边界开放：10:00:02 属于下一格，没有时间戳的行不参与过滤。
+    expect(filterMatchesByTime(matches, start, 1000).map(item => item.content)).toEqual(['2026-10-30 10:00:01 WARN second'])
+  })
+
+  it('matches clock-only lines against a clock-only anchor', () => {
+    const matches = [match('10:00:02 ERROR boom'), match('10:00:05 error other')]
+    const start = Date.UTC(1970, 0, 1, 10, 0, 0)
+    expect(filterMatchesByTime(matches, start, 5000)).toHaveLength(1)
   })
 })

@@ -102,3 +102,11 @@ export function buildTimeDistribution(matches:Array<{content:string}>, maxBucket
   }
   return { buckets, stepMs: step, stepLabel: formatStep(step), maxCount, errorTotal, warnTotal, undated }
 }
+
+// filterMatchesByTime 保留落在 [start, start+stepMs) 内的行；没有时间戳的行不参与时间段过滤。
+export function filterMatchesByTime<T extends { content:string }>(matches:T[], start:number, stepMs:number):T[] {
+  return matches.filter(match => {
+    const time = extractLogTime(match.content)
+    return time !== undefined && time >= start && time < start + stepMs
+  })
+}

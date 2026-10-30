@@ -293,8 +293,8 @@ describe('log search options', () => {
     expect(timeline.get('.summary-subtitle').text()).toContain('WARN 1')
     const timelineBuckets = timeline.findAll('.timeline-bucket')
     expect(timelineBuckets).toHaveLength(3)
-    expect(timelineBuckets[0].get('.timeline-bar').attributes('title')).toBe('10-30 10:00:00 · ERROR 1')
-    expect(timelineBuckets[1].get('.timeline-bar').attributes('title')).toBe('10-30 10:00:01 · WARN 1')
+    expect(timelineBuckets[0].attributes('title')).toBe('10-30 10:00:00 · ERROR 1')
+    expect(timelineBuckets[1].attributes('title')).toBe('10-30 10:00:01 · WARN 1')
     expect(timelineBuckets[0].get('.timeline-bar').attributes('style')).toContain('height: 64px')
     expect(timelineBuckets[0].find('.timeline-error').exists()).toBe(true)
     expect(timelineBuckets[0].find('.timeline-warn').exists()).toBe(false)
@@ -336,6 +336,48 @@ describe('log search options', () => {
 
     expect(wrapper.findAll('.timeline-bucket')).toHaveLength(1)
     expect(wrapper.get('.summary-panel').text()).toContain('1 条错误/警告行缺少可识别的时间戳')
+    wrapper.unmount()
+  })
+
+  it('filters results by clicking a timeline bucket', async () => {
+    const { wrapper, bridge } = await mountApp()
+    bridge.SearchLogsAdvanced.mockResolvedValue({
+      filePath: 'C:/logs/app.log',
+      encoding: 'utf-8',
+      fileSizeBytes: 120,
+      bytesScanned: 120,
+      scannedLines: 12,
+      resultLimitReached: false,
+      canceled: false,
+      matches: [
+        { lineNumber: 2, content: '2026-10-30 10:00:00 ERROR connection refused', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 5, content: '2026-10-30 10:00:01 WARN slow request 3000ms', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 9, content: '2026-10-30 10:00:02 ERROR connection refused', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 12, content: '2026-10-30 10:00:03 INFO ready', contentClipped: false, contextBefore: [], contextAfter: [] },
+      ],
+    })
+    await wrapper.get('#search-query').setValue('boom')
+    await wrapper.get('button[type="submit"]').trigger('click')
+    await flushPromises()
+    const toggle = wrapper.findAll('button').find(button => button.text() === '统计')
+    if (!toggle) throw new Error('统计按钮未渲染')
+    await toggle.trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('.timeline-bucket')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.result-row')).toHaveLength(1)
+    expect(wrapper.get('.result-row').text()).toContain('WARN slow request')
+    expect(wrapper.get('.filter-summary').text()).toBe('1 / 4 条')
+    expect(wrapper.get('.time-filter-chip').text()).toContain('时间段 10-30 10:00:01')
+    // 时间格被选中后柱状图仍保留全貌，只是叠加过滤。
+    expect(wrapper.findAll('.timeline-bucket')).toHaveLength(3)
+    expect(wrapper.findAll('.timeline-bucket')[1].classes()).toContain('active')
+
+    await wrapper.findAll('.timeline-bucket')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.result-row')).toHaveLength(4)
+    expect(wrapper.find('.time-filter-chip').exists()).toBe(false)
     wrapper.unmount()
   })
 })
