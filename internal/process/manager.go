@@ -56,6 +56,8 @@ type managedProcess struct {
 	closeOutputOnce sync.Once
 	probeStop chan struct{}
 	probeOnce sync.Once
+	metricsStop chan struct{}
+	metricsOnce sync.Once
 	snapshot Snapshot
 }
 
@@ -65,6 +67,15 @@ func (p *managedProcess) stopProbe() {
 		return
 	}
 	p.probeOnce.Do(func() { close(p.probeStop) })
+}
+
+// stopSamplers 结束健康检查与资源采样协程；重复调用是安全的。
+func (p *managedProcess) stopSamplers() {
+	p.stopProbe()
+	if p == nil || p.metricsStop == nil {
+		return
+	}
+	p.metricsOnce.Do(func() { close(p.metricsStop) })
 }
 
 func (p *managedProcess) closeOutputPipes() {
@@ -343,7 +354,7 @@ func (m *Manager) Save(spec Spec) (View, error) {
 	if instance := m.instances[spec.ID]; instance != nil {
 		instance.snapshot.Restarts = 0
 		instance.snapshot.NextRestartAt = ""
-		instance.stopProbe()
+		instance.stopSamplers()
 	}
 	status := Snapshot{ID:spec.ID, Name:spec.Name, State:StateStopped}
 	if instance := m.instances[spec.ID]; instance != nil { status = instance.snapshot }
@@ -475,11 +486,14 @@ func (m *Manager) startOneCounted(id string, restarts int) error {
 				current.snapshot.ExitReason = ExitReasonNonzero
 				current.snapshot.Error = waitErr.Error()
 			}
-			// 进程已结束：健康状态失效，探测协程随实例一起退出。
-			current.stopProbe()
+			// 进程已结束：健康状态与资源占用失效，采样协程随实例一起退出。
+			current.stopSamplers()
 			current.snapshot.Health = ""
 			current.snapshot.HealthMessage = ""
 			current.snapshot.HealthCheckedAt = ""
+			current.snapshot.CPUPercent = 0
+			current.snapshot.MemoryBytes = 0
+			current.snapshot.MetricsAt = ""
 			if current.snapshot.State == StateFailed {
 				if spec, ok := m.specs[id]; ok && spec.Restart.Mode == RestartModeOnFailure {
 					if current.snapshot.Restarts < spec.Restart.MaxAttempts {
@@ -504,6 +518,7 @@ func (m *Manager) startOneCounted(id string, restarts int) error {
 		close(instance.done)
 	}()
 	m.appendOutput(id,"system",fmt.Sprintf("服务已启动，进程号 %d",cmd.Process.Pid))
+	startMetricsSampler(m, id, instance, cmd.Process.Pid)
 	return nil
 }
 
@@ -523,7 +538,7 @@ func (m *Manager) stopOne(id string) error {
 	if instance.snapshot.State == StateStopped || instance.snapshot.State == StateFailed {
 		instance.snapshot.Restarts = 0
 		instance.snapshot.NextRestartAt = ""
-		instance.stopProbe()
+		instance.stopSamplers()
 		m.mu.Unlock()
 		return nil
 	}
@@ -547,7 +562,7 @@ func (m *Manager) stopOne(id string) error {
 		}
 	}
 	instance.snapshot.State = StateStopping
-	instance.stopProbe()
+	instance.stopSamplers()
 	cmd, done := instance.cmd, instance.done
 	m.mu.Unlock()
 

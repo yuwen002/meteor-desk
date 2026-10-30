@@ -22,6 +22,11 @@ func TestProcessHelper(t *testing.T) {
 			os.Exit(code)
 		}
 	}
+	if os.Getenv("METEORDESK_PROCESS_HELPER_BUSY") == "1" {
+		busyUntil := time.Now().Add(4 * time.Second)
+		for time.Now().Before(busyUntil) {
+		}
+	}
 	if os.Getenv("METEORDESK_PROCESS_TREE_PARENT") == "1" {
 		marker := os.Getenv("METEORDESK_PROCESS_TREE_MARKER")
 		child := exec.Command(os.Args[0], "-test.run=TestProcessTreeGrandchild")

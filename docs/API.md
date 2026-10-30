@@ -96,7 +96,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### ProcessStatus
 
-运行快照字段包括 `state`、`pid`、`startedAt`、`finishedAt`、`durationMs`、`exitCode`、`exitReason` 和 `error`。退出原因枚举为 `normal`、`nonzero`、`signal`、`manual-stop`、`start-error`。启用健康检查时还包含 `health`（`checking` / `healthy` / `unhealthy`）、`healthMessage`（最近一次失败原因）和 `healthCheckedAt`（RFC3339Nano）；启用自动重启时包含 `restarts`（当前累计重启次数）和 `nextRestartAt`（等待重启的预计时间，无待执行重启时为空）。手动启动、手动停止或修改配置会把 `restarts` 归零。
+运行快照字段包括 `state`、`pid`、`startedAt`、`finishedAt`、`durationMs`、`exitCode`、`exitReason` 和 `error`。退出原因枚举为 `normal`、`nonzero`、`signal`、`manual-stop`、`start-error`。启用健康检查时还包含 `health`（`checking` / `healthy` / `unhealthy`）、`healthMessage`（最近一次失败原因）和 `healthCheckedAt`（RFC3339Nano）；启用自动重启时包含 `restarts`（当前累计重启次数）和 `nextRestartAt`（等待重启的预计时间，无待执行重启时为空）。手动启动、手动停止或修改配置会把 `restarts` 归零。进程运行时还包含 `cpuPercent`（两次采样之间的单核百分比）、`memoryBytes`（常驻内存字节数）和 `metricsAt`（最近一次采样时间，RFC3339Nano）；进程退出后三个字段清空。
 
 ### ProcessOutput
 
@@ -147,6 +147,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - 自动重启：`Spec.Restart` 为 `on-failure` 且进程以非零码退出或收到信号时，按指数退避（1 秒起步、翻倍、上限 30 秒）调度重启，次数受 `MaxAttempts` 限制；定时器保存在管理器内部，手动停止、修改配置、删除服务、`Restart` 或再次启动都会取消待执行的重启。正常退出与启动失败（可执行文件创建失败）不触发重启。
 - 健康检查：`health.go` 中的 `startHealthProbe` 在进程启动成功后起一个探测协程，按间隔执行 `probeHealth`（TCP `DialTimeout` 或 HTTP `Client.Get`，只读取 32 KiB 正文后丢弃）；探测结果写回快照，仅在健康状态变化时追加一条 `system` 输出。探测失败只标记状态，不触发重启；进程退出或实例被替换时通过 `probeStop` 结束协程。
 - 依赖就绪：`readiness.go` 的 `waitReady` 在批量启动中等待上游健康。只有本次启动顺序里被下游依赖、且 `Health != nil`、`ReadyTimeoutSeconds > 0` 的服务才等待；每 50 ms 读取一次快照，`healthy` 后继续启动下游，`unhealthy`、实例被替换、进程停止或超时会阻断下游并把原因写入运行输出。
+- 资源采样：`metrics.go` 在每次运行启动一个采样协程，每 2 秒调用平台实现 `sampleProcess`（Windows `GetProcessTimes` / `GetProcessMemoryInfo`，Linux `/proc/<pid>/stat`，macOS `ps -o time=,rss=`），按两次采样的差值计算单核 CPU 百分比并写入快照；停止或退出时通过 `stopSamplers` 关闭协程，采样失败只跳过本次写入。
 
 ### `internal/config`
 

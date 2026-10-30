@@ -93,6 +93,10 @@ type Snapshot struct {
 	// Restarts 是本次运行周期内的自动重启次数，手动启动会清零。
 	Restarts      int    `json:"restarts,omitempty"`
 	NextRestartAt string `json:"nextRestartAt,omitempty"`
+	// CPUPercent、MemoryBytes 与 MetricsAt 是后台资源采样结果，进程退出后清空。
+	CPUPercent  float64 `json:"cpuPercent,omitempty"`
+	MemoryBytes uint64  `json:"memoryBytes,omitempty"`
+	MetricsAt   string  `json:"metricsAt,omitempty"`
 }
 
 // BatchResult 描述批量操作中单个服务的执行结果。

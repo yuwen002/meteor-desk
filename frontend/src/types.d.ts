@@ -13,7 +13,7 @@ declare global {
   interface ProcessHealthCheck { type:'tcp'|'http'; target:string; intervalSeconds:number; timeoutSeconds:number; failureThreshold:number }
   interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean; dependsOn:string[]; restart?:ProcessRestartPolicy; health?:ProcessHealthCheck|null; readyTimeoutSeconds?:number }
   interface ProcessBatchResult { id:string; name:string; action:'start'|'stop'; success:boolean; message:string }
-  interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; finishedAt?:string; durationMs?:number; exitCode?:number; exitReason?:'normal'|'nonzero'|'signal'|'manual-stop'|'start-error'; error?:string; health?:'checking'|'healthy'|'unhealthy'; healthMessage?:string; healthCheckedAt?:string; restarts?:number; nextRestartAt?:string }
+  interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; finishedAt?:string; durationMs?:number; exitCode?:number; exitReason?:'normal'|'nonzero'|'signal'|'manual-stop'|'start-error'; error?:string; health?:'checking'|'healthy'|'unhealthy'; healthMessage?:string; healthCheckedAt?:string; restarts?:number; nextRestartAt?:string; cpuPercent?:number; memoryBytes?:number; metricsAt?:string }
   interface ProcessView { spec:ProcessSpec; status:ProcessStatus }
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
   interface JsonField { path:string; value:unknown }
