@@ -38,6 +38,12 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `ExportProcessConfigs(redactSensitive)` | 是否脱敏 | `string` | 通过系统对话框写入 JSON 文件并返回提示文本。 |
 | `ImportProcessConfigs()` | 无 | `ProcessView[]` | 通过系统文件选择器导入 JSON 配置。 |
 
+### 开发工具箱
+
+| 方法 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `SendHTTPRequest(request)` | `HttpRequest` | `HttpResponse` | 由用户显式触发的本地 HTTP 请求。支持 GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS，URL 必须为 http/https；请求与响应正文各限制 2 MiB，超时 30 秒。非 2xx 状态不作为错误，响应原样返回。 |
+
 ### 设置和本地数据
 
 | 方法 | 参数 | 返回 | 说明 |
@@ -79,7 +85,15 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 输出行包括单调递增的服务内 `sequence`、本地时间、输出流类型（`stdout` / `stderr` / `system`）和文本内容。
 
+### HttpRequest / HttpResponse
+
+请求字段包括 `method`、`url`、`headers`（字符串键值对象）和 `body`。响应字段包括：`status`（状态码）、`statusText`（标准状态文本，如 `Created`）、`headers`（同名多值以 `, ` 合并）、`body`（最多保留 2 MiB，非法 UTF-8 字节替换为 `�`）、`bodyTruncated`、`sizeBytes`（实际接收字节数，可能大于保留的正文长度）和 `durationMs`（毫秒）。
+
 ## 4. Go 包 API
+
+### `internal/httpx`
+
+- `Send(Request)`：执行一次受限的本机 HTTP 请求；校验方法、URL 协议、请求头数量与正文大小，返回状态、响应头、受限正文、实际接收字节数与耗时。
 
 ### `internal/logx`
 
@@ -111,5 +125,6 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - 后端方法会返回明确的错误字符串；前端应捕获 Promise rejection 并提示用户。
 - 搜索任务 ID 必须唯一；已完成任务在后续任务登记时按 10 分钟保留期清理；任务数量超过 32 时优先移除最早完成的任务，目标回落到 24 个。运行中的任务不会被自动驱逐。成功任务在最终响应形成后释放增量缓存；取消任务保留增量结果至过期，以支持晚到的轮询。
 - 配置导出中的完整环境变量值可能是凭据。脱敏导出应作为默认选项。
+- HTTP 调试器只发送用户显式填写的请求，不会自动访问网络；请求可指向本机或内网地址，发送前应确认目标地址与请求头中的凭据。
 - 取消搜索不会撤销已经发现的结果。
 - 本项目当前没有远程 API 身份认证层，因为其接口属于本机 Wails 桌面桥接而不是网络服务。
