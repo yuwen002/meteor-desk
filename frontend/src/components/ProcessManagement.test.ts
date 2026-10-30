@@ -24,6 +24,7 @@ function createBridge(views: ProcessView[] = []) {
     GetProcesses: vi.fn().mockResolvedValue(views),
     GetProcessLogs: vi.fn().mockResolvedValue([]),
     GetResourceHistory: vi.fn().mockResolvedValue([]),
+    GetPortDiagnostics: vi.fn().mockResolvedValue({ specId: '', declared: [], ports: [], listening: [], scannedAt: new Date().toISOString() }),
     SaveProcess: vi.fn(async (spec: ProcessSpec): Promise<ProcessView> => ({ spec, status: { id: spec.id, name: spec.name, state: 'stopped' } })),
     DeleteProcess: vi.fn().mockResolvedValue(undefined),
     StartProcess: vi.fn().mockResolvedValue(undefined),
@@ -168,6 +169,31 @@ describe('process management', () => {
     // 峰值缩放到顶边、最小值贴底边，两个采样点即一条对角线。
     expect(charts[0].get('polyline').attributes('points')).toBe('0.0,32.0 120.0,0.0')
     expect(wrapper.get('.resource-history').text()).toContain('最多保留 150 个点')
+    wrapper.unmount()
+  })
+
+  it('shows declared port diagnostics with the occupying process', async () => {
+    const bridge = createBridge([processView('api', 'API', { ports: [8080, 8081] })])
+    bridge.GetPortDiagnostics.mockResolvedValue({
+      specId: 'api',
+      declared: [8080, 8081],
+      ports: [
+        { port: 8080, state: 'occupied', pid: 4321, process: 'nginx' },
+        { port: 8081, state: 'free' },
+      ],
+      listening: [],
+      scannedAt: '2026-10-31T00:00:05Z',
+    })
+    const wrapper = await mountPanel(bridge)
+    await wrapper.findAll('.process-item')[0].trigger('click')
+    await flushPromises()
+
+    expect(bridge.GetPortDiagnostics).toHaveBeenCalledWith('api')
+    const panel = wrapper.get('.port-diagnostics')
+    expect(panel.text()).toContain('端口诊断')
+    expect(panel.text()).toContain('被 PID 4321（nginx）占用')
+    expect(panel.text()).toContain('空闲')
+    expect(panel.text()).toContain('netstat/lsof/ss')
     wrapper.unmount()
   })
 })

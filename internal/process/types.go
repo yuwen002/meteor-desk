@@ -16,6 +16,9 @@ type Spec struct {
 	Health     *HealthCheck      `json:"health,omitempty"`
 	// ReadyTimeoutSeconds 控制作为上游依赖时等待健康检查通过的最长秒数；0 表示不等待。
 	ReadyTimeoutSeconds int `json:"readyTimeoutSeconds,omitempty"`
+	// Ports 是服务期望监听的 TCP 端口，用于启动时的占用提示与详情面板诊断；
+	// 为空表示不参与端口诊断。端口由服务自己决定，这里只做检查，不会修改启动参数。
+	Ports []int `json:"ports,omitempty"`
 }
 
 // RestartPolicy 控制服务异常退出后的自动重启。

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ProcessManagement from '../components/ProcessManagement.vue'
-import { getMaskedEnvironmentPreview, isSensitiveEnvKey, parseProcessForm } from './processConfig'
+import { getMaskedEnvironmentPreview, isSensitiveEnvKey, parsePortList, parseProcessForm } from './processConfig'
 
 describe('process configuration helpers', () => {
   it('parses JSON args and environment variables without shell concatenation', () => {
@@ -34,6 +34,13 @@ describe('process configuration helpers', () => {
   it('shows a repair hint for malformed environment JSON', () => {
     expect(getMaskedEnvironmentPreview('{')).toContain('环境变量 JSON 无效')
     expect(getMaskedEnvironmentPreview('[]')).toContain('环境变量 JSON 无效')
+  })
+
+  it('parses declared ports with de-duplication and range validation', () => {
+    expect(parsePortList('8080, 80，8080')).toEqual([80, 8080])
+    expect(parsePortList('')).toEqual([])
+    expect(() => parsePortList('8080, abc')).toThrow('1 到 65535')
+    expect(() => parsePortList('70000')).toThrow('1 到 65535')
   })
 })
 

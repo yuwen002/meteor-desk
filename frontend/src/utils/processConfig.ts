@@ -25,6 +25,21 @@ export function parseProcessForm(argsText: string, envText: string): ParsedProce
   return { args: parsedArgs, env: parsedEnv as Record<string, string> }
 }
 
+/** Parse the comma separated port list used for local port diagnostics. */
+export function parsePortList(text: string): number[] {
+  const ports: number[] = []
+  for (const part of text.split(/[,，\s]+/)) {
+    const value = part.trim()
+    if (!value) continue
+    if (!/^\d{1,5}$/.test(value) || Number(value) < 1 || Number(value) > 65535) {
+      throw new Error('监听端口需为 1 到 65535 之间的整数：' + value)
+    }
+    const port = Number(value)
+    if (!ports.includes(port)) ports.push(port)
+  }
+  return ports.sort((left, right) => left - right)
+}
+
 export function isSensitiveEnvKey(key: string): boolean {
   const normalized = key.toLowerCase().replaceAll('_', '').replaceAll('-', '').replaceAll('.', '')
   return [

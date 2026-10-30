@@ -37,6 +37,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `StopProcesses(ids)` | 服务 ID 数组 | `ProcessBatchResult[]` | 按反向依赖顺序逐项停止。 |
 | `GetProcessLogs(id, after)` | 服务 ID、上次输出序号 | `ProcessOutput[]` | 仅返回序号大于 `after` 的输出行。 |
 | `GetResourceHistory(id)` | 服务 ID | `ResourceSample[]` | 返回最近 5 分钟资源采样点（最多 150 个，按时间升序）；停止后仍保留本次运行的最后一段。 |
+| `GetPortDiagnostics(id)` | 服务 ID | `PortReport` | 扫描本机监听端口，返回配置端口的占用情况与本服务实际监听的端口；扫描失败时 `scanError` 说明原因。 |
 | `ExportProcessConfigs(redactSensitive)` | 是否脱敏 | `string` | 通过系统对话框写入 JSON 文件并返回提示文本。 |
 | `ImportProcessConfigs()` | 无 | `ProcessView[]` | 通过系统文件选择器导入 JSON 配置。 |
 
@@ -87,7 +88,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### ProcessSpec
 
-配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart`、`dependsOn`（服务 ID 数组）、可选的 `readyTimeoutSeconds`（0–600，0 表示不等待），以及可选的 `restart` 和 `health`。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
+配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart`、`dependsOn`（服务 ID 数组）、可选的 `readyTimeoutSeconds`（0–600，0 表示不等待）、可选的 `ports`（监听端口，1–65535，最多 20 个，自动去重升序），以及可选的 `restart` 和 `health`。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
 
 ### RestartPolicy / HealthCheck
 
@@ -160,6 +161,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - 健康检查：`health.go` 中的 `startHealthProbe` 在进程启动成功后起一个探测协程，按间隔执行 `probeHealth`（TCP `DialTimeout` 或 HTTP `Client.Get`，只读取 32 KiB 正文后丢弃）；探测结果写回快照，仅在健康状态变化时追加一条 `system` 输出。探测失败只标记状态，不触发重启；进程退出或实例被替换时通过 `probeStop` 结束协程。
 - 依赖就绪：`readiness.go` 的 `waitReady` 在批量启动中等待上游健康。只有本次启动顺序里被下游依赖、且 `Health != nil`、`ReadyTimeoutSeconds > 0` 的服务才等待；每 50 ms 读取一次快照，`healthy` 后继续启动下游，`unhealthy`、实例被替换、进程停止或超时会阻断下游并把原因写入运行输出。
 - 资源采样：`metrics.go` 在每次运行启动一个采样协程，每 2 秒调用平台实现 `sampleProcess`（Windows `GetProcessTimes` / `GetProcessMemoryInfo`，Linux `/proc/<pid>/stat`，macOS `ps -o time=,rss=`），按两次采样的差值计算单核 CPU 百分比并写入快照；停止或退出时通过 `stopSamplers` 关闭协程，采样失败只跳过本次写入。每次采样同时追加到实例内的历史窗口（`ResourceSample`，上限 150 个点）供 `ResourceHistory` 读取。
+- 端口诊断：`ports.go` 在锁外调用系统命令并解析监听端口（Windows `netstat -ano -p TCP`，macOS `lsof -nP -iTCP -sTCP:LISTEN` 优先、`netstat` 回退，Linux `ss -ltnp` 优先、`lsof` 与 `netstat` 回退），单次命令 5 秒超时。`PortDiagnostics` 把配置端口标记为 `free`、`owned`、`occupied` 或 `unknown`，并单独返回本服务 PID 实际监听的端口；启动后若配置端口被其他进程占用，会在运行输出写入提示（含 PID 与进程名），不会阻止启动。
 
 ### `internal/config`
 

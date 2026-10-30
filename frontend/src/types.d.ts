@@ -11,12 +11,14 @@ declare global {
   interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number }
   interface ProcessRestartPolicy { mode:'none'|'on-failure'; maxAttempts:number }
   interface ProcessHealthCheck { type:'tcp'|'http'; target:string; intervalSeconds:number; timeoutSeconds:number; failureThreshold:number }
-  interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean; dependsOn:string[]; restart?:ProcessRestartPolicy; health?:ProcessHealthCheck|null; readyTimeoutSeconds?:number }
+  interface ProcessSpec { id:string; name:string; executable:string; args:string[]; workingDir:string; env:Record<string,string>; autoStart:boolean; dependsOn:string[]; restart?:ProcessRestartPolicy; health?:ProcessHealthCheck|null; readyTimeoutSeconds?:number; ports?:number[] }
   interface ProcessBatchResult { id:string; name:string; action:'start'|'stop'; success:boolean; message:string }
   interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; finishedAt?:string; durationMs?:number; exitCode?:number; exitReason?:'normal'|'nonzero'|'signal'|'manual-stop'|'start-error'; error?:string; health?:'checking'|'healthy'|'unhealthy'; healthMessage?:string; healthCheckedAt?:string; restarts?:number; nextRestartAt?:string; cpuPercent?:number; memoryBytes?:number; metricsAt?:string }
   interface ProcessView { spec:ProcessSpec; status:ProcessStatus }
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
   interface ProcessResourceSample { at:string; cpuPercent:number; memoryBytes:number }
+  interface ProcessPortStatus { port:number; state:'free'|'owned'|'occupied'|'unknown'; pid?:number; process?:string }
+  interface ProcessPortReport { specId:string; declared:number[]; ports:ProcessPortStatus[]; listening:ProcessPortStatus[]; scannedAt:string; scanError?:string }
   interface JsonField { path:string; value:unknown }
   interface HttpRequest { method:string; url:string; headers:Record<string,string>; body:string; timeoutMs?:number; followRedirects?:boolean; insecureSkipVerify?:boolean }
   interface HttpResponse { status:number; statusText:string; headers:Record<string,string>; body:string; bodyTruncated:boolean; sizeBytes:number; durationMs:number; finalUrl?:string; redirects?:number; binary?:boolean }
@@ -31,7 +33,7 @@ declare global {
     StartProcess:(id:string)=>Promise<void>; StopProcess:(id:string)=>Promise<void>; RestartProcess:(id:string)=>Promise<void>;
     StartProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>; StopProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>;
     GetProcessLogs:(id:string,after:number)=>Promise<ProcessOutput[]>;
-    GetResourceHistory:(id:string)=>Promise<ProcessResourceSample[]>;
+    GetResourceHistory:(id:string)=>Promise<ProcessResourceSample[]>; GetPortDiagnostics:(id:string)=>Promise<ProcessPortReport>;
     ExportProcessConfigs:(redactSensitive:boolean)=>Promise<string>; ImportProcessConfigs:()=>Promise<ProcessView[]>;
     SendHTTPRequest:(request:HttpRequest)=>Promise<HttpResponse>;
     GetRuntimeInfo:()=>Promise<RuntimeInfo>;

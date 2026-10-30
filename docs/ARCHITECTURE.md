@@ -81,6 +81,13 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 每次写入快照时同时追加一个 `ResourceSample` 到实例内的历史窗口，超过 `metricsHistoryLimit`（150 个）只保留最新 5 分钟；`ResourceHistory` 在锁内复制后返回，前端按 3 秒轮询绘制曲线。
 - 历史窗口跟随实例生命周期：重新启动会产生新实例并从头积累；进程退出后快照指标清空，但历史保留本次运行的最后一段曲线供事后查看。
 
+## 端口诊断
+
+- `ports.go` 只在需要时调用系统命令，不在采样循环里执行：Windows 解析 `netstat -ano -p TCP`，macOS 优先 `lsof -nP -iTCP -sTCP:LISTEN -Fpc`、回退 `netstat -an -p tcp`，Linux 优先 `ss -ltnp`、回退 `lsof` 与 `netstat`；单次命令 5 秒超时。
+- 解析与地址处理都是纯函数（`parseNetstatListeners`、`parseLsofListeners`、`parseSSListeners`、`portFromAddress`），可用固定输出单元测试，不依赖真实端口占用。
+- `PortDiagnostics` 在锁内复制配置端口与实例 PID，随后在锁外扫描，避免系统命令阻塞启停；每个端口标记为 `free`、`owned`、`occupied` 或 `unknown`（扫描失败），并单独返回本服务 PID 实际监听的端口。
+- 启动后若声明端口被其他进程占用，会在运行输出写入一条提示（含 PID 与进程名），但不会阻止启动；端口声明只用于提示，不会修改启动命令。
+
 ## 版本与构建信息
 
 - 版本号只在 `frontend/package.json` 维护：前端通过 `frontend/src/appMeta.ts` 读取它并展示在侧栏与「关于」面板，避免界面与发布版本不一致。

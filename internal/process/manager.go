@@ -267,6 +267,18 @@ func normalizeSpec(spec *Spec) error {
 	}
 	spec.Args = append([]string(nil), spec.Args...)
 	spec.DependsOn = uniqueIDs(spec.DependsOn)
+	if len(spec.Ports) > maxDeclaredPorts { return fmt.Errorf("监听端口最多声明 %d 个", maxDeclaredPorts) }
+	ports := make([]int, 0, len(spec.Ports))
+	seenPorts := make(map[int]struct{}, len(spec.Ports))
+	for _, port := range spec.Ports {
+		if port < 1 || port > 65535 { return fmt.Errorf("监听端口需在 1 到 65535 之间：%d", port) }
+		if _, exists := seenPorts[port]; exists { continue }
+		seenPorts[port] = struct{}{}
+		ports = append(ports, port)
+	}
+	// 统一升序去重，保证配置文件与端口诊断面板的顺序稳定。
+	sort.Ints(ports)
+	spec.Ports = ports
 	if spec.Env == nil { spec.Env = map[string]string{} }
 	spec.Restart.Mode = strings.ToLower(strings.TrimSpace(spec.Restart.Mode))
 	if spec.Restart.Mode == "" { spec.Restart.Mode = RestartModeNone }
@@ -526,6 +538,8 @@ func (m *Manager) startOneCounted(id string, restarts int) error {
 		close(instance.done)
 	}()
 	m.appendOutput(id,"system",fmt.Sprintf("服务已启动，进程号 %d",cmd.Process.Pid))
+	// 端口扫描要调用系统命令，放在启动完成后后台执行，不阻塞 Start。
+	go m.warnPortConflicts(id, append([]int(nil), spec.Ports...), cmd.Process.Pid)
 	return nil
 }
 
@@ -948,6 +962,7 @@ func mergeEnv(base []string,overrides map[string]string) []string {
 }
 func cloneSpec(spec Spec) Spec {
 	spec.Args=append([]string(nil),spec.Args...)
+	spec.Ports=append([]int(nil),spec.Ports...)
 	if spec.Env!=nil{env:=make(map[string]string,len(spec.Env));for k,v:=range spec.Env{env[k]=v};spec.Env=env}
 	if spec.Health!=nil{check:=*spec.Health;spec.Health=&check}
 	return spec

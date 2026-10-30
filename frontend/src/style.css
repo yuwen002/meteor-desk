@@ -344,3 +344,31 @@ mark{background:rgba(230,190,112,.22);color:#ffdda0;border-radius:2px;padding:0 
 .theme-light .sparkline.memory{stroke:#2f6fbe}
 .theme-light .resource-history-hint{color:#728095}
 
+/* v0.5.27: 进程端口诊断 */
+.port-diagnostics{margin-top:12px;padding:11px 12px;border:1px solid #2b3543;border-radius:6px;background:rgba(20,27,38,.72)}
+.port-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.port-head>span{display:inline-flex;align-items:center;gap:6px;color:#a7b5c6;font-size:10px;letter-spacing:.04em}
+.port-head small{color:#778498;font-size:9px;margin-left:auto}
+.port-head .button{font-size:9px;padding:2px 7px}
+.port-group{margin-top:9px}
+.port-group h4{margin:0 0 6px;color:#8d9bad;font-size:9px;font-weight:600;letter-spacing:.05em}
+.port-rows{display:flex;flex-wrap:wrap;gap:6px}
+.port-row{display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border:1px solid #2b3543;border-radius:999px;color:#93a1b4;font-size:9px;background:rgba(16,22,31,.6)}
+.port-row code{color:#d5e1ee;font-size:10px}
+.port-row.free{border-color:rgba(63,132,98,.55);color:#8fd8b4}
+.port-row.owned{border-color:rgba(80,140,210,.6);color:#9cc7ff}
+.port-row.occupied{border-color:rgba(196,90,80,.6);color:#f0a49c}
+.port-row.unknown{border-color:rgba(150,120,60,.6);color:#e0c384}
+.port-hint{margin:8px 0 0;color:#6f7d90;font-size:9px;line-height:1.6}
+.theme-light .port-diagnostics{background:#fff;border-color:#dce3ec}
+.theme-light .port-head>span{color:#5a6c82}
+.theme-light .port-head small{color:#6c7b90}
+.theme-light .port-group h4{color:#6c7b90}
+.theme-light .port-row{background:#f7fafd;border-color:#e1e8f1;color:#5a6c82}
+.theme-light .port-row code{color:#2f3f55}
+.theme-light .port-row.free{color:#1f8a63;border-color:#bfe0d1}
+.theme-light .port-row.owned{color:#2f6fbe;border-color:#c5dcf5}
+.theme-light .port-row.occupied{color:#b4432f;border-color:#f0c9c1}
+.theme-light .port-row.unknown{color:#a8761a;border-color:#eddcb5}
+.theme-light .port-hint{color:#728095}
+
