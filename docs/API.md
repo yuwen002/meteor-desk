@@ -86,11 +86,15 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### ProcessSpec
 
-配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart` 和 `dependsOn`（服务 ID 数组）。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
+配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart`、`dependsOn`（服务 ID 数组），以及可选的 `restart` 和 `health`。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
+
+### RestartPolicy / HealthCheck
+
+`restart` 字段为 `{"mode": "none"|"on-failure", "maxAttempts": 1..20}`；`mode` 为空时规范化为 `none`，`on-failure` 未填次数时默认 3。`health` 字段为 `null` 或 `{"type": "tcp"|"http", "target": "...", "intervalSeconds": 1..300, "timeoutSeconds": 1..30, "failureThreshold": 1..10}`，缺省值为间隔 10 秒、超时 2 秒（且不超过间隔）、阈值 3 次；`tcp` 目标须为 `host:port`，`http` 目标须带 `http://` 或 `https://` 协议与主机名。
 
 ### ProcessStatus
 
-运行快照字段包括 `state`、`pid`、`startedAt`、`finishedAt`、`durationMs`、`exitCode`、`exitReason` 和 `error`。退出原因枚举为 `normal`、`nonzero`、`signal`、`manual-stop`、`start-error`。
+运行快照字段包括 `state`、`pid`、`startedAt`、`finishedAt`、`durationMs`、`exitCode`、`exitReason` 和 `error`。退出原因枚举为 `normal`、`nonzero`、`signal`、`manual-stop`、`start-error`。启用健康检查时还包含 `health`（`checking` / `healthy` / `unhealthy`）、`healthMessage`（最近一次失败原因）和 `healthCheckedAt`（RFC3339Nano）；启用自动重启时包含 `restarts`（当前累计重启次数）和 `nextRestartAt`（等待重启的预计时间，无待执行重启时为空）。手动启动、手动停止或修改配置会把 `restarts` 归零。
 
 ### ProcessOutput
 
@@ -138,6 +142,8 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `Start(id)`、`Stop(id)`、`Restart(id)`、`StartBatch(ids)`、`StopBatch(ids)`、`StopAll()`：控制进程生命周期。
 - `Manager.Logs(id, afterSequence)`：按游标读取输出。
 - `ExportConfig(redactSensitive)` / `ImportConfig(data)`：在 Go 层处理配置迁移；文件选择和写入由 Wails 的 `App` 方法处理。
+- 自动重启：`Spec.Restart` 为 `on-failure` 且进程以非零码退出或收到信号时，按指数退避（1 秒起步、翻倍、上限 30 秒）调度重启，次数受 `MaxAttempts` 限制；定时器保存在管理器内部，手动停止、修改配置、删除服务、`Restart` 或再次启动都会取消待执行的重启。正常退出与启动失败（可执行文件创建失败）不触发重启。
+- 健康检查：`health.go` 中的 `startHealthProbe` 在进程启动成功后起一个探测协程，按间隔执行 `probeHealth`（TCP `DialTimeout` 或 HTTP `Client.Get`，只读取 32 KiB 正文后丢弃）；探测结果写回快照，仅在健康状态变化时追加一条 `system` 输出。探测失败只标记状态，不触发重启；进程退出或实例被替换时通过 `probeStop` 结束协程。
 
 ### `internal/config`
 

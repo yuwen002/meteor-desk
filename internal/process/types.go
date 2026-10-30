@@ -12,7 +12,43 @@ type Spec struct {
 	Env        map[string]string `json:"env"`
 	AutoStart  bool              `json:"autoStart"`
 	DependsOn  []string          `json:"dependsOn"`
+	Restart    RestartPolicy     `json:"restart,omitempty"`
+	Health     *HealthCheck      `json:"health,omitempty"`
 }
+
+// RestartPolicy 控制服务异常退出后的自动重启。
+// Mode 只支持 none 和 on-failure；正常退出和手动停止不会触发重启。
+type RestartPolicy struct {
+	Mode        string `json:"mode"`
+	MaxAttempts int    `json:"maxAttempts"`
+}
+
+const (
+	RestartModeNone      = "none"
+	RestartModeOnFailure = "on-failure"
+)
+
+// HealthCheck 通过 TCP 连接或 HTTP 请求判断服务是否可用。
+// 健康检查只用于展示状态，不会因为探测失败自动重启服务。
+type HealthCheck struct {
+	Type             string `json:"type"`
+	Target           string `json:"target"`
+	IntervalSeconds  int    `json:"intervalSeconds"`
+	TimeoutSeconds   int    `json:"timeoutSeconds"`
+	FailureThreshold int    `json:"failureThreshold"`
+}
+
+const (
+	HealthCheckTCP  = "tcp"
+	HealthCheckHTTP = "http"
+)
+
+// 健康状态：checking 表示已启动但尚未得到探测结果。
+const (
+	HealthChecking  = "checking"
+	HealthHealthy   = "healthy"
+	HealthUnhealthy = "unhealthy"
+)
 
 // State 表示托管进程的生命周期状态。
 type State string
@@ -48,6 +84,13 @@ type Snapshot struct {
 	ExitReason ExitReason `json:"exitReason,omitempty"`
 	FinishedAt string     `json:"finishedAt,omitempty"`
 	DurationMs *int64     `json:"durationMs,omitempty"`
+	// Health 为 checking、healthy 或 unhealthy；未配置健康检查时为空。
+	Health          string `json:"health,omitempty"`
+	HealthMessage   string `json:"healthMessage,omitempty"`
+	HealthCheckedAt string `json:"healthCheckedAt,omitempty"`
+	// Restarts 是本次运行周期内的自动重启次数，手动启动会清零。
+	Restarts      int    `json:"restarts,omitempty"`
+	NextRestartAt string `json:"nextRestartAt,omitempty"`
 }
 
 // BatchResult 描述批量操作中单个服务的执行结果。

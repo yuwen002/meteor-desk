@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +29,11 @@ const processStopGracePeriod = 1500 * time.Millisecond
 const processForceStopWait = 2 * time.Second
 const processStopFinalizeWait = 500 * time.Millisecond
 const processConcurrentStopWait = processStopGracePeriod + processForceStopWait + processStopFinalizeWait
+
+// restartBackoffBase 是首次自动重启前的等待时间；测试中会调小。
+var restartBackoffBase = time.Second
+
+const maxRestartBackoff = 30 * time.Second
 
 // OutputLine 表示某个服务的一条本机输出或生命周期消息。
 type OutputLine struct {
@@ -47,7 +54,17 @@ type managedProcess struct {
 	stdout io.Closer
 	stderr io.Closer
 	closeOutputOnce sync.Once
+	probeStop chan struct{}
+	probeOnce sync.Once
 	snapshot Snapshot
+}
+
+// stopProbe 结束健康检查协程；重复调用是安全的。
+func (p *managedProcess) stopProbe() {
+	if p == nil || p.probeStop == nil {
+		return
+	}
+	p.probeOnce.Do(func() { close(p.probeStop) })
 }
 
 func (p *managedProcess) closeOutputPipes() {
@@ -72,6 +89,7 @@ type Manager struct {
 	instances map[string]*managedProcess
 	outputs map[string][]OutputLine
 	outputSequence map[string]int64
+	restartTimers map[string]*time.Timer
 }
 
 // NewManager 在当前用户配置目录中创建进程管理器。
@@ -83,7 +101,7 @@ func NewManager() (*Manager, error) {
 
 // NewManagerAt 从指定文件加载服务定义，主要用于隔离测试或自定义本地路径。
 func NewManagerAt(path string) (*Manager, error) {
-	m := &Manager{configPath:path, specs:map[string]Spec{}, instances:map[string]*managedProcess{}, outputs:map[string][]OutputLine{}, outputSequence:map[string]int64{}}
+	m := &Manager{configPath:path, specs:map[string]Spec{}, instances:map[string]*managedProcess{}, outputs:map[string][]OutputLine{}, outputSequence:map[string]int64{}, restartTimers:map[string]*time.Timer{}}
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) { return nil, fmt.Errorf("读取进程配置失败：%w", err) }
 	if err == nil {
@@ -233,6 +251,51 @@ func normalizeSpec(spec *Spec) error {
 	spec.Args = append([]string(nil), spec.Args...)
 	spec.DependsOn = uniqueIDs(spec.DependsOn)
 	if spec.Env == nil { spec.Env = map[string]string{} }
+	spec.Restart.Mode = strings.ToLower(strings.TrimSpace(spec.Restart.Mode))
+	if spec.Restart.Mode == "" { spec.Restart.Mode = RestartModeNone }
+	if spec.Restart.Mode != RestartModeNone && spec.Restart.Mode != RestartModeOnFailure {
+		return errors.New("自动重启模式只支持 none 或 on-failure")
+	}
+	if spec.Restart.Mode == RestartModeOnFailure {
+		if spec.Restart.MaxAttempts == 0 { spec.Restart.MaxAttempts = 3 }
+		if spec.Restart.MaxAttempts < 1 || spec.Restart.MaxAttempts > 20 {
+			return errors.New("自动重启次数需在 1 到 20 之间")
+		}
+	} else {
+		spec.Restart.MaxAttempts = 0
+	}
+	if spec.Health != nil {
+		check := *spec.Health
+		check.Type = strings.ToLower(strings.TrimSpace(check.Type))
+		check.Target = strings.TrimSpace(check.Target)
+		switch check.Type {
+		case HealthCheckTCP:
+			if _, _, err := net.SplitHostPort(check.Target); err != nil {
+				return errors.New("TCP 健康检查目标需为 host:port，例如 127.0.0.1:8080")
+			}
+		case HealthCheckHTTP:
+			parsed, err := url.Parse(check.Target)
+			if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+				return errors.New("HTTP 健康检查目标需为 http:// 或 https:// 地址")
+			}
+		default:
+			return errors.New("健康检查类型只支持 tcp 或 http")
+		}
+		if check.IntervalSeconds == 0 { check.IntervalSeconds = 10 }
+		if check.IntervalSeconds < 1 || check.IntervalSeconds > 300 {
+			return errors.New("健康检查间隔需在 1 到 300 秒之间")
+		}
+		if check.TimeoutSeconds == 0 { check.TimeoutSeconds = 2 }
+		if check.TimeoutSeconds < 1 || check.TimeoutSeconds > 30 {
+			return errors.New("健康检查超时需在 1 到 30 秒之间")
+		}
+		if check.TimeoutSeconds > check.IntervalSeconds { check.TimeoutSeconds = check.IntervalSeconds }
+		if check.FailureThreshold == 0 { check.FailureThreshold = 3 }
+		if check.FailureThreshold < 1 || check.FailureThreshold > 10 {
+			return errors.New("健康检查失败阈值需在 1 到 10 次之间")
+		}
+		spec.Health = &check
+	}
 	return nil
 }
 
@@ -270,6 +333,13 @@ func (m *Manager) Save(spec Spec) (View, error) {
 		if hadOldSpec { m.specs[spec.ID] = oldSpec } else { delete(m.specs, spec.ID) }
 		return View{}, err
 	}
+	// 配置变更后放弃待执行的重启，避免用旧策略继续拉起服务。
+	m.cancelRestartLocked(spec.ID)
+	if instance := m.instances[spec.ID]; instance != nil {
+		instance.snapshot.Restarts = 0
+		instance.snapshot.NextRestartAt = ""
+		instance.stopProbe()
+	}
 	status := Snapshot{ID:spec.ID, Name:spec.Name, State:StateStopped}
 	if instance := m.instances[spec.ID]; instance != nil { status = instance.snapshot }
 	return View{Spec:cloneSpec(spec), Status:status}, nil
@@ -289,7 +359,7 @@ func (m *Manager) Delete(id string) error {
 			}
 		}
 	}
-	delete(m.specs,id); delete(m.instances,id); delete(m.outputs,id); delete(m.outputSequence,id)
+	delete(m.specs,id); delete(m.instances,id); delete(m.outputs,id); delete(m.outputSequence,id); m.cancelRestartLocked(id)
 	return m.persistLocked()
 }
 
@@ -318,9 +388,14 @@ func diagnoseStartError(spec Spec, err error) string {
 	return base + "；请检查可执行文件、参数、工作目录及所需环境变量。"
 }
 
-// startOne 在锁内完成状态检查和 cmd.Start，确保同一服务不会被两个调用同时启动。
-func (m *Manager) startOne(id string) error {
+// startOne 启动服务并清零自动重启计数。
+func (m *Manager) startOne(id string) error { return m.startOneCounted(id, 0) }
+
+// startOneCounted 在锁内完成状态检查和 cmd.Start，确保同一服务不会被两个调用同时启动。
+// restarts 由自动重启流程传入，手动启动时为 0。
+func (m *Manager) startOneCounted(id string, restarts int) error {
 	m.mu.Lock()
+	m.cancelRestartLocked(id)
 	spec, ok := m.specs[id]
 	if !ok { m.mu.Unlock(); return errors.New("未找到该服务配置") }
 	if instance := m.instances[id]; instance != nil && isActive(instance.snapshot.State) { m.mu.Unlock(); return errors.New("该服务已经运行或正在启停") }
@@ -342,7 +417,7 @@ func (m *Manager) startOne(id string) error {
 		_ = stderr.Close()
 		finishedAt := time.Now()
 		m.instances[id] = &managedProcess{snapshot: Snapshot{
-			ID: id, Name: spec.Name, State: StateFailed, ExitReason: ExitReasonStartFailed,
+			ID: id, Name: spec.Name, State: StateFailed, ExitReason: ExitReasonStartFailed, Restarts: restarts,
 			Error: diagnoseStartError(spec, err), FinishedAt: finishedAt.Format(time.RFC3339Nano),
 		}}
 		m.mu.Unlock()
@@ -350,8 +425,11 @@ func (m *Manager) startOne(id string) error {
 		return fmt.Errorf("%s: %w", diagnoseStartError(spec, err), err)
 	}
 	startedAt := time.Now()
-	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, stdout:stdout, stderr:stderr, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano)}}
+	healthState := ""
+	if spec.Health != nil { healthState = HealthChecking }
+	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, stdout:stdout, stderr:stderr, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano),Restarts:restarts,Health:healthState}}
 	m.instances[id] = instance
+	startHealthProbe(m, id, instance, spec.Health)
 	m.mu.Unlock()
 
 	var readers sync.WaitGroup
@@ -366,6 +444,9 @@ func (m *Manager) startOne(id string) error {
 		if durationMsValue < 0 { durationMsValue = 0 }
 		durationMs := &durationMsValue
 		exitCode, signaled := processExitStatus(cmd)
+		restartAttempt := 0
+		var restartDelay time.Duration
+		restartExhausted := false
 		m.mu.Lock()
 		if current := m.instances[id]; current == instance {
 			current.snapshot.ExitCode = exitCode
@@ -389,9 +470,32 @@ func (m *Manager) startOne(id string) error {
 				current.snapshot.ExitReason = ExitReasonNonzero
 				current.snapshot.Error = waitErr.Error()
 			}
+			// 进程已结束：健康状态失效，探测协程随实例一起退出。
+			current.stopProbe()
+			current.snapshot.Health = ""
+			current.snapshot.HealthMessage = ""
+			current.snapshot.HealthCheckedAt = ""
+			if current.snapshot.State == StateFailed {
+				if spec, ok := m.specs[id]; ok && spec.Restart.Mode == RestartModeOnFailure {
+					if current.snapshot.Restarts < spec.Restart.MaxAttempts {
+						current.snapshot.Restarts++
+						restartAttempt = current.snapshot.Restarts
+						restartDelay = restartBackoff(restartAttempt)
+						current.snapshot.NextRestartAt = time.Now().Add(restartDelay).Format(time.RFC3339Nano)
+					} else {
+						restartExhausted = true
+					}
+				}
+			}
 		}
 		m.mu.Unlock()
 		if waitErr != nil { m.appendOutput(id,"system","进程已退出："+waitErr.Error()) } else { m.appendOutput(id,"system","进程已正常退出") }
+		if restartAttempt > 0 {
+			m.appendOutput(id,"system",fmt.Sprintf("异常退出，将在 %s 后自动重启（第 %d 次）",restartDelay,restartAttempt))
+			m.scheduleRestart(id, instance, restartAttempt, restartDelay)
+		} else if restartExhausted {
+			m.appendOutput(id,"system","异常退出，自动重启次数已达上限，请检查日志后手动启动")
+		}
 		close(instance.done)
 	}()
 	m.appendOutput(id,"system",fmt.Sprintf("服务已启动，进程号 %d",cmd.Process.Pid))
@@ -401,6 +505,7 @@ func (m *Manager) startOne(id string) error {
 // stopOne 先请求优雅停止，超过宽限期后强制结束进程树，并保证输出管道有收尾期限。
 func (m *Manager) stopOne(id string) error {
 	m.mu.Lock()
+	m.cancelRestartLocked(id)
 	instance := m.instances[id]
 	if instance == nil {
 		_, configured := m.specs[id]
@@ -411,6 +516,9 @@ func (m *Manager) stopOne(id string) error {
 		return errors.New("未找到该服务配置")
 	}
 	if instance.snapshot.State == StateStopped || instance.snapshot.State == StateFailed {
+		instance.snapshot.Restarts = 0
+		instance.snapshot.NextRestartAt = ""
+		instance.stopProbe()
 		m.mu.Unlock()
 		return nil
 	}
@@ -434,6 +542,7 @@ func (m *Manager) stopOne(id string) error {
 		}
 	}
 	instance.snapshot.State = StateStopping
+	instance.stopProbe()
 	cmd, done := instance.cmd, instance.done
 	m.mu.Unlock()
 
@@ -599,6 +708,8 @@ func (m *Manager) StopBatch(ids []string) ([]BatchResult, error) {
 
 		result := BatchResult{ID:id, Name:spec.Name, Action:"stop"}
 		if !active {
+			// 已失败的实例可能还在等待自动重启，手动停止需要取消定时器。
+			m.cancelRestart(id)
 			result.Success = true
 			result.Message = "服务已停止"
 		} else if stopErr := m.stopOne(id); stopErr != nil {
@@ -710,6 +821,63 @@ func readOutput(reader io.Reader,emit func(string)) {
 		}
 	}
 }
+// cancelRestartLocked 取消待执行的重启定时器；调用方需持有 m.mu。
+func (m *Manager) cancelRestartLocked(id string) {
+	if timer := m.restartTimers[id]; timer != nil {
+		timer.Stop()
+		delete(m.restartTimers, id)
+	}
+}
+
+// cancelRestart 取消待执行的重启并清零重启计数，用于手动停止已失败的服务。
+func (m *Manager) cancelRestart(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cancelRestartLocked(id)
+	if instance := m.instances[id]; instance != nil {
+		instance.snapshot.Restarts = 0
+		instance.snapshot.NextRestartAt = ""
+	}
+}
+
+// scheduleRestart 在退避时间后尝试自动重启；只对当前实例有效。
+func (m *Manager) scheduleRestart(id string, previous *managedProcess, attempt int, delay time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.instances[id] != previous {
+		return
+	}
+	m.cancelRestartLocked(id)
+	m.restartTimers[id] = time.AfterFunc(delay, func() { m.autoRestart(id, previous, attempt) })
+}
+
+// autoRestart 在定时器到期后重新启动服务；已被停止、删除或替换时放弃。
+func (m *Manager) autoRestart(id string, previous *managedProcess, attempt int) {
+	m.mu.Lock()
+	_, pending := m.restartTimers[id]
+	if !pending || m.instances[id] != previous {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.restartTimers, id)
+	m.mu.Unlock()
+	m.appendOutput(id, "system", "正在自动重启服务")
+	if err := m.startOneCounted(id, attempt); err != nil {
+		m.appendOutput(id, "stderr", "自动重启失败："+err.Error())
+	}
+}
+
+// restartBackoff 返回指数退避时间：1s、2s、4s……最长 30s。
+func restartBackoff(attempt int) time.Duration {
+	delay := restartBackoffBase
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay >= maxRestartBackoff { return maxRestartBackoff }
+	}
+	if delay > maxRestartBackoff { return maxRestartBackoff }
+	return delay
+}
+
 func (m *Manager) persistLocked() error {
 	if err:=os.MkdirAll(filepath.Dir(m.configPath),0700);err!=nil{return err}
 	specs:=make([]Spec,0,len(m.specs));for _,spec:=range m.specs{specs=append(specs,cloneSpec(spec))}
@@ -732,6 +900,7 @@ func mergeEnv(base []string,overrides map[string]string) []string {
 func cloneSpec(spec Spec) Spec {
 	spec.Args=append([]string(nil),spec.Args...)
 	if spec.Env!=nil{env:=make(map[string]string,len(spec.Env));for k,v:=range spec.Env{env[k]=v};spec.Env=env}
+	if spec.Health!=nil{check:=*spec.Health;spec.Health=&check}
 	return spec
 }
 func isActive(state State) bool {return state==StateStarting||state==StateRunning||state==StateStopping}

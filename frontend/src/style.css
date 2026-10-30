@@ -250,3 +250,10 @@ button.version-tag:hover{color:#b8f8dc;border-color:#477a6b}
 .theme-light .tail-line code{color:#425168}
 .theme-light .tail-note{color:#866a2e;border-color:#ecd9b0;background:#fdf8ee}
 
+/* v0.5.23: 自动重启与健康检查 */
+.process-policy-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;margin-top:2px}
+.policy-number{width:64px;padding:4px 6px;font-size:10px;height:auto}
+.policy-target{flex:1;min-width:170px;padding:6px 8px;font-size:10px}
+.policy-hint{margin:7px 0 0;color:#7f8da0;font-size:9px;line-height:1.6}
+.theme-light .policy-hint{color:#6c7b90}
+

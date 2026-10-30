@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import ProcessManagement from '../components/ProcessManagement.vue'
 import { getMaskedEnvironmentPreview, isSensitiveEnvKey, parseProcessForm } from './processConfig'
 
@@ -58,6 +58,40 @@ describe('process management form interactions', () => {
     await wrapper.get('.process-form').trigger('submit')
     expect(wrapper.text()).toContain('参数必须是 JSON 字符串数组')
     expect(saveProcess).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('saves restart policy and health check settings', async () => {
+    const saveProcess = vi.fn().mockImplementation(spec => Promise.resolve({
+      spec,
+      status: { id: spec.id || 'service-1', name: spec.name, state: 'stopped' },
+    }))
+    const appBridge = {
+      GetProcesses: vi.fn().mockResolvedValue([]),
+      GetProcessLogs: vi.fn().mockResolvedValue([]),
+      SaveProcess: saveProcess,
+    }
+    Object.defineProperty(window, 'go', { configurable: true, value: { main: { App: appBridge } } })
+    const wrapper = mount(ProcessManagement, { props: { active: true }, attachTo: document.body })
+    await wrapper.get('input[placeholder="例如：后端 API"]').setValue('Demo API')
+    await wrapper.get('input[placeholder="例如：go、npm 或程序绝对路径"]').setValue('go')
+    await wrapper.get('select[aria-label="自动重启"]').setValue('on-failure')
+    await wrapper.get('input[aria-label="自动重启次数"]').setValue('5')
+    await wrapper.get('select[aria-label="健康检查类型"]').setValue('http')
+    await wrapper.get('input[aria-label="健康检查目标"]').setValue('http://127.0.0.1:8080/health')
+    await wrapper.get('.process-form').trigger('submit')
+    await flushPromises()
+
+    expect(saveProcess).toHaveBeenCalledTimes(1)
+    const spec = saveProcess.mock.calls[0][0]
+    expect(spec.restart).toEqual({ mode: 'on-failure', maxAttempts: 5 })
+    expect(spec.health).toEqual({
+      type: 'http',
+      target: 'http://127.0.0.1:8080/health',
+      intervalSeconds: 10,
+      timeoutSeconds: 2,
+      failureThreshold: 3,
+    })
     wrapper.unmount()
   })
 })
