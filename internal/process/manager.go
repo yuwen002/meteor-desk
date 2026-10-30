@@ -296,6 +296,11 @@ func normalizeSpec(spec *Spec) error {
 		}
 		spec.Health = &check
 	}
+	if spec.ReadyTimeoutSeconds < 0 || spec.ReadyTimeoutSeconds > 600 {
+		return errors.New("依赖就绪等待需在 0 到 600 秒之间")
+	}
+	// 没有健康检查时无法判断就绪，统一归零，避免导入文件里残留无意义的值。
+	if spec.Health == nil { spec.ReadyTimeoutSeconds = 0 }
 	return nil
 }
 
@@ -599,6 +604,8 @@ func (m *Manager) Start(id string) error {
 func (m *Manager) StartBatch(ids []string) ([]BatchResult, error) {
 	m.mu.RLock()
 	order, err := m.dependencyOrderLocked(ids, true)
+	var needed map[string]bool
+	if err == nil { needed = m.readinessIDsLocked(order) }
 	m.mu.RUnlock()
 	if err != nil { return nil, err }
 
@@ -642,6 +649,17 @@ func (m *Manager) StartBatch(ids []string) ([]BatchResult, error) {
 			} else {
 				result.Success = true
 				result.Message = "启动成功"
+			}
+		}
+		if result.Success && needed[id] {
+			if timeout := readinessTimeout(spec); timeout > 0 {
+				if message := m.waitReady(id, timeout); message != "" {
+					result.Success = false
+					result.Message = message
+					m.appendOutput(id, "system", message)
+				} else if result.Message == "启动成功" {
+					result.Message = "启动成功，已通过健康检查"
+				}
 			}
 		}
 		resultsByID[id] = result

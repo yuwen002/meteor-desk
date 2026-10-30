@@ -14,6 +14,8 @@ type Spec struct {
 	DependsOn  []string          `json:"dependsOn"`
 	Restart    RestartPolicy     `json:"restart,omitempty"`
 	Health     *HealthCheck      `json:"health,omitempty"`
+	// ReadyTimeoutSeconds 控制作为上游依赖时等待健康检查通过的最长秒数；0 表示不等待。
+	ReadyTimeoutSeconds int `json:"readyTimeoutSeconds,omitempty"`
 }
 
 // RestartPolicy 控制服务异常退出后的自动重启。

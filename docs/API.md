@@ -86,11 +86,13 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### ProcessSpec
 
-配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart`、`dependsOn`（服务 ID 数组），以及可选的 `restart` 和 `health`。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
+配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart`、`dependsOn`（服务 ID 数组）、可选的 `readyTimeoutSeconds`（0–600，0 表示不等待），以及可选的 `restart` 和 `health`。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
 
 ### RestartPolicy / HealthCheck
 
 `restart` 字段为 `{"mode": "none"|"on-failure", "maxAttempts": 1..20}`；`mode` 为空时规范化为 `none`，`on-failure` 未填次数时默认 3。`health` 字段为 `null` 或 `{"type": "tcp"|"http", "target": "...", "intervalSeconds": 1..300, "timeoutSeconds": 1..30, "failureThreshold": 1..10}`，缺省值为间隔 10 秒、超时 2 秒（且不超过间隔）、阈值 3 次；`tcp` 目标须为 `host:port`，`http` 目标须带 `http://` 或 `https://` 协议与主机名。
+
+`readyTimeoutSeconds` 仅在 `health` 非空且该服务在本次批量启动中作为上游依赖时生效：`StartBatch` 会等待其健康状态变为 `healthy` 再启动下游；超时、`unhealthy` 或进程提前退出会跳过下游，并在 `BatchResult` 与运行输出中给出原因。没有 `health` 时该字段被规范化为 0。
 
 ### ProcessStatus
 
@@ -144,6 +146,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `ExportConfig(redactSensitive)` / `ImportConfig(data)`：在 Go 层处理配置迁移；文件选择和写入由 Wails 的 `App` 方法处理。
 - 自动重启：`Spec.Restart` 为 `on-failure` 且进程以非零码退出或收到信号时，按指数退避（1 秒起步、翻倍、上限 30 秒）调度重启，次数受 `MaxAttempts` 限制；定时器保存在管理器内部，手动停止、修改配置、删除服务、`Restart` 或再次启动都会取消待执行的重启。正常退出与启动失败（可执行文件创建失败）不触发重启。
 - 健康检查：`health.go` 中的 `startHealthProbe` 在进程启动成功后起一个探测协程，按间隔执行 `probeHealth`（TCP `DialTimeout` 或 HTTP `Client.Get`，只读取 32 KiB 正文后丢弃）；探测结果写回快照，仅在健康状态变化时追加一条 `system` 输出。探测失败只标记状态，不触发重启；进程退出或实例被替换时通过 `probeStop` 结束协程。
+- 依赖就绪：`readiness.go` 的 `waitReady` 在批量启动中等待上游健康。只有本次启动顺序里被下游依赖、且 `Health != nil`、`ReadyTimeoutSeconds > 0` 的服务才等待；每 50 ms 读取一次快照，`healthy` 后继续启动下游，`unhealthy`、实例被替换、进程停止或超时会阻断下游并把原因写入运行输出。
 
 ### `internal/config`
 
