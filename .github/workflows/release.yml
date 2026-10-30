@@ -147,7 +147,12 @@ jobs:
       - name: 生成 Release 说明
         run: |
           version="${VERSION_TAG#v}"
-          awk -v header="## v$version" '$0 == header { capture=1; next } capture && /^## / { exit } capture { print }' CHANGELOG.md > release-notes.md
+          # 章节标题带日期（例如 "## v0.5.23 — 2026-10-30"），按版本前缀匹配并避免误命中更长的版本号。
+          awk -v header="## v$version" '
+            index($0, header) == 1 && (length($0) == length(header) || substr($0, length(header) + 1, 1) == " ") { capture = 1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then
             printf 'MeteorDesk %s\n' "$VERSION_TAG" > release-notes.md
           fi
