@@ -248,4 +248,51 @@ describe('log search options', () => {
     expect(wrapper.get('.result-row').text()).toContain('timeout waiting')
     wrapper.unmount()
   })
+
+  it('aggregates levels and error signatures from the current results', async () => {
+    const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) }
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: clipboard })
+    const { wrapper, bridge } = await mountApp()
+    bridge.SearchLogsAdvanced.mockResolvedValue({
+      filePath: 'C:/logs/app.log',
+      encoding: 'utf-8',
+      fileSizeBytes: 120,
+      bytesScanned: 120,
+      scannedLines: 12,
+      resultLimitReached: false,
+      canceled: false,
+      matches: [
+        { lineNumber: 2, content: '2026-10-30 10:00:00 ERROR connection refused', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 5, content: '2026-10-30 10:00:01 WARN slow request 3000ms', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 9, content: '2026-10-30 10:00:02 ERROR connection refused', contentClipped: false, contextBefore: [], contextAfter: [] },
+        { lineNumber: 12, content: '2026-10-30 10:00:03 INFO ready', contentClipped: false, contextBefore: [], contextAfter: [] },
+      ],
+    })
+    await wrapper.get('#search-query').setValue('boom')
+    await wrapper.get('button[type="submit"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.summary-panel').exists()).toBe(false)
+    const toggle = wrapper.findAll('button').find(button => button.text() === '统计')
+    if (!toggle) throw new Error('统计按钮未渲染')
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.summary-head').text()).toContain('共 4 条，行号 2–12')
+    expect(wrapper.get('.level-chip.level-error').text()).toContain('ERROR')
+    expect(wrapper.get('.level-chip.level-error').text()).toContain('2')
+    expect(wrapper.get('.level-chip.level-info').text()).toContain('INFO')
+    const signatures = wrapper.findAll('.summary-signatures li')
+    expect(signatures).toHaveLength(2)
+    expect(signatures[0].text()).toContain('connection refused')
+    expect(signatures[0].text()).toContain('2 次')
+
+    const copyButton = wrapper.findAll('button').find(button => button.text().includes('复制摘要'))
+    if (!copyButton) throw new Error('复制摘要按钮未渲染')
+    await copyButton.trigger('click')
+    await flushPromises()
+    expect(clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('检索结果摘要\n总计：4 条（行号 2–12）'))
+    expect(wrapper.get('.summary-note').text()).toContain('摘要已复制到剪贴板')
+    wrapper.unmount()
+  })
 })

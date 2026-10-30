@@ -285,3 +285,37 @@ mark{background:rgba(230,190,112,.22);color:#ffdda0;border-radius:2px;padding:0 
 .theme-light .bookmark-button{color:#9aa9bb}
 .theme-light .bookmark-button.active{color:#c98a12}
 
+/* v0.5.25: 检索结果聚合统计 */
+.summary-toggle.active{border-color:rgba(134,247,197,.35);color:#9ff5d1;background:rgba(134,247,197,.08)}
+.summary-panel{margin:0 21px 10px;padding:12px 14px;border:1px solid #2d3a48;border-radius:7px;background:rgba(11,16,24,.7)}
+.summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.summary-head strong{color:#dfe6ef;font-size:11px;font-weight:650}
+.summary-head p{margin:4px 0 0;color:#778498;font-size:9px;line-height:1.6}
+.summary-levels{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.level-chip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid #313d4d;border-radius:4px;background:rgba(23,31,43,.7);color:#9dacbd;font:9px ui-monospace,monospace;letter-spacing:.04em}
+.level-chip em{font-style:normal;color:#d5e1ee;font-size:10px}
+.level-chip.level-error{border-color:rgba(248,113,113,.32);color:#ffb1ad;background:rgba(248,113,113,.07)}
+.level-chip.level-warn{border-color:rgba(230,190,112,.3);color:#eccb86;background:rgba(230,190,112,.06)}
+.level-chip.level-info{border-color:rgba(134,247,197,.24);color:#9ff5d1;background:rgba(134,247,197,.06)}
+.summary-signatures{margin-top:12px}
+.summary-subtitle{color:#7f8da0;font-size:9px;letter-spacing:.04em;text-transform:uppercase}
+.summary-signatures ol{margin:7px 0 0;padding:0;list-style:none;counter-reset:summary}
+.summary-signatures li{display:flex;align-items:baseline;gap:9px;padding:5px 0;border-bottom:1px solid rgba(43,53,67,.45);counter-increment:summary}
+.summary-signatures li:last-child{border-bottom:0}
+.summary-signatures li::before{content:counter(summary) '.';flex-shrink:0;width:14px;color:#667589;font:9px ui-monospace,monospace}
+.summary-signatures code{flex:1;min-width:0;overflow-wrap:anywhere;color:#c7d2df;font:10px/1.6 ui-monospace,monospace}
+.summary-signatures em{flex-shrink:0;font-style:normal;color:#eccb86;font:9px ui-monospace,monospace}
+.summary-muted{margin:9px 0 0;color:#778498;font-size:9px}
+.summary-note{margin:8px 0 0;color:#9ff5d1;font-size:9px}
+.theme-light .summary-panel{background:#fff;border-color:#dce3ec}
+.theme-light .summary-toggle.active{border-color:#b9e6d4;color:#1f8a63;background:#eaf7f1}
+.theme-light .summary-head strong{color:#2f3f55}
+.theme-light .summary-head p,.theme-light .summary-muted{color:#6c7b90}
+.theme-light .level-chip{background:#f4f7fb;border-color:#d8e1eb;color:#5a6c82}
+.theme-light .level-chip em{color:#2f3f55}
+.theme-light .summary-signatures li{border-bottom-color:#e6edf5}
+.theme-light .summary-signatures li::before{color:#8b9aad}
+.theme-light .summary-signatures code{color:#34445b}
+.theme-light .summary-signatures em{color:#a8761a}
+.theme-light .summary-note{color:#1f8a63}
+

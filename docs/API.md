@@ -114,6 +114,17 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - 检索结果 JSON：包含 `exportedAt`、文件路径、检索词、是否正则、编码、上下文行数、`resultLimitReached`、`canceled`、`total` 和完整 `matches`。
 - 进程日志 CSV：列为 `sequence`、`time`、`stream`、`text`；JSON 额外包含 `processId`、`processName` 和 `total`。导出范围仅限界面缓存的最近 1,500 条输出。
 
+### 结果聚合统计
+
+`frontend/src/utils/aggregate.ts` 提供纯前端聚合函数，不改动后端扫描逻辑，输入为当前过滤后的 `LogMatch[]`：
+
+- `detectLevel(line)`：按行内第一个级别词返回 `error`、`warn`、`info`、`debug`、`trace` 或其他；`fatal` 与 `err` 归入 `error`，`warn`/`warning` 归入 `warn`，单词边界避免把 `information`、`debugging` 误判为级别。
+- `normalizeSignature(line)`：去掉日期时间与纯时间戳、级别前缀、UUID 和数字（数字不带尾部边界，使 `3000ms` 这类耗时可归并），压缩空白并截断到 80 字符；结果为空时回退到原行文本。
+- `summarizeMatches(matches, limit = 5)`：返回 `total`、`firstLine`、`lastLine`、按 `error → other` 排序的 `levels`，以及只统计 error/warn 行的高频签名 `signatures`（按次数降序、同频按文本排序）。
+- `summaryText(summary)`：生成纯文本摘要（总计、行号范围、级别分布、签名排行），供「复制摘要」写入剪贴板。
+
+聚合只依赖已返回的结果，不会重新读文件，也不影响导出内容。
+
 ### HttpRequest / HttpResponse
 
 请求字段包括 `method`、`url`、`headers`（字符串键值对象）、`body`，以及可选的调优字段：`timeoutMs`（毫秒，0 或缺省时按 30 秒处理，超过 120 秒直接报错）、`followRedirects`（`false` 时不跟随重定向并直接返回 3xx；缺省保持默认跟随，最多 10 次）和 `insecureSkipVerify`（`true` 时跳过 TLS 证书校验，仅用于本机自签证书调试）。响应字段包括：`status`（状态码）、`statusText`（标准状态文本，如 `Created`）、`headers`（同名多值以 `, ` 合并）、`body`（最多保留 2 MiB，非法 UTF-8 字节替换为 `�`）、`bodyTruncated`、`sizeBytes`（实际接收字节数，可能大于保留的正文长度）、`durationMs`（毫秒）、`finalUrl`（跟随重定向后的最终地址）、`redirects`（实际跟随次数）和 `binary`（正文含 NUL 或非法 UTF-8）。
