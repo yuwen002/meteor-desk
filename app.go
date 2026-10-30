@@ -255,6 +255,10 @@ func (a *App) ImportProcessConfigs() ([]process.View, error) {
 
 // GetProcessLogs 返回序号大于 after 的新输出行，用于前端增量轮询日志。
 func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Logs(id,after),nil}
+// ReadLogTail 返回日志文件在 offset 之后新增的完整行；offset 为负时从文件末尾开始跟踪。
+func (a *App) ReadLogTail(path string, offset int64, encoding string) (logx.TailResult, error) {
+	return logx.TailFile(path, logx.TailOptions{Offset: offset, Encoding: encoding})
+}
 // updateSearchProgress 在锁内更新进度快照，并按到达顺序缓存新发现的匹配项。
 func (a *App) updateSearchProgress(id string,p logx.Progress){
 	a.mu.Lock()

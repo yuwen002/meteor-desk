@@ -220,3 +220,33 @@ button.version-tag:hover{color:#b8f8dc;border-color:#477a6b}
 .theme-light .help-icon-button{color:#68788e}
 .theme-light .help-icon-button:hover{color:#176b50;background:#eaf3ee}
 
+/* v0.5.23: 实时跟踪面板 */
+.tail-panel{margin:0 21px 15px;border:1px solid #293241;border-radius:7px;background:rgba(11,16,25,.55);overflow:hidden}
+.tail-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;flex-wrap:wrap}
+.tail-title{display:flex;align-items:center;gap:9px;color:#8fe8be;min-width:0}
+.tail-title h3{margin:0 0 3px;color:#dbe4ee;font-size:11px;font-weight:650}
+.tail-title p{margin:0;color:#78889a;font-size:9px;line-height:1.6}
+.tail-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.tail-actions .button{height:28px;padding:0 9px;font-size:9px}
+.tail-follow{display:flex;align-items:center;gap:6px;color:#9aa8b8;font-size:9px;cursor:pointer}
+.tail-follow input{width:12px;height:12px;margin:0;accent-color:#85e9bd}
+.tail-panel .tail-notice{margin:0 12px 10px}
+.tail-note{margin:0 12px 10px;padding:8px 10px;border:1px solid rgba(230,190,112,.23);border-radius:5px;background:rgba(230,190,112,.05);color:#eccb86;font-size:9px;line-height:1.6}
+.tail-output{max-height:260px;min-height:90px;overflow:auto;background:#0b1018;border-top:1px solid #242e3b;padding:7px 0}
+.tail-output::-webkit-scrollbar{width:8px}
+.tail-output::-webkit-scrollbar-thumb{background:#354151;border-radius:8px}
+.tail-output::-webkit-scrollbar-track{background:#111722}
+.tail-line{padding:3px 12px;border-bottom:1px solid rgba(35,44,57,.35);font:9px/1.6 ui-monospace,monospace}
+.tail-line:last-child{border-bottom:0}
+.tail-line code{white-space:pre-wrap;overflow-wrap:anywhere;color:#bcc9d8}
+.tail-empty{display:grid;place-items:center;min-height:84px;padding:12px;color:#66778c;font-size:10px;text-align:center}
+.theme-light .tail-panel{background:#f7f9fc;border-color:#dce3ec}
+.theme-light .tail-heading{border-color:#e0e7ef}
+.theme-light .tail-title{color:#176b50}
+.theme-light .tail-title h3{color:#253247}
+.theme-light .tail-title p,.theme-light .tail-follow,.theme-light .tail-empty{color:#6c7b90}
+.theme-light .tail-output{background:#fff;border-color:#e0e7ef}
+.theme-light .tail-line{border-color:#eef2f7}
+.theme-light .tail-line code{color:#425168}
+.theme-light .tail-note{color:#866a2e;border-color:#ecd9b0;background:#fdf8ee}
+

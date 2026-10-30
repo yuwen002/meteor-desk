@@ -40,6 +40,14 @@ function createBridge() {
       dataDir: 'C:/Users/test/AppData/Roaming/MeteorDesk',
     }),
     SaveExportFile: vi.fn().mockResolvedValue('C:/exports/results.csv'),
+    ReadLogTail: vi.fn().mockResolvedValue({
+      lines: ['tail line'],
+      offset: 9,
+      fileSizeBytes: 9,
+      encoding: 'utf-8',
+      reset: true,
+      truncated: false,
+    }),
   }
 }
 
@@ -141,6 +149,28 @@ describe('log search options', () => {
     expect(content).toContain('context-before,1,,boom,before')
     expect(content).toContain('boom happened')
     expect(wrapper.get('.notice-success').text()).toContain('已导出 1 条检索结果')
+    wrapper.unmount()
+  })
+
+  it('streams appended lines while live tail is enabled', async () => {
+    const { wrapper, bridge } = await mountApp()
+    const startButton = wrapper.findAll('button').find(button => button.text().includes('开始跟踪'))
+    if (!startButton) throw new Error('跟踪按钮未渲染')
+    await startButton.trigger('click')
+    await flushPromises()
+
+    expect(bridge.ReadLogTail).toHaveBeenCalledWith('C:/logs/app.log', -1, 'auto')
+    expect(wrapper.get('.tail-output').text()).toContain('tail line')
+
+    const stopButton = wrapper.findAll('button').find(button => button.text().includes('停止跟踪'))
+    if (!stopButton) throw new Error('停止跟踪按钮未渲染')
+    await stopButton.trigger('click')
+    await flushPromises()
+
+    const calls = bridge.ReadLogTail.mock.calls.length
+    await new Promise(resolve => setTimeout(resolve, 1100))
+    await flushPromises()
+    expect(bridge.ReadLogTail.mock.calls.length).toBe(calls)
     wrapper.unmount()
   })
 })

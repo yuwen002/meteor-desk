@@ -17,6 +17,7 @@ declare global {
   interface JsonField { path:string; value:unknown }
   interface HttpRequest { method:string; url:string; headers:Record<string,string>; body:string; timeoutMs?:number; followRedirects?:boolean; insecureSkipVerify?:boolean }
   interface HttpResponse { status:number; statusText:string; headers:Record<string,string>; body:string; bodyTruncated:boolean; sizeBytes:number; durationMs:number; finalUrl?:string; redirects?:number; binary?:boolean }
+  interface LogTailResult { lines:string[]; offset:number; fileSizeBytes:number; encoding:string; reset:boolean; truncated:boolean }
   interface RuntimeInfo { appVersion:string; goVersion:string; platform:string; dataDir:string }
   interface Window { runtime?:{EventsOn:(eventName:string,callback:(event:SearchMatchesEvent)=>void)=>()=>void}; go?:{main?:{App?:{
     SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
@@ -31,5 +32,6 @@ declare global {
     SendHTTPRequest:(request:HttpRequest)=>Promise<HttpResponse>;
     GetRuntimeInfo:()=>Promise<RuntimeInfo>;
     SaveExportFile:(suggestedName:string,format:string,content:string)=>Promise<string>;
+    ReadLogTail:(path:string,offset:number,encoding:string)=>Promise<LogTailResult>;
   }}}}
 }

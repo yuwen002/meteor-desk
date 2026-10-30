@@ -31,6 +31,37 @@ async function copyAboutInfo(){
  catch{aboutError.value='复制失败，请检查剪贴板权限。'}
 }
 const themeMode=ref<'dark'|'light'>('dark')
+// 实时跟踪：只保留最近 1,000 行，定时读取新增内容而不全量扫描文件。
+const MAX_TAIL_LINES=1000
+const tailEnabled=ref(false), tailLines=ref<string[]>([]), tailOffset=ref(-1), tailEncoding=ref(''), tailError=ref(''), tailTruncated=ref(false), tailFollow=ref(true), tailBusy=ref(false)
+const tailListElement=ref<HTMLElement|null>(null)
+function clearTail(){tailLines.value=[];tailTruncated.value=false}
+function stopTail(){tailEnabled.value=false;clearTimer('tail')}
+function startTail(){
+ if(!filePath.value){errorMessage.value='请先选择日志文件。';return}
+ tailLines.value=[];tailOffset.value=-1;tailError.value='';tailTruncated.value=false;tailEnabled.value=true
+ clearTimer('tail');tailTimer=window.setInterval(()=>void pollTail(),1000);void pollTail()
+}
+function toggleTail(){tailEnabled.value?stopTail():startTail()}
+async function pollTail(){
+ const a=api()
+ if(!a||!filePath.value||tailBusy.value)return
+ tailBusy.value=true
+ try{
+  const result=await a.ReadLogTail(filePath.value,tailOffset.value,encodingMode.value)
+  // 读取期间已停止或切换文件：丢弃这次增量，避免清空后又被写回。
+  if(!tailEnabled.value)return
+  tailEncoding.value=result.encoding;tailTruncated.value=result.truncated
+  if(result.reset)tailLines.value=[]
+  tailOffset.value=result.offset
+  if(result.lines.length){
+   tailLines.value=[...tailLines.value,...result.lines].slice(-MAX_TAIL_LINES)
+   if(tailFollow.value){await nextTick();if(tailListElement.value)tailListElement.value.scrollTop=tailListElement.value.scrollHeight}
+  }
+  tailError.value=''
+ }catch(e){tailError.value='跟踪日志失败：'+String(e);stopTail()}
+ finally{tailBusy.value=false}
+}
 function loadTheme(){try{themeMode.value=window.localStorage.getItem('meteordesk.theme')==='light'?'light':'dark'}catch{themeMode.value='dark'}}
 function toggleTheme(){themeMode.value=themeMode.value==='dark'?'light':'dark';try{window.localStorage.setItem('meteordesk.theme',themeMode.value)}catch{/* theme remains active for this session */}}
 const shortcutActions:{key:ShortcutAction;label:string;description:string}[]=[
@@ -79,7 +110,7 @@ const detailHint=computed(()=>{const event=selectedMatch.value?.event;if(!event)
 const parsedJSON=computed(()=>{if(!selectedMatch.value||detailContentClipped.value)return null;try{const v=JSON.parse(detailContent.value);return v!==null&&typeof v==='object'?v:null}catch{return null}})
 const prettyJSON=computed(()=>parsedJSON.value===null?'':JSON.stringify(parsedJSON.value,null,2))
 const jsonFields=computed(()=>{const out:JsonField[]=[];const add=(v:unknown,path:string,depth:number)=>{if(out.length>=300||depth>8)return;if(Array.isArray(v)){if(!v.length)out.push({path,value:[]});v.forEach((x,i)=>add(x,path+'['+i+']',depth+1))}else if(v&&typeof v==='object'){const e=Object.entries(v as Record<string,unknown>);if(!e.length)out.push({path,value:{}});for(const [k,x] of e)add(x,appendJSONPath(path,k),depth+1)}else out.push({path,value:v})};if(parsedJSON.value!==null)add(parsedJSON.value,'$',0);const q=jsonFilter.value.trim().toLowerCase();return q?out.filter(x=>x.path.toLowerCase().includes(q)||JSON.stringify(x.value).toLowerCase().includes(q)):out})
-let progressTimer:number|undefined, dropTimer:number|undefined
+let progressTimer:number|undefined, dropTimer:number|undefined, tailTimer:number|undefined
 let partialMatchCursor=0
 let progressPollInFlight=false
 let completedSearchID=''
@@ -88,11 +119,11 @@ let stopSearchUpdates:(()=>void)|undefined
 const enqueueSettingsSave=createSerialTaskQueue()
 
 function api(){return window.go?.main?.App}
-function clearTimer(which:'progress'|'drop'){if(which==='progress'&&progressTimer!==undefined){clearInterval(progressTimer);progressTimer=undefined}if(which==='drop'&&dropTimer!==undefined){clearInterval(dropTimer);dropTimer=undefined}}
+function clearTimer(which:'progress'|'drop'|'tail'){if(which==='progress'&&progressTimer!==undefined){clearInterval(progressTimer);progressTimer=undefined}if(which==='drop'&&dropTimer!==undefined){clearInterval(dropTimer);dropTimer=undefined}if(which==='tail'&&tailTimer!==undefined){clearInterval(tailTimer);tailTimer=undefined}}
 async function persistSettings(){const a=api();if(!a)return;const settings:AppSettings={recentFiles:appSettings.value.recentFiles.slice(0,12),searchHistory:appSettings.value.searchHistory.slice(0,30),contextLines:contextLines.value,resultLimit:resultLimit.value};appSettings.value=settings;try{await enqueueSettingsSave(()=>a.SaveAppSettings(settings))}catch(e){errorMessage.value='保存本地设置失败：'+String(e)}}
 function addRecent(path:string){if(!path)return;appSettings.value.recentFiles=[path,...appSettings.value.recentFiles.filter(x=>x.toLowerCase()!==path.toLowerCase())].slice(0,12);void persistSettings()}
 async function loadSettings(){const a=api();if(!a)return;try{appSettings.value=await a.GetAppSettings();contextLines.value=appSettings.value.contextLines??2;resultLimit.value=appSettings.value.resultLimit??500;if(appSettings.value.recentFiles.length)filePath.value=appSettings.value.recentFiles[0]}catch(e){errorMessage.value='读取设置失败：'+String(e)}}
-function openDroppedFiles(paths:string[]){if(!paths.length)return;if(busy.value){pendingDroppedPaths=paths.slice();return}filePath.value=paths[0];response.value=null;selectedMatch.value=null;scrollTop.value=0;addRecent(paths[0]);if(paths.length>1)errorMessage.value='已打开第一个文件；本次共拖入 '+paths.length+' 个文件。'}
+function openDroppedFiles(paths:string[]){if(!paths.length)return;if(busy.value){pendingDroppedPaths=paths.slice();return}stopTail();clearTail();filePath.value=paths[0];response.value=null;selectedMatch.value=null;scrollTop.value=0;addRecent(paths[0]);if(paths.length>1)errorMessage.value='已打开第一个文件；本次共拖入 '+paths.length+' 个文件。'}
 async function chooseFile(){if(busy.value)return;errorMessage.value='';const a=api();if(!a){errorMessage.value='请通过 Wails 桌面应用运行，才能使用系统文件选择器。';return}try{const p=await a.SelectLogFile();if(p&&!busy.value)openDroppedFiles([p])}catch(e){errorMessage.value=String(e)}}
 async function pollDrop(){const a=api();if(!a)return;try{const paths=await a.PollDroppedFiles();if(paths.length)openDroppedFiles(paths)}catch{/* 等待桌面运行时就绪 */}}
 // 每轮只追加尚未展示的匹配项，并同步进度元数据；不重复拉取完整结果集。
@@ -154,7 +185,7 @@ async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePa
   await pollProgress(id)
   if(response.value.canceled){errorMessage.value='检索已取消，以下保留已找到的部分结果。'}else{const record:SearchRecord={query:input.query,path:input.path,useRegex:input.useRegex,contextLines:input.contextLines,encoding:input.encoding,createdAt:new Date().toISOString()};appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines&&x.encoding===record.encoding))].slice(0,30);addRecent(input.path);await persistSettings()}}
  catch(e){errorMessage.value=String(e)}finally{clearTimer('progress');busy.value=false;cancelRequested.value=false;if(pendingDroppedPaths.length){const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}}
-function applyHistory(r:SearchRecord){if(busy.value)return;filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';multiLineJSON.value=false;activePage.value='logs';response.value=null;selectedMatch.value=null;scrollTop.value=0}
+function applyHistory(r:SearchRecord){if(busy.value)return;stopTail();clearTail();filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';multiLineJSON.value=false;activePage.value='logs';response.value=null;selectedMatch.value=null;scrollTop.value=0}
 function updateScroll(e:Event){if(e.target instanceof HTMLElement)scrollTop.value=e.target.scrollTop}
 async function moveMatch(delta:number){
  const all=response.value?.matches??[]
@@ -170,7 +201,7 @@ function showMatch(m:LogMatch){selectedMatch.value=m;jsonFilter.value=''}
 function setPage(p:PageKey){activePage.value=p}
 function shortcuts(e:KeyboardEvent){if(!(e.ctrlKey||e.metaKey)||e.altKey)return;const k=e.key==='Enter'?'Enter':e.key.toLowerCase();const action=resolveShortcutAction(shortcutsConfig.value,k);if(!action)return;if(action==='runSearch'&&activePage.value!=='logs')return;e.preventDefault();switch(action){case'openFile':void chooseFile();break;case'focusSearch':setPage('logs');void nextTick(()=>inputRef.value?.focus());break;case'runSearch':if(!busy.value)void runSearch();break;case'logs':setPage('logs');break;case'processes':setPage('processes');break;case'toolkit':setPage('toolkit');break}}
 onMounted(()=>{loadShortcuts();loadTheme();window.addEventListener('keydown',shortcuts);stopSearchUpdates=window.runtime?.EventsOn('log-search:update',onSearchUpdate);void loadSettings();dropTimer=window.setInterval(()=>void pollDrop(),300)})
-onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop')})
+onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchUpdates?.();stopSearchUpdates=undefined;clearTimer('progress');clearTimer('drop');clearTimer('tail')})
 </script>
 
 <template>
@@ -205,6 +236,12 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
      </form>
      <details v-if="appSettings.searchHistory.length" class="history-panel query-history"><summary><History :size="14"/>最近检索 <span class="history-count">{{appSettings.searchHistory.length}}</span></summary><div class="history-items"><button v-for="(r,i) in appSettings.searchHistory" :key="r.createdAt+r.query+i" class="history-item" :disabled="busy" @click="applyHistory(r)"><Search :size="13"/><span><strong>{{r.query}}</strong><small>{{r.path}} · {{r.useRegex?'正则':'文本'}} · {{!r.encoding||r.encoding==='auto'?'自动识别':r.encoding}}</small></span><ArrowRight :size="12"/></button></div></details>
      <div v-if="errorMessage" class="notice notice-error"><span>!</span>{{errorMessage}}</div>
+     <div v-if="filePath" class="tail-panel">
+      <div class="tail-heading"><div class="tail-title"><Activity :size="15"/><div><h3>实时跟踪</h3><p>{{tailEnabled?'每 1 秒读取新增行 · '+(tailEncoding||'自动识别')+' 编码':'只读取开启后的新增内容，不扫描整份文件。'}}</p></div></div><div class="tail-actions"><label v-if="tailEnabled" class="tail-follow"><input v-model="tailFollow" type="checkbox"/><span>跟随滚动</span></label><button class="button" :class="tailEnabled?'button-secondary':'button-primary'" type="button" @click="toggleTail"><Activity :size="13"/>{{tailEnabled?'停止跟踪':'开始跟踪'}}</button><button v-if="tailLines.length" class="button button-quiet" type="button" @click="clearTail">清空</button></div></div>
+      <div v-if="tailError" class="notice notice-error tail-notice"><span>!</span>{{tailError}}</div>
+      <div v-if="tailTruncated" class="tail-note">单次增量达到上限，部分行已跳过或截断；可清空后重新开始。</div>
+      <div v-if="tailEnabled||tailLines.length" ref="tailListElement" class="tail-output"><div v-for="(line,i) in tailLines" :key="i" class="tail-line"><code>{{line}}</code></div><div v-if="!tailLines.length" class="tail-empty">{{tailEnabled?'等待新的日志行……':'上次跟踪的内容已清空。'}}</div></div>
+     </div>
      <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{response.matches.length}}</span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（CSV，含上下文）" @click="exportResults('csv')"><FileDown :size="13"/>CSV</button><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（JSON，含上下文）" @click="exportResults('json')"><FileDown :size="13"/>JSON</button><span v-if="response.resultLimitReached" class="limit-pill">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
      <div v-if="exportMessage" class="notice notice-success"><span>✓</span>{{exportMessage}}</div>
      <div v-if="response&&response.matches.length" ref="resultListElement" class="result-list" @scroll="updateScroll"><div class="result-spacer" :style="{height:virtualTop+'px'}"></div><div v-for="(m,i) in visibleMatches" :key="m.lineNumber" class="result-row" :class="{selected:selectedMatch?.lineNumber===m.lineNumber}" role="button" tabindex="0" :title="m.content" @click="selectedMatch=m;jsonFilter=''" @keydown.enter="selectedMatch=m"><span class="line-number">{{String(m.lineNumber).padStart(5,'0')}}</span><span class="result-marker" :class="{first:virtualStart+i===0}"></span><code>{{m.content}}<span v-if="m.contentClipped" class="clipped-note"> [预览已截断]</span></code><ArrowRight :size="13" class="row-chevron"/></div><div class="result-spacer" :style="{height:virtualBottom+'px'}"></div></div>

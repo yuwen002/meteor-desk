@@ -19,6 +19,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `GetLogSearchProgress(id)` | 任务 ID | `LogSearchProgress` | 读取字节数、扫描行数、匹配数、进度百分比及运行/取消状态。 |
 | `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示；负游标按 0 处理，超出当前结果长度时返回空数组。取消任务会在保留期内保留已发现结果。 |
 | `CancelLogSearch(id)` | 任务 ID | `boolean` | 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。 |
+| `ReadLogTail(path, offset, encoding)` | 路径、上次偏移、编码模式 | `TailResult` | 增量读取日志新增行；`offset` 为负时从文件末尾回退（默认 256 KiB）开始跟踪。只返回到最后一个换行符为止的完整行，支持 `auto`、`utf-8`、`gb18030`，UTF-16 直接返回错误。 |
 
 前端建议先生成唯一的 `searchID`，在调用 `SearchLogsAdvanced` 的同时监听 Wails `log-search:update` 事件以低延迟接收进度和新增匹配；轮询进度/增量接口仍作为兼容回退。事件包含 `searchId`、`progress` 和可选的 `matches`，前端必须按任务 ID 过滤并与轮询共用游标，防止重复追加。最终 Promise 返回后，以最终响应替换临时快照。取消是协作式操作：底层扫描会在检查点停止，并返回已累计结果。
 
@@ -75,6 +76,10 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 字段包括 `searchId`、`bytesScanned`、`fileSizeBytes`、`scannedLines`、`matchesFound`、`percent`、`running`、`canceled` 和可选的 `error`。
 
+### TailResult
+
+字段包括 `lines`（新增行，按文件顺序）、`offset`（下一次读取的起点）、`fileSizeBytes`、`encoding`（实际编码）、`reset`（首次跟踪或文件被截断/替换，前端应清空已有行）和 `truncated`（达到单次上限、跳过超长行或回退点残行）。单次读取默认上限 256 KiB / 500 行，硬上限 2 MiB / 5,000 行；偏移只前进到最后一个完整换行之后，未写完的行留到下一次调用。
+
 ### EventContext
 
 命中详情中的可选字段，默认不返回。字段包括：`startLine`、`endLine`、`content`（完整事件或 JSON 文档，单条最多 512 KiB）、`contentClipped` 和 `kind`（`event` 表示按边界聚合的事件，`document` 表示多行 JSON 文档）。单次检索为所有上下文保留的内容总量上限为 32 MiB；预算耗尽时后续命中不返回内容，前端应回退到行预览。
@@ -122,6 +127,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `SearchOptions.MultiLineJSON`：启用多行 JSON 文档检索；对象/数组以括号深度识别，字符串中的括号与转义引号不会结束文档，单个文档限制 4 MiB。混合日志中的普通行仍按行匹配，只有文档命中附带 `EventContext`。
 - `SearchOptions.EventContext`、`EventBoundary`、`EventBoundaryPattern`：启用事件上下文并按 `timestamp`（默认）、`blank` 或 `custom` 切分事件；`custom` 使用 Go 正则匹配去首尾空白后的整行，长度上限 512 字节，非法正则在打开文件前返回错误。空行模式下分隔空行不计入事件内容。
 - `SearchOptions.Encoding`：接受 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；最终识别结果通过 `SearchResponse.Encoding` 返回。自动模式先检查 BOM，再尝试 UTF-8/无 BOM UTF-16 特征，最后对非 UTF-8 文本按 GB18030 解码。
+- `TailFile(path, TailOptions)`：按偏移增量读取新增完整行，返回行、下一次偏移、文件大小、实际编码与重置/截断标记，供实时跟踪使用；编码识别与检索共用同一套抽样逻辑，UTF-16 明确拒绝。
 
 约束：普通文本按固定缓冲区流式扫描；结果上限为 5,000；结果预览 8 KiB；上下文预览 1 KiB；正则模式单行限制 4 MiB。
 
