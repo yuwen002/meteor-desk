@@ -11,6 +11,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/yuwen002/meteor-desk/internal/config"
+	"github.com/yuwen002/meteor-desk/internal/httpx"
 	"github.com/yuwen002/meteor-desk/internal/logx"
 	"github.com/yuwen002/meteor-desk/internal/process"
 )
@@ -104,6 +105,8 @@ func (a *App) PollDroppedFiles()[]string{
 func (a *App) SearchLogs(searchID,path,query string,useRegex bool,maxResults int)(logx.SearchResponse,error){
 	return a.SearchLogsAdvanced(searchID,path,query,useRegex,maxResults,0,"auto",false,false)
 }
+// SendHTTPRequest 在本机执行用户在 HTTP 调试器中明确发起的请求。
+func (a *App) SendHTTPRequest(request httpx.Request)(httpx.Response,error){return httpx.Send(request)}
 // SearchLogsAdvanced 注册一个可取消的搜索任务；扫描期间通过进度和增量匹配接口读取状态。
 func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxResults,contextLines int,encoding string,multiLineJSON,eventContext bool)(logx.SearchResponse,error){
 	if a.ctx==nil{return logx.SearchResponse{},errors.New("桌面运行环境尚未就绪")}
@@ -338,3 +341,4 @@ func calcPercent(scanned,total int64,running,canceled bool)int{
 }
 // UserDataDirectory 返回应用本地配置目录，目录会在需要时创建。
 func (a *App) UserDataDirectory()string{base,err:=os.UserConfigDir();if err!=nil{return ""};path:=filepath.Join(base,"MeteorDesk");_ = os.MkdirAll(path,0700);return path}
+

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowLeftRight, Braces, CheckCircle2, Clock3, Copy, FileJson, KeyRound, Link2, RefreshCw, ShieldAlert } from 'lucide-vue-next'
+import { ArrowLeftRight, Braces, CheckCircle2, Clock3, Copy, FileJson, KeyRound, Link2, RefreshCw, Send, ShieldAlert } from 'lucide-vue-next'
 import { appendJSONPath } from '../utils/jsonPath'
+import { parseRequestHeaders } from '../utils/httpRequest'
 import { redactSensitiveText } from '../utils/redact'
 import { parseCron } from '../utils/cron'
 import { diffText } from '../utils/textDiff'
 
-type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'base64' | 'jwt' | 'url'
+type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'http' | 'base64' | 'jwt' | 'url'
 interface JsonDiffRow { path: string; kind: '新增' | '删除' | '修改'; before: unknown; after: unknown }
 interface DateParts { year: number; month: number; day: number; hour: number; minute: number; second: number }
 
@@ -19,6 +20,7 @@ const toolTabs: { key: ToolKey; label: string; description: string }[] = [
   { key: 'redact', label: '日志脱敏', description: '本地隐藏常见敏感字段' },
   { key: 'cron', label: 'Cron 解析', description: '校验表达式并预览下次运行' },
   { key: 'diff', label: '文本差异', description: '逐行比较两段文本' },
+  { key: 'http', label: 'HTTP 调试', description: '构建请求并查看本地响应' },
   { key: 'base64', label: 'Base64', description: '支持中文等 UTF-8 文本' },
   { key: 'jwt', label: 'JWT 载荷', description: '查看 Header、Payload 与过期时间' },
   { key: 'url', label: 'URL / 参数', description: '解析 URL、编码和查询参数' },
@@ -186,6 +188,18 @@ const textDifference = computed(() => {
   try { return { error: '', rows: diffText(diffBefore.value, diffAfter.value) } }
   catch (error) { return { error: String(error), rows: [] } }
 })
+const httpMethod = ref('GET'), httpURL = ref(''), httpHeaders = ref('{\n  "Accept": "application/json"\n}'), httpBody = ref(''), httpResponse = ref<HttpResponse | null>(null), httpError = ref(''), httpBusy = ref(false)
+const httpResponseHeaders = computed(() => httpResponse.value ? Object.entries(httpResponse.value.headers).sort(([a], [b]) => a.localeCompare(b)) : [])
+async function sendHTTPRequest() {
+  const api = window.go?.main?.App
+  httpError.value = ''; httpResponse.value = null
+  if (!api) { httpError.value = '未检测到桌面桥接服务，请通过 wails dev 启动。'; return }
+  if (!httpURL.value.trim()) { httpError.value = '请输入请求 URL 后再发送。'; return }
+  let headers: Record<string, string>
+  try { headers = parseRequestHeaders(httpHeaders.value) } catch (error) { httpError.value = error instanceof Error ? error.message : String(error); return }
+  httpBusy.value = true
+  try { httpResponse.value = await api.SendHTTPRequest({ method: httpMethod.value, url: httpURL.value.trim(), headers, body: httpBody.value }) } catch (error) { httpError.value = error instanceof Error ? error.message : String(error) } finally { httpBusy.value = false }
+}
 
 const base64Source = ref('')
 const base64Encoded = ref('')
@@ -311,6 +325,7 @@ function resetJSON() {
         <ShieldAlert v-else-if="tool.key === 'redact'" :size="16" />
         <Clock3 v-else-if="tool.key === 'cron'" :size="16" />
         <ArrowLeftRight v-else-if="tool.key === 'diff'" :size="16" />
+        <Send v-else-if="tool.key === 'http'" :size="16" />
         <FileJson v-else-if="tool.key === 'base64'" :size="16" />
         <KeyRound v-else-if="tool.key === 'jwt'" :size="16" />
         <Link2 v-else :size="16" />
@@ -384,6 +399,14 @@ function resetJSON() {
       <div class="toolkit-card-heading"><div><h2>文本差异比较</h2><p>按行比较两段文本，适合配置、响应和日志片段。</p></div><ArrowLeftRight :size="18" /></div>
       <div class="toolkit-json-grid"><div class="toolkit-editor-pane"><label class="toolkit-label" for="diff-before">原始文本</label><textarea id="diff-before" v-model="diffBefore" class="toolkit-textarea tall mono" spellcheck="false"></textarea></div><div class="toolkit-editor-pane"><label class="toolkit-label" for="diff-after">修改后文本</label><textarea id="diff-after" v-model="diffAfter" class="toolkit-textarea tall mono" spellcheck="false"></textarea></div></div>
       <p v-if="textDifference.error" class="toolkit-error">{{ textDifference.error }}</p><div v-else class="text-diff-output"><div v-for="(row, index) in textDifference.rows" :key="index" :class="row.kind"><b>{{ row.kind === 'added' ? '+' : row.kind === 'removed' ? '-' : ' ' }}</b><code>{{ row.value }}</code></div></div>
+    </div>
+
+    <div v-else-if="activeTool === 'http'" class="toolkit-card">
+      <div class="toolkit-card-heading"><div><h2>HTTP 调试器</h2><p>请求由你显式发送、在桌面端本机执行；不会自动联网，也不会访问未填写的地址。</p></div><Send :size="18" /></div>
+      <div class="http-request-line"><select v-model="httpMethod" class="toolkit-select" aria-label="HTTP 方法"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option></select><input v-model="httpURL" class="toolkit-input mono" aria-label="请求 URL" placeholder="https://api.example.com/v1/health" /><button class="button button-primary" :disabled="httpBusy" @click="sendHTTPRequest"><span v-if="httpBusy" class="spinner"></span><Send v-else :size="14" />{{ httpBusy ? '发送中' : '发送' }}</button></div>
+      <div class="toolkit-json-grid http-editors"><div class="toolkit-editor-pane"><label class="toolkit-label" for="http-headers">请求 Header（JSON）</label><textarea id="http-headers" v-model="httpHeaders" class="toolkit-textarea short mono" spellcheck="false"></textarea></div><div class="toolkit-editor-pane"><label class="toolkit-label" for="http-body">请求 Body</label><textarea id="http-body" v-model="httpBody" class="toolkit-textarea short mono" spellcheck="false" placeholder="可选，请求正文最大 2 MiB"></textarea></div></div>
+      <p v-if="httpError" class="toolkit-error">{{ httpError }}</p>
+      <template v-else-if="httpResponse"><div class="http-response-summary"><strong :class="{ error: httpResponse.status >= 400 }">{{ httpResponse.status }} {{ httpResponse.statusText }}</strong><span>{{ httpResponse.durationMs }} ms</span><span>接收 {{ httpResponse.sizeBytes.toLocaleString() }} B</span><button class="button button-quiet" @click="copyText(httpResponse.body, '响应正文')"><Copy :size="13" />复制正文</button></div><p v-if="httpResponse.bodyTruncated" class="toolkit-help">响应正文超过 2 MiB，界面仅保留前 2 MiB；上方字节数为实际接收量。</p><div class="toolkit-json-grid"><div class="toolkit-editor-pane"><div class="toolkit-output-heading"><label class="toolkit-label">响应 Header</label><span>{{ httpResponseHeaders.length }} 项</span></div><div class="toolkit-param-list"><div v-for="([key, value]) in httpResponseHeaders" :key="key"><code>{{ key }}</code><span>{{ value }}</span></div></div></div><div class="toolkit-editor-pane"><label class="toolkit-label">响应 Body</label><pre class="toolkit-json-output http-response-body">{{ httpResponse.body }}</pre></div></div></template>
     </div>
 
     <div v-else-if="activeTool === 'base64'" class="toolkit-card">
@@ -465,6 +488,7 @@ function resetJSON() {
 .toolkit-divider{height:1px;margin:22px 0;background:#29313d}
 .redact-output{min-height:210px;white-space:pre-wrap;overflow-wrap:anywhere}
 .text-diff-output{max-height:420px;overflow:auto;margin-top:16px;border:1px solid #29313f;border-radius:6px;background:#0b1018;font:10px/1.65 ui-monospace,monospace}.text-diff-output>div{display:grid;grid-template-columns:22px minmax(0,1fr);padding:5px 8px}.text-diff-output b{color:#738398}.text-diff-output code{white-space:pre-wrap;overflow-wrap:anywhere;color:#bdc9d7}.text-diff-output .added{background:rgba(77,178,125,.12)}.text-diff-output .added b{color:#83edb2}.text-diff-output .removed{background:rgba(214,93,88,.12)}.text-diff-output .removed b{color:#ffaaa1}
+.http-request-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;margin-bottom:16px}.http-request-line .button{height:38px;padding:0 13px;font-size:10px}.http-editors{margin-bottom:15px}.http-response-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:15px 0;border:1px solid #2b3943;border-radius:6px;background:rgba(9,15,21,.7);padding:10px 12px;color:#8291a4;font:10px ui-monospace,monospace}.http-response-summary strong{color:#92ebbc}.http-response-summary strong.error{color:#ffaaa1}.http-response-summary .button{margin-left:auto;height:28px;font-size:9px}.http-response-body{min-height:220px;max-height:420px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .compact-result{padding:9px 13px}
 .compact-result .toolkit-result-line:first-child{border-top:0}
 .bottom-converter{align-items:start}
@@ -519,6 +543,7 @@ function resetJSON() {
 .toolkit-footer-note{display:flex;align-items:flex-start;gap:8px;margin-top:15px;padding:0 3px;color:#748499;font-size:9px;line-height:1.7}
 .toolkit-footer-note svg{flex-shrink:0;color:#88c6a9}
 @media(max-width:980px){.toolkit-grid-two,.toolkit-json-grid{grid-template-columns:1fr}.toolkit-textarea{min-height:180px}.toolkit-url-meta{grid-template-columns:1fr}.toolkit-card{padding:14px}}
+@media(max-width:600px){.http-request-line{grid-template-columns:1fr}.http-request-line .toolkit-select{max-width:none;width:100%}}
 @media(max-width:680px){.toolkit-tabs{display:grid;grid-template-columns:1fr 1fr}.toolkit-tab{justify-content:flex-start}.toolkit-diff-values{grid-template-columns:minmax(0,1fr)}.toolkit-diff-values svg{display:none}.toolkit-result-line{grid-template-columns:70px minmax(0,1fr) 25px}}
 
 /* 浅色主题：工具箱使用独立 scoped 样式，必须显式响应应用级主题状态。 */
@@ -562,6 +587,7 @@ function resetJSON() {
 :global(.theme-light) .toolkit-jwt-status{background:#f7f9fc;border-color:#dce3ec;color:#52647b}
 :global(.theme-light) .toolkit-jwt-status.valid{color:#176b50;border-color:#c4e8d8}
 :global(.theme-light) .toolkit-jwt-status.expired{color:#b93832;border-color:#f0cdca}
+:global(.theme-light) .http-response-summary{background:#f7f9fc;border-color:#dce3ec}
 :global(.theme-light) .toolkit-url-meta>div{background:#f7f9fc;border-color:#dce3ec}
 :global(.theme-light) .toolkit-url-meta span{color:#718096}
 :global(.theme-light) .toolkit-url-meta code{color:#28664f}
