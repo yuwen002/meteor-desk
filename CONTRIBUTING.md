@@ -74,12 +74,15 @@ GitHub Actions 会运行 Go 静态检查、完整单元测试、约 1 GiB 合成
 
 发布由 tag 触发，不需要手动上传安装包：
 
-1. 将 `frontend/package.json` 的版本号更新为待发布版本（`npm version <version> --no-git-tag-version`），同步 CHANGELOG 与文档。
-2. 提交并推送到 `main`，确认基础检查工作流通过。
-3. 创建并推送与版本一致的 tag，例如 `git tag v0.5.22 && git push origin v0.5.22`。
-4. `发布` 工作流会在 Ubuntu、Windows、macOS 构建并打包安装包，校验 tag 与前端版本一致后创建 GitHub Release，附带 `SHA256SUMS.txt`。
+1. 在 `frontend/package.json` 更新版本号（`npm version <version> --no-git-tag-version`）。这是版本号的唯一来源，界面直接读取该文件，无需修改前端代码。
+2. 在 `CHANGELOG.md` 顶部新增 `## v<version> — <日期>` 段落；发布工作流会把它提取为 Release 说明。同步更新 README 与 `docs/` 中的相关说明。
+3. 提交并推送到 `main`，确认基础检查工作流通过。
+4. 创建并推送与版本一致的 tag，例如 `git tag -a v0.5.23 -m "v0.5.23" && git push origin v0.5.23`。
+5. `发布` 工作流会校验 tag 格式与前端版本一致，在 Ubuntu、Windows、macOS 构建并打包；构建时通过 `-ldflags "-X main.appVersion=<version>"` 把版本注入后端，最后创建 GitHub Release 并附带 `SHA256SUMS.txt`。
 
-若 tag 与 `frontend/package.json` 版本不一致，发布流程会直接失败。重新推送同一 tag 时，Release 资产会以 `--clobber` 覆盖更新。
+若 tag 与 `frontend/package.json` 版本不一致，发布流程会直接失败。失败后无需删除 tag：在 Actions 页面选择 `发布` → Run workflow 并填写同一个 tag，即可重跑；Release 已存在时资产会以 `--clobber` 覆盖更新，说明文字也会按当前 CHANGELOG 刷新。
+
+注意：tag 触发使用的是该 tag 指向的提交中的工作流文件；修改发布流程后，需要先让 tag 指向修复提交，否则仍会执行旧逻辑。
 
 ## 提交建议
 

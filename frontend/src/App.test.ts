@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import packageJson from '../package.json'
 import App from './App.vue'
 
 function createBridge() {
@@ -32,6 +33,12 @@ function createBridge() {
     SaveAppSettings: vi.fn().mockResolvedValue(undefined),
     GetProcesses: vi.fn().mockResolvedValue([]),
     GetProcessLogs: vi.fn().mockResolvedValue([]),
+    GetRuntimeInfo: vi.fn().mockResolvedValue({
+      appVersion: '0.5.23',
+      goVersion: 'go1.23.5',
+      platform: 'windows/amd64',
+      dataDir: 'C:/Users/test/AppData/Roaming/MeteorDesk',
+    }),
   }
 }
 
@@ -80,6 +87,22 @@ describe('log search options', () => {
 
     expect(wrapper.get('.notice-error').text()).toContain('请输入自定义事件边界正则')
     expect(bridge.SearchLogsAdvanced).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows package version and backend build info in the about dialog', async () => {
+    const { wrapper, bridge } = await mountApp()
+    expect(wrapper.get('.version-tag').text()).toBe('v' + packageJson.version)
+
+    await wrapper.get('.version-tag').trigger('click')
+    await flushPromises()
+
+    const dialog = wrapper.get('.about-dialog')
+    expect(dialog.text()).toContain('v' + packageJson.version)
+    expect(dialog.text()).toContain('go1.23.5')
+    expect(dialog.text()).toContain('windows/amd64')
+    expect(dialog.text()).toContain('MeteorDesk')
+    expect(bridge.GetRuntimeInfo).toHaveBeenCalled()
     wrapper.unmount()
   })
 })

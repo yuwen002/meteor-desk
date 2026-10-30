@@ -4,8 +4,11 @@
 
 MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具，面向开发人员和运维人员，集中处理大体积日志检索、本地服务编排和日常开发任务。
 
-## 本轮迭代：v0.5.22
+## 本轮迭代：v0.5.23
 
+- 版本号只在 `frontend/package.json` 维护：界面直接读取该文件，发布构建通过 `-ldflags` 把同一版本号注入后端二进制。
+- 新增「关于」面板：点击侧栏版本号或帮助图标查看应用版本、后端版本、Go 运行时、运行平台、配置目录与项目仓库，可一键复制诊断信息。
+- 发布工作流支持 `workflow_dispatch` 手动重跑，Release 说明直接提取自 `CHANGELOG.md` 对应版本段落。
 - HTTP 调试器支持请求历史（本机保留最近 10 条）、5 至 120 秒超时、关闭自动跟随重定向，以及仅用于本机自签证书的 TLS 校验跳过。
 - HTTP 调试器展示实际跟随的重定向次数与最终地址，并对二进制响应正文给出提示。
 - 新增 tag 触发的 GitHub Release 工作流：三平台构建打包、版本一致性校验、自动创建 Release 并附带 SHA256 校验和。
@@ -83,6 +86,7 @@ MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具�
 - 最近文件、检索历史、上下文行数和结果上限持久化。
 - 常用快捷键：Ctrl/⌘+O 打开文件，Ctrl/⌘+K 聚焦搜索，Ctrl/⌘+Enter 检索，Ctrl/⌘+1/2/3 切换模块。
 - 深色/浅色中文工作台界面，主题偏好保存在本机。
+- 「关于」面板展示版本与运行环境，诊断信息可复制，不会自动联网检查更新。
 
 ## 文档
 
@@ -140,7 +144,11 @@ wails build
 
 ## 发布版本
 
-推送与 `frontend/package.json` 版本一致的 tag（例如 `v0.5.22`）会触发 `发布` 工作流：在 Ubuntu、Windows、macOS 构建并打包，校验版本一致后自动创建 GitHub Release，并附带 `SHA256SUMS.txt` 校验和。完整步骤见 [贡献指南](CONTRIBUTING.md)。
+推送与 `frontend/package.json` 版本一致的 tag（例如 `v0.5.23`）会触发 `发布` 工作流：在 Ubuntu、Windows、macOS 构建并打包，校验版本一致后自动创建 GitHub Release，并附带 `SHA256SUMS.txt` 校验和。
+
+版本号只有一个来源：`frontend/package.json`。界面从该文件读取版本，构建时由 `-ldflags "-X main.appVersion=..."` 注入后端；本地 `wails dev` 未注入时显示 `dev`。Release 说明由工作流从 `CHANGELOG.md` 提取对应版本段落，因此发布前请先补全变更记录。
+
+工作流也支持在 Actions 页面手动触发（选择 `发布` → Run workflow → 填写 tag），用于重跑构建或补发资产，无需删除并重推 tag。完整步骤见 [贡献指南](CONTRIBUTING.md)。
 
 ## 大文件性能基准
 
@@ -188,4 +196,5 @@ go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=
 - 正则模式整行匹配，单行超过 4 MiB 会停止并提示改用普通文本检索。
 - 进程优雅退出与进程树回收需要继续在 Windows、macOS、Linux 上验证；强制结束子进程不一定会自动结束它派生的所有后代进程。
 - 性能基准使用合成日志。正式发布前应使用真实日志和目标硬件记录扫描吞吐、内存和磁盘 I/O。
+- 发布资产目前只提供 macOS arm64 构建；Intel Mac 需要自行从源码构建。
 - HTTP 调试器默认跟随重定向（最多 10 次），跳转后的 3xx 响应需要关闭「自动跟随重定向」才能直接查看；跳过 TLS 校验只应在本机自签证书调试时开启。响应正文超过 2 MiB 时界面只保留前 2 MiB，二进制正文仅显示带替换字符的预览。

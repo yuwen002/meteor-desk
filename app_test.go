@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -152,5 +153,21 @@ func TestPruneSearchesExpiresCompletedJobsButKeepsRunningJobs(t *testing.T) {
 	}
 	if _, ok := app.searches["running"]; !ok {
 		t.Fatal("清理任务不能移除运行中的任务")
+	}
+}
+
+func TestGetRuntimeInfoReportsVersionAndBuildEnvironment(t *testing.T) {
+	info := NewApp().GetRuntimeInfo()
+	if info.AppVersion == "" {
+		t.Fatal("应用版本不应为空")
+	}
+	if !strings.HasPrefix(info.GoVersion, "go") {
+		t.Fatalf("Go 运行时版本异常：%q", info.GoVersion)
+	}
+	if !strings.Contains(info.Platform, "/") {
+		t.Fatalf("平台信息应包含 GOOS/GOARCH：%q", info.Platform)
+	}
+	if !strings.HasSuffix(info.DataDir, "MeteorDesk") {
+		t.Fatalf("配置目录应位于 MeteorDesk 子目录：%q", info.DataDir)
 	}
 }

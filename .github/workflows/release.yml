@@ -4,9 +4,19 @@ on:
   push:
     tags:
       - 'v*'
+  # 失败后可以直接在 Actions 页面手动重跑，无需删除并重推 tag。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要发布的 tag（例如 v0.5.23）
+        required: true
 
 permissions:
   contents: write
+
+env:
+  # tag 推送时取 ref 名；手动触发时取输入，二者共用同一套校验与打包逻辑。
+  VERSION_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -26,6 +36,8 @@ jobs:
     steps:
       - name: 检出源码
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION_TAG }}
 
       - name: 安装 Linux 桌面依赖
         if: ${{ runner.os == 'Linux' }}
@@ -49,12 +61,18 @@ jobs:
       - name: 校验 tag 与前端版本一致
         shell: bash
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          version=$(node -p "require('./frontend/package.json').version")
-          if [ "$tag" != "$version" ]; then
-            echo "::error::tag $GITHUB_REF_NAME 与 frontend/package.json 版本 $version 不一致"
+          tag="$VERSION_TAG"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag $tag 不是 vX.Y.Z 格式"
             exit 1
           fi
+          version="${tag#v}"
+          package_version=$(node -p "require('./frontend/package.json').version")
+          if [ "$version" != "$package_version" ]; then
+            echo "::error::tag $tag 与 frontend/package.json 版本 $package_version 不一致"
+            exit 1
+          fi
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: 安装前端依赖
         working-directory: frontend
@@ -69,27 +87,29 @@ jobs:
         run: go test ./...
 
       - name: 构建桌面应用
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build -clean -ldflags "-s -w"
+        shell: bash
+        # 版本只在 frontend/package.json 维护，构建时注入后端，避免界面与二进制版本不一致。
+        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build -clean -ldflags "-s -w -X main.appVersion=$APP_VERSION"
 
       - name: 打包 Windows 产物
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
         run: |
-          $name = "MeteorDesk-$env:GITHUB_REF_NAME-windows-amd64.zip"
+          $name = "MeteorDesk-${{ env.VERSION_TAG }}-windows-amd64.zip"
           Compress-Archive -Path "build/bin/MeteorDesk.exe" -DestinationPath $name
           "ASSET=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: 打包 macOS 产物
         if: ${{ runner.os == 'macOS' }}
         run: |
-          name="MeteorDesk-${GITHUB_REF_NAME}-macos-arm64.zip"
+          name="MeteorDesk-${{ env.VERSION_TAG }}-macos-arm64.zip"
           ditto -c -k --sequesterRsrc --keepParent build/bin/MeteorDesk.app "$name"
           echo "ASSET=$name" >> "$GITHUB_ENV"
 
       - name: 打包 Linux 产物
         if: ${{ runner.os == 'Linux' }}
         run: |
-          name="MeteorDesk-${GITHUB_REF_NAME}-linux-amd64.tar.gz"
+          name="MeteorDesk-${{ env.VERSION_TAG }}-linux-amd64.tar.gz"
           tar -czf "$name" -C build/bin MeteorDesk
           echo "ASSET=$name" >> "$GITHUB_ENV"
 
@@ -107,6 +127,11 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION_TAG }}
+
       - name: 下载所有安装包
         uses: actions/download-artifact@v4
         with:
@@ -119,16 +144,26 @@ jobs:
           find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: 生成 Release 说明
+        run: |
+          version="${VERSION_TAG#v}"
+          awk -v header="## v$version" '$0 == header { capture=1; next } capture && /^## / { exit } capture { print }' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            printf 'MeteorDesk %s\n' "$VERSION_TAG" > release-notes.md
+          fi
+          cat release-notes.md
+
       - name: 发布 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # release job 未 checkout 源码，gh 需要显式仓库上下文。
+          # 显式指定仓库上下文，避免 gh 依赖本地 git remote 配置。
           GH_REPO: ${{ github.repository }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          if gh release view "$VERSION_TAG" >/dev/null 2>&1; then
+            gh release edit "$VERSION_TAG" --title "MeteorDesk $VERSION_TAG" --notes-file release-notes.md
+            gh release upload "$VERSION_TAG" dist/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "MeteorDesk $GITHUB_REF_NAME" \
-              --generate-notes
+            gh release create "$VERSION_TAG" dist/* \
+              --title "MeteorDesk $VERSION_TAG" \
+              --notes-file release-notes.md
           fi

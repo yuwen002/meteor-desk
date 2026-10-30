@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,17 @@ import (
 	"github.com/yuwen002/meteor-desk/internal/logx"
 	"github.com/yuwen002/meteor-desk/internal/process"
 )
+
+// appVersion 由发布构建通过 -ldflags "-X main.appVersion=..." 注入；本地运行显示 dev。
+var appVersion = "dev"
+
+// RuntimeInfo 是「关于」面板展示的构建与运行环境信息。
+type RuntimeInfo struct {
+	AppVersion string `json:"appVersion"`
+	GoVersion string `json:"goVersion"`
+	Platform string `json:"platform"`
+	DataDir string `json:"dataDir"`
+}
 
 // LogSearchProgress 是前端轮询使用的搜索任务状态 DTO。
 type LogSearchProgress struct {
@@ -342,4 +354,13 @@ func calcPercent(scanned,total int64,running,canceled bool)int{
 }
 // UserDataDirectory 返回应用本地配置目录，目录会在需要时创建。
 func (a *App) UserDataDirectory()string{base,err:=os.UserConfigDir();if err!=nil{return ""};path:=filepath.Join(base,"MeteorDesk");_ = os.MkdirAll(path,0700);return path}
+// GetRuntimeInfo 返回版本、Go 运行时、平台和配置目录，供界面「关于」面板展示。
+func (a *App) GetRuntimeInfo() RuntimeInfo {
+	return RuntimeInfo{
+		AppVersion: appVersion,
+		GoVersion: goruntime.Version(),
+		Platform: goruntime.GOOS+"/"+goruntime.GOARCH,
+		DataDir: a.UserDataDirectory(),
+	}
+}
 

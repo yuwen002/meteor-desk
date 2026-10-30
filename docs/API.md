@@ -51,6 +51,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `GetAppSettings()` | 无 | `AppSettings` | 获取本地偏好和历史。 |
 | `SaveAppSettings(settings)` | `AppSettings` | 无 | 规范化、保存并应用设置。 |
 | `UserDataDirectory()` | 无 | `string` | 返回应用配置目录路径。 |
+| `GetRuntimeInfo()` | 无 | `RuntimeInfo` | 返回应用版本、Go 运行时版本、运行平台与配置目录，用于「关于」面板与诊断信息。 |
 
 ## 3. 常用数据结构
 
@@ -88,6 +89,10 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 ### ProcessOutput
 
 输出行包括单调递增的服务内 `sequence`、本地时间、输出流类型（`stdout` / `stderr` / `system`）和文本内容。
+
+### RuntimeInfo
+
+字段包括 `appVersion`、`goVersion`、`platform`（`GOOS/GOARCH`）和 `dataDir`。版本号只在 `frontend/package.json` 维护：前端构建时直接读取该文件，发布构建通过 `-ldflags "-X main.appVersion=<version>"` 注入后端，本地开发未注入时为 `dev`。该结构不包含日志内容、环境变量或凭据。
 
 ### HttpRequest / HttpResponse
 

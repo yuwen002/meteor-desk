@@ -49,6 +49,13 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - stdout、stderr 和系统生命周期消息分别采集，并限制单行长度与每个服务的输出缓存上限。
 - 进程管理器保留状态/退出原因，应用关闭时会尝试停止由工作台启动的服务。
 
+## 版本与构建信息
+
+- 版本号只在 `frontend/package.json` 维护：前端通过 `frontend/src/appMeta.ts` 读取它并展示在侧栏与「关于」面板，避免界面与发布版本不一致。
+- 发布构建使用 `-ldflags "-X main.appVersion=<version>"` 把版本写入后端；本地 `wails dev` 未注入时显示 `dev`，方便区分开发构建。
+- `App.GetRuntimeInfo` 汇总前后端版本、Go 运行时、`GOOS/GOARCH` 与配置目录；只包含环境信息，不读取日志正文、环境变量或凭据。
+- 「关于」面板由侧栏版本号或帮助图标打开；复制诊断信息只在本地剪贴板进行，应用不会后台检查更新，也不向外部服务上报信息。
+
 ## 状态与数据保留
 
 - 用户偏好和检索历史位于当前用户配置目录下的 `MeteorDesk/settings.json`。
