@@ -385,3 +385,42 @@ mark{background:rgba(230,190,112,.22);color:#ffdda0;border-radius:2px;padding:0 
 .theme-light .timeline-error{background:#d9534f}
 .theme-light .timeline-label{color:#728095}
 
+/* v0.5.29: 服务依赖图 */
+.dependency-graph{margin-bottom:12px;padding:12px 14px;border:1px solid #2b3543;border-radius:7px;background:rgba(15,21,30,.72)}
+.graph-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.graph-head>span{display:inline-flex;align-items:center;gap:6px;color:#a7b5c6;font-size:10px;letter-spacing:.04em}
+.graph-head small{margin-left:auto;color:#778498;font-size:9px}
+.graph-scroll{overflow-x:auto;overflow-y:hidden;margin-top:10px;padding-bottom:2px}
+.graph-scroll svg{display:block}
+.graph-edge{fill:none;stroke:#3a4a5e;stroke-width:1.4}
+.graph-edge.cyclic{stroke:#d98a72;stroke-dasharray:5 4}
+.graph-node{cursor:pointer}
+.graph-node rect{fill:#141c27;stroke:#2f3d4d;stroke-width:1}
+.graph-node text{fill:#9dacbd;font:10px ui-monospace,monospace}
+.graph-node .graph-dot{fill:#5a6b7f}
+.graph-node.running rect{fill:rgba(31,138,99,.12);stroke:#3f8462}
+.graph-node.running .graph-dot{fill:#86f7c5}
+.graph-node.starting rect,.graph-node.stopping rect{fill:rgba(160,132,52,.12);stroke:#8a7434}
+.graph-node.starting .graph-dot,.graph-node.stopping .graph-dot{fill:#eccb86}
+.graph-node.failed rect{fill:rgba(180,67,47,.12);stroke:#8c4b45}
+.graph-node.failed .graph-dot{fill:#f0a49c}
+.graph-node.selected rect{stroke:#86f7c5;stroke-width:1.6}
+.graph-node.selected text{fill:#dfe6ef}
+.graph-node:hover rect{stroke:#5f7288}
+.graph-hint{margin:8px 0 0;color:#6f7d90;font-size:9px;line-height:1.6}
+.theme-light .dependency-graph{background:#fff;border-color:#dce3ec}
+.theme-light .graph-head>span{color:#5a6c82}
+.theme-light .graph-head small{color:#6c7b90}
+.theme-light .graph-edge{stroke:#c3d1e0}
+.theme-light .graph-edge.cyclic{stroke:#c25a3c}
+.theme-light .graph-node rect{fill:#f7fafd;stroke:#dde5ee}
+.theme-light .graph-node text{fill:#41536b}
+.theme-light .graph-node .graph-dot{fill:#93a1b4}
+.theme-light .graph-node.running rect{fill:#eef9f3;stroke:#8fc9ac}
+.theme-light .graph-node.running .graph-dot{fill:#1f8a63}
+.theme-light .graph-node.failed rect{fill:#fdf1ef;stroke:#e5b3a7}
+.theme-light .graph-node.failed .graph-dot{fill:#b4432f}
+.theme-light .graph-node.selected rect{stroke:#1f8a63}
+.theme-light .graph-node.selected text{fill:#243449}
+.theme-light .graph-hint{color:#728095}
+

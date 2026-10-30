@@ -4,6 +4,7 @@ import { Activity, ChevronRight, Eye, EyeOff, FileDown, FileUp, LineChart, Netwo
 import { getMaskedEnvironmentPreview, parsePortList, parseProcessForm } from '../utils/processConfig'
 import { buildProcessLogExportCSV, buildProcessLogExportJSON, processLogExportFileName, type ExportFormat } from '../utils/exporters'
 import { sparklinePoints, summarizeHistory } from '../utils/resourceHistory'
+import { buildDependencyGraph } from '../utils/dependencyGraph'
 
 type ProcAction = 'start' | 'stop' | 'restart'
 
@@ -22,6 +23,11 @@ const historySummary=computed(()=>summarizeHistory(resourceHistory.value))
 const cpuPoints=computed(()=>sparklinePoints(historySummary.value.cpuValues,120,32))
 const memoryPoints=computed(()=>sparklinePoints(historySummary.value.memoryValues,120,32))
 const memoryDeltaLabel=computed(()=>{const delta=historySummary.value.memoryDelta;if(!delta)return '';return (delta>0?'+':'-')+formatBytes(Math.abs(delta))})
+// 依赖图只读配置列表，随保存与删除自动重排；点节点即可切到对应服务的配置。
+const dependencyGraph=computed(()=>buildDependencyGraph(processes.value.map(item=>({id:item.spec.id,name:item.spec.name,dependsOn:item.spec.dependsOn??[]}))))
+function graphNodeLabel(name:string){return name.length>14?name.slice(0,13)+'…':name}
+function graphNodeState(id:string){return processes.value.find(item=>item.spec.id===id)?.status.state??'stopped'}
+function selectGraphNode(id:string){const view=processes.value.find(item=>item.spec.id===id);if(view)selectProcess(view)}
 
 function api(){return window.go?.main?.App}
 async function loadProcesses(){const a=api();if(!a)return;try{processes.value=await a.GetProcesses();if(!selectedPID.value&&processes.value.length)selectedPID.value=processes.value[0].spec.id;if(selectedPID.value&&!processes.value.some(x=>x.spec.id===selectedPID.value))selectedPID.value=processes.value[0]?.spec.id??''}catch(e){processError.value=String(e)}}
@@ -135,6 +141,21 @@ onBeforeUnmount(()=>{if(processTimer!==undefined)clearInterval(processTimer);if(
      <div class="batch-results-header"><strong>最近一次批量操作</strong><span>成功 {{batchResults.filter(item=>item.success).length}} / {{batchResults.length}}</span></div>
      <div v-for="item in batchResults" :key="item.action+'-'+item.id" class="batch-result-row" :class="{failed:!item.success}"><span class="batch-result-mark">{{item.success?'✓':'!'}}</span><strong>{{item.name}}</strong><span>{{item.message}}</span></div>
     </div>
+    <section v-if="processes.length" class="dependency-graph">
+     <div class="graph-head"><span><Network :size="14"/>依赖关系图</span><small>{{dependencyGraph.nodes.length}} 个服务 · {{dependencyGraph.layers}} 层<template v-if="dependencyGraph.cyclic.length"> · 检测到循环依赖</template></small></div>
+     <div class="graph-scroll">
+      <svg :viewBox="'0 0 '+dependencyGraph.width+' '+dependencyGraph.height" :width="dependencyGraph.width" :height="dependencyGraph.height" role="img" aria-label="服务依赖关系图">
+       <path v-for="edge in dependencyGraph.edges" :key="edge.from+'-'+edge.to" :d="edge.path" class="graph-edge" :class="{cyclic:edge.cyclic}"/>
+       <g v-for="node in dependencyGraph.nodes" :key="node.id" class="graph-node" :class="[graphNodeState(node.id),{selected:selectedPID===node.id}]" role="button" tabindex="0" @click="selectGraphNode(node.id)" @keydown.enter="selectGraphNode(node.id)">
+        <title>{{node.name}}<template v-if="node.dependsOn.length"> · 依赖 {{node.dependsOn.length}} 个服务</template><template v-else> · 无前置依赖</template></title>
+        <rect :x="node.x" :y="node.y" :width="node.width" :height="node.height" rx="6"/>
+        <circle :cx="node.x+13" :cy="node.y+node.height/2" r="3.5" class="graph-dot"/>
+        <text :x="node.x+24" :y="node.y+node.height/2+3.5">{{graphNodeLabel(node.name)}}</text>
+       </g>
+      </svg>
+     </div>
+     <p class="graph-hint">箭头方向为启动顺序，左侧服务先启动；虚线表示循环依赖，需要先调整配置才能按依赖顺序启动。点击节点可切换配置。</p>
+    </section>
     <div class="process-layout">
      <section class="process-panel"><div class="process-panel-heading"><div><h2>服务列表</h2><p>{{processes.length}} 个已保存的服务配置</p></div><button class="icon-button" @click="refreshProcesses"><RefreshCw :size="15"/></button></div><div v-if="processes.length" class="process-list"><button v-for="p in processes" :key="p.spec.id" class="process-item" :class="{selected:selectedPID===p.spec.id}" @click="selectProcess(p)"><span class="process-state-dot" :class="p.status.state"></span><span class="process-item-main"><strong>{{p.spec.name}}</strong><small>{{p.spec.executable}}</small><small v-if="p.status.exitReason" class="process-item-diagnostic" :class="{failed:p.status.state==='failed'}">{{processStatusSummary(p.status)}}</small><em>{{stateName(p.status.state)}}<template v-if="p.status.pid"> · PID {{p.status.pid}}</template><template v-if="p.status.health"> · {{healthName(p.status.health)}}</template><template v-if="p.status.memoryBytes"> · 内存 {{formatBytes(p.status.memoryBytes)}}</template><template v-if="p.status.cpuPercent"> · CPU {{p.status.cpuPercent.toFixed(1)}}%</template><template v-if="p.status.restarts"> · 已自动重启 {{p.status.restarts}} 次</template></em></span><ChevronRight :size="14"/></button></div><div v-else class="process-empty"><TerminalSquare :size="25"/><strong>还没有服务配置</strong><span>创建一条命令配置，即可开始管理本地服务。</span><button class="button button-secondary" @click="newProcess"><Plus :size="14"/>创建第一个服务</button></div></section>
      <section class="process-panel"><div class="process-panel-heading"><div><h2>{{editingID?'服务配置':'新增服务配置'}}</h2><p>参数使用 JSON 数组，不会拼接执行为 Shell 命令。</p></div><span class="safe-pill"><ShieldCheck :size="13"/>显式参数</span></div>

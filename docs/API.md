@@ -132,6 +132,14 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 聚合只依赖已返回的结果，不会重新读文件，也不影响导出内容。
 
+### 服务依赖图
+
+`frontend/src/utils/dependencyGraph.ts` 只做布局计算，不调用后端，也不改变启停顺序：
+
+- `buildDependencyGraph(services)`：输入 `{ id, name, dependsOn }` 列表，返回 `nodes`（含 `layer`、`x`、`y`、`width`、`height`）、`edges`（含 `from`、`to`、SVG `path` 与 `cyclic`）、`layers`、画布 `width`/`height` 以及循环成员 `cyclic`。
+- 分层取最长依赖链；未知依赖、重复依赖与自依赖会被忽略；循环边不参与分层，只标记 `cyclic`，布局仍保持有限。
+- 节点渲染用的运行状态由 `ProcessManagement.vue` 从 `ProcessStatus` 中读取，不属于布局函数的输出。
+
 ### HttpRequest / HttpResponse
 
 请求字段包括 `method`、`url`、`headers`（字符串键值对象）、`body`，以及可选的调优字段：`timeoutMs`（毫秒，0 或缺省时按 30 秒处理，超过 120 秒直接报错）、`followRedirects`（`false` 时不跟随重定向并直接返回 3xx；缺省保持默认跟随，最多 10 次）和 `insecureSkipVerify`（`true` 时跳过 TLS 证书校验，仅用于本机自签证书调试）。响应字段包括：`status`（状态码）、`statusText`（标准状态文本，如 `Created`）、`headers`（同名多值以 `, ` 合并）、`body`（最多保留 2 MiB，非法 UTF-8 字节替换为 `�`）、`bodyTruncated`、`sizeBytes`（实际接收字节数，可能大于保留的正文长度）、`durationMs`（毫秒）、`finalUrl`（跟随重定向后的最终地址）、`redirects`（实际跟随次数）和 `binary`（正文含 NUL 或非法 UTF-8）。

@@ -196,4 +196,43 @@ describe('process management', () => {
     expect(panel.text()).toContain('netstat/lsof/ss')
     wrapper.unmount()
   })
+
+  it('draws the dependency graph in start order', async () => {
+    const bridge = createBridge([
+      processView('db', '数据库'),
+      processView('api', 'API', { dependsOn: ['db'] }, { state: 'running' }),
+    ])
+    const wrapper = await mountPanel(bridge)
+
+    expect(wrapper.get('.graph-head').text()).toContain('2 个服务 · 2 层')
+    const nodes = wrapper.findAll('.graph-node')
+    expect(nodes).toHaveLength(2)
+    expect(nodes[0].text()).toContain('数据库')
+    expect(nodes[1].text()).toContain('API')
+    expect(nodes[1].classes()).toContain('running')
+    // 被依赖的服务排在前一层，依赖方在其右侧。
+    expect(Number(nodes[1].get('rect').attributes('x'))).toBeGreaterThan(Number(nodes[0].get('rect').attributes('x')))
+    expect(wrapper.findAll('.graph-edge')).toHaveLength(1)
+    expect(wrapper.findAll('.graph-edge.cyclic')).toHaveLength(0)
+
+    await nodes[1].trigger('click')
+    await flushPromises()
+    expect(nodes[1].classes()).toContain('selected')
+    expect((wrapper.get('input[placeholder="例如：后端 API"]').element as HTMLInputElement).value).toBe('API')
+    wrapper.unmount()
+  })
+
+  it('marks circular dependencies in the graph', async () => {
+    const bridge = createBridge([
+      processView('a', 'A', { dependsOn: ['b'] }),
+      processView('b', 'B', { dependsOn: ['a'] }),
+    ])
+    const wrapper = await mountPanel(bridge)
+
+    expect(wrapper.get('.graph-head').text()).toContain('检测到循环依赖')
+    expect(wrapper.findAll('.graph-node')).toHaveLength(2)
+    expect(wrapper.findAll('.graph-edge.cyclic')).toHaveLength(2)
+    expect(wrapper.get('.graph-hint').text()).toContain('虚线表示循环依赖')
+    wrapper.unmount()
+  })
 })
