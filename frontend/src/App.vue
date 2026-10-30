@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, FileSearch, FolderOpen, Gauge, HardDrive, History, Layers3, Regex, Search, ShieldCheck, Sun, Moon, TerminalSquare, Wrench, X } from 'lucide-vue-next'
+import { Activity, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, FileDown, FileSearch, FolderOpen, Gauge, HardDrive, History, Layers3, Regex, Search, ShieldCheck, Sun, Moon, TerminalSquare, Wrench, X } from 'lucide-vue-next'
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { appendJSONPath } from './utils/jsonPath'
 import { appVersion, repositoryURL } from './appMeta'
+import { buildSearchExportCSV, buildSearchExportJSON, searchExportFileName, type ExportFormat, type SearchExportMeta } from './utils/exporters'
 import { DEFAULT_SHORTCUTS, SHORTCUT_OPTIONS, parseShortcutSettings, resolveShortcutAction, validateShortcutMap, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 
 type PageKey='logs'|'processes'|'toolkit'
@@ -17,6 +18,8 @@ const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
 const shortcutsError=ref('')
 const aboutDialogOpen=ref(false), runtimeInfo=ref<RuntimeInfo|null>(null), aboutError=ref('')
+const exportMessage=ref('')
+const lastSearchMeta=ref<SearchExportMeta|null>(null)
 async function openAbout(){
  aboutDialogOpen.value=true;aboutError.value=''
  const a=api();if(!a)return
@@ -53,6 +56,19 @@ const virtualTop=computed(()=>virtualStart.value*rowHeight)
 const virtualBottom=computed(()=>Math.max(0,((response.value?.matches.length??0)-virtualStart.value-visibleMatches.value.length)*rowHeight))
 const selectedIndex=computed(()=>response.value?.matches.findIndex(m=>m.lineNumber===selectedMatch.value?.lineNumber)??-1)
 const fileName=computed(()=>filePath.value.split(/[\\/]/).filter(Boolean).pop()||'')
+// 导出元数据来自实际执行的检索参数，避免检索期间修改输入框后导出错误信息。
+function searchMetaFrom(input:{path:string;query:string;useRegex:boolean;encoding:string;contextLines:number;multiLineJSON:boolean;eventContext:boolean}, current:LogSearchResponse):SearchExportMeta{return {filePath:input.path,query:input.query,useRegex:input.useRegex,encoding:current.encoding||input.encoding,contextLines:input.contextLines,multiLineJSON:input.multiLineJSON,eventContext:input.eventContext,resultLimitReached:current.resultLimitReached,canceled:current.canceled}}
+async function exportResults(format:ExportFormat){
+ const a=api(),current=response.value
+ if(!a||!current?.matches.length)return
+ exportMessage.value=''
+ const meta=lastSearchMeta.value??searchMetaFrom({path:filePath.value,query:query.value,useRegex:useRegex.value,encoding:encodingMode.value,contextLines:contextLines.value,multiLineJSON:multiLineJSON.value,eventContext:eventContext.value},current)
+ try{
+  const content=format==='csv'?buildSearchExportCSV(meta,current.matches):buildSearchExportJSON(meta,current.matches)
+  const saved=await a.SaveExportFile(searchExportFileName(meta,format),format,content)
+  if(saved)exportMessage.value='已导出 '+current.matches.length+' 条检索结果到 '+saved
+ }catch(e){errorMessage.value='导出检索结果失败：'+String(e)}
+}
 
 const fmtBytes=(bytes:number)=>{if(bytes<1024)return bytes+' B';const u=['KB','MB','GB','TB'];let v=bytes/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v>=100?0:1)+' '+u[i]}
 const fileSize=computed(()=>fmtBytes(response.value?.fileSizeBytes??0))
@@ -121,12 +137,13 @@ async function runSearch(){errorMessage.value='';if(busy.value)return;if(!filePa
  const eventContextActive=eventContext.value&&!multiLineJSON.value
  if(eventContextActive&&eventBoundary.value==='custom'&&!eventBoundaryPattern.value.trim()){errorMessage.value='请输入自定义事件边界正则。';return}
  const input={path:filePath.value,query:query.value,useRegex:useRegex.value,resultLimit:resultLimit.value,contextLines:contextLines.value,encoding:encodingMode.value,multiLineJSON:multiLineJSON.value,eventContext:eventContextActive,eventBoundary:eventContextActive?eventBoundary.value:'timestamp',eventBoundaryPattern:eventContextActive?eventBoundaryPattern.value:''}
- clearTimer('progress');const id=Date.now()+'-'+Math.random().toString(16).slice(2);searchID.value=id;completedSearchID='';cancelRequested.value=false;busy.value=true;partialMatchCursor=0;response.value={filePath:filePath.value,encoding:'',fileSizeBytes:0,bytesScanned:0,scannedLines:0,matches:[],resultLimitReached:false,canceled:false};selectedMatch.value=null;scrollTop.value=0
+ clearTimer('progress');const id=Date.now()+'-'+Math.random().toString(16).slice(2);searchID.value=id;completedSearchID='';cancelRequested.value=false;busy.value=true;partialMatchCursor=0;exportMessage.value='';lastSearchMeta.value=searchMetaFrom(input,{filePath:input.path,encoding:'',fileSizeBytes:0,bytesScanned:0,scannedLines:0,matches:[],resultLimitReached:false,canceled:false});response.value={filePath:filePath.value,encoding:'',fileSizeBytes:0,bytesScanned:0,scannedLines:0,matches:[],resultLimitReached:false,canceled:false};selectedMatch.value=null;scrollTop.value=0
  searchProgress.value={searchId:id,bytesScanned:0,fileSizeBytes:0,scannedLines:0,matchesFound:0,percent:0,running:true,canceled:false}
  progressTimer=window.setInterval(()=>void pollProgress(id),250)
  try{
   const completed=await a.SearchLogsAdvanced(id,input.path,input.query,input.useRegex,input.resultLimit,input.contextLines,input.encoding,input.multiLineJSON,input.eventContext,input.eventBoundary,input.eventBoundaryPattern)
   response.value=completed
+  if(lastSearchMeta.value){lastSearchMeta.value={...lastSearchMeta.value,encoding:completed.encoding||lastSearchMeta.value.encoding,resultLimitReached:completed.resultLimitReached,canceled:completed.canceled}}
   partialMatchCursor=completed.matches.length
   completedSearchID=id
   let finalPercent=100
@@ -188,7 +205,8 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);stopSearchU
      </form>
      <details v-if="appSettings.searchHistory.length" class="history-panel query-history"><summary><History :size="14"/>最近检索 <span class="history-count">{{appSettings.searchHistory.length}}</span></summary><div class="history-items"><button v-for="(r,i) in appSettings.searchHistory" :key="r.createdAt+r.query+i" class="history-item" :disabled="busy" @click="applyHistory(r)"><Search :size="13"/><span><strong>{{r.query}}</strong><small>{{r.path}} · {{r.useRegex?'正则':'文本'}} · {{!r.encoding||r.encoding==='auto'?'自动识别':r.encoding}}</small></span><ArrowRight :size="12"/></button></div></details>
      <div v-if="errorMessage" class="notice notice-error"><span>!</span>{{errorMessage}}</div>
-     <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{response.matches.length}}</span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><span v-if="response.resultLimitReached" class="limit-pill">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
+     <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{response.matches.length}}</span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（CSV，含上下文）" @click="exportResults('csv')"><FileDown :size="13"/>CSV</button><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（JSON，含上下文）" @click="exportResults('json')"><FileDown :size="13"/>JSON</button><span v-if="response.resultLimitReached" class="limit-pill">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
+     <div v-if="exportMessage" class="notice notice-success"><span>✓</span>{{exportMessage}}</div>
      <div v-if="response&&response.matches.length" ref="resultListElement" class="result-list" @scroll="updateScroll"><div class="result-spacer" :style="{height:virtualTop+'px'}"></div><div v-for="(m,i) in visibleMatches" :key="m.lineNumber" class="result-row" :class="{selected:selectedMatch?.lineNumber===m.lineNumber}" role="button" tabindex="0" :title="m.content" @click="selectedMatch=m;jsonFilter=''" @keydown.enter="selectedMatch=m"><span class="line-number">{{String(m.lineNumber).padStart(5,'0')}}</span><span class="result-marker" :class="{first:virtualStart+i===0}"></span><code>{{m.content}}<span v-if="m.contentClipped" class="clipped-note"> [预览已截断]</span></code><ArrowRight :size="13" class="row-chevron"/></div><div class="result-spacer" :style="{height:virtualBottom+'px'}"></div></div>
      <div v-else-if="response" class="empty-results"><div class="empty-icon"><Search :size="20"/></div><strong>没有找到匹配内容</strong><span>尝试更换关键字，或启用正则表达式。</span></div>
      <div v-else class="empty-results initial-empty"><div class="empty-illustration"><div class="empty-orbit orbit-one"></div><div class="empty-orbit orbit-two"></div><div class="empty-center"><FileSearch :size="24"/></div><span class="orbit-dot dot-a"></span><span class="orbit-dot dot-b"></span></div><strong>准备就绪</strong><span>选择本地日志文件并输入搜索内容，即可开始分析。</span></div>

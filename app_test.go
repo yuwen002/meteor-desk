@@ -171,3 +171,34 @@ func TestGetRuntimeInfoReportsVersionAndBuildEnvironment(t *testing.T) {
 		t.Fatalf("配置目录应位于 MeteorDesk 子目录：%q", info.DataDir)
 	}
 }
+
+func TestSaveExportFileValidatesContentAndFormat(t *testing.T) {
+	app := NewApp()
+	if _, err := app.SaveExportFile("result.csv", "csv", "  "); err == nil {
+		t.Fatal("空内容应被拒绝")
+	}
+	if _, err := app.SaveExportFile("result.txt", "txt", "a,b"); err == nil {
+		t.Fatal("不支持的格式应被拒绝")
+	}
+	if _, err := app.SaveExportFile("result.csv", "csv", strings.Repeat("x", maxExportContentBytes+1)); err == nil {
+		t.Fatal("超过上限的内容应被拒绝")
+	}
+	if _, err := app.SaveExportFile("result.csv", "csv", "a,b"); err == nil || err.Error() != "桌面运行环境尚未就绪" {
+		t.Fatalf("未初始化的桌面环境应返回明确错误：%v", err)
+	}
+}
+
+func TestExportFileNameStripsPathsAndFixesExtension(t *testing.T) {
+	tests := []struct{ in, format, want string }{
+		{in: `C:\logs\app.log`, format: "csv", want: "app.log.csv"},
+		{in: "../../etc/passwd", format: "json", want: "passwd.json"},
+		{in: "report.JSON", format: "json", want: "report.JSON"},
+		{in: "   ", format: "csv", want: "meteordesk-export.csv"},
+		{in: "a:b*.csv", format: "csv", want: "a-b-.csv"},
+	}
+	for _, tt := range tests {
+		if got := exportFileName(tt.in, tt.format); got != tt.want {
+			t.Fatalf("exportFileName(%q, %q)=%q，期望 %q", tt.in, tt.format, got, tt.want)
+		}
+	}
+}

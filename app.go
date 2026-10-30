@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -57,6 +58,8 @@ const (
 	searchJobRetention = 10 * time.Minute
 	maxRetainedSearchJobs = 32
 	targetRetainedSearchJobs = 24
+	// maxExportContentBytes 限制界面生成的导出文本，避免把整个检索缓存误写入文件。
+	maxExportContentBytes = 32 << 20
 )
 
 // App 是 Wails 暴露给前端的后端桥接对象；公开方法即本地桌面接口。
@@ -354,6 +357,64 @@ func calcPercent(scanned,total int64,running,canceled bool)int{
 }
 // UserDataDirectory 返回应用本地配置目录，目录会在需要时创建。
 func (a *App) UserDataDirectory()string{base,err:=os.UserConfigDir();if err!=nil{return ""};path:=filepath.Join(base,"MeteorDesk");_ = os.MkdirAll(path,0700);return path}
+// SaveExportFile 打开保存对话框，把界面已生成的导出内容写入用户选定路径。
+// 内容由前端生成，这里只校验格式、大小和建议文件名，不解析导出内容。
+func (a *App) SaveExportFile(suggestedName, format, content string) (string, error) {
+	if strings.TrimSpace(content) == "" {
+		return "", errors.New("没有可导出的内容")
+	}
+	if len(content) > maxExportContentBytes {
+		return "", fmt.Errorf("导出内容超过 %d MiB 上限", maxExportContentBytes>>20)
+	}
+	format = strings.ToLower(strings.TrimSpace(format))
+	var filter runtime.FileFilter
+	switch format {
+	case "csv":
+		filter = runtime.FileFilter{DisplayName: "CSV 文件", Pattern: "*.csv"}
+	case "json":
+		filter = runtime.FileFilter{DisplayName: "JSON 文件", Pattern: "*.json"}
+	default:
+		return "", fmt.Errorf("不支持的导出格式：%s", format)
+	}
+	if a.ctx == nil {
+		return "", errors.New("桌面运行环境尚未就绪")
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title: "导出数据", DefaultFilename: exportFileName(suggestedName, format),
+		Filters: []runtime.FileFilter{filter},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		return "", err
+	}
+	_ = os.Chmod(path, 0600)
+	return path, nil
+}
+// exportFileName 只保留建议文件名的基名并清理路径分隔符，避免默认名带出完整路径。
+func exportFileName(suggestedName, format string) string {
+	name := strings.TrimSpace(suggestedName)
+	if idx := strings.LastIndexAny(name, "\\/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if r < 0x20 || strings.ContainsRune(`\/:*?"<>|`, r) {
+			b.WriteRune('-')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	name = strings.Trim(b.String(), ".- ")
+	if name == "" {
+		name = "meteordesk-export"
+	}
+	if !strings.HasSuffix(strings.ToLower(name), "."+format) {
+		name += "." + format
+	}
+	return name
+}
 // GetRuntimeInfo 返回版本、Go 运行时、平台和配置目录，供界面「关于」面板展示。
 func (a *App) GetRuntimeInfo() RuntimeInfo {
 	return RuntimeInfo{

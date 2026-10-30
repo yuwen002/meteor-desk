@@ -52,6 +52,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `SaveAppSettings(settings)` | `AppSettings` | 无 | 规范化、保存并应用设置。 |
 | `UserDataDirectory()` | 无 | `string` | 返回应用配置目录路径。 |
 | `GetRuntimeInfo()` | 无 | `RuntimeInfo` | 返回应用版本、Go 运行时版本、运行平台与配置目录，用于「关于」面板与诊断信息。 |
+| `SaveExportFile(suggestedName, format, content)` | `string`、`string`、`string` | `string` | 打开系统保存对话框，把前端生成的导出文本写入用户选定路径。`format` 支持 `csv` 和 `json`；空内容、不支持的格式或超过 32 MiB 直接报错；默认文件名只保留基名并清理非法字符。返回保存路径，用户取消时返回空字符串。 |
 
 ## 3. 常用数据结构
 
@@ -93,6 +94,14 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 ### RuntimeInfo
 
 字段包括 `appVersion`、`goVersion`、`platform`（`GOOS/GOARCH`）和 `dataDir`。版本号只在 `frontend/package.json` 维护：前端构建时直接读取该文件，发布构建通过 `-ldflags "-X main.appVersion=<version>"` 注入后端，本地开发未注入时为 `dev`。该结构不包含日志内容、环境变量或凭据。
+
+### 导出格式
+
+检索结果和进程输出由前端 `frontend/src/utils/exporters.ts` 生成文本，后端只负责写入文件。
+
+- 检索结果 CSV：列为 `matchLine`、`type`、`lineNumber`、`endLine`、`query`、`content`；`type` 为 `match`、`context-before`、`context-after`、`event` 或 `document`，上下文行与事件内容逐条展开。文件带 UTF-8 BOM，使用 CRLF 换行并按 RFC 4180 转义。
+- 检索结果 JSON：包含 `exportedAt`、文件路径、检索词、是否正则、编码、上下文行数、`resultLimitReached`、`canceled`、`total` 和完整 `matches`。
+- 进程日志 CSV：列为 `sequence`、`time`、`stream`、`text`；JSON 额外包含 `processId`、`processName` 和 `total`。导出范围仅限界面缓存的最近 1,500 条输出。
 
 ### HttpRequest / HttpResponse
 

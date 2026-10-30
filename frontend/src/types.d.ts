@@ -30,5 +30,6 @@ declare global {
     ExportProcessConfigs:(redactSensitive:boolean)=>Promise<string>; ImportProcessConfigs:()=>Promise<ProcessView[]>;
     SendHTTPRequest:(request:HttpRequest)=>Promise<HttpResponse>;
     GetRuntimeInfo:()=>Promise<RuntimeInfo>;
+    SaveExportFile:(suggestedName:string,format:string,content:string)=>Promise<string>;
   }}}}
 }
