@@ -16,6 +16,7 @@ declare global {
   interface ProcessStatus { id:string; name:string; state:'stopped'|'starting'|'running'|'stopping'|'failed'; pid?:number; startedAt?:string; finishedAt?:string; durationMs?:number; exitCode?:number; exitReason?:'normal'|'nonzero'|'signal'|'manual-stop'|'start-error'; error?:string; health?:'checking'|'healthy'|'unhealthy'; healthMessage?:string; healthCheckedAt?:string; restarts?:number; nextRestartAt?:string; cpuPercent?:number; memoryBytes?:number; metricsAt?:string }
   interface ProcessView { spec:ProcessSpec; status:ProcessStatus }
   interface ProcessOutput { sequence:number; time:string; stream:'stdout'|'stderr'|'system'; text:string }
+  interface ProcessResourceSample { at:string; cpuPercent:number; memoryBytes:number }
   interface JsonField { path:string; value:unknown }
   interface HttpRequest { method:string; url:string; headers:Record<string,string>; body:string; timeoutMs?:number; followRedirects?:boolean; insecureSkipVerify?:boolean }
   interface HttpResponse { status:number; statusText:string; headers:Record<string,string>; body:string; bodyTruncated:boolean; sizeBytes:number; durationMs:number; finalUrl?:string; redirects?:number; binary?:boolean }
@@ -30,6 +31,7 @@ declare global {
     StartProcess:(id:string)=>Promise<void>; StopProcess:(id:string)=>Promise<void>; RestartProcess:(id:string)=>Promise<void>;
     StartProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>; StopProcesses:(ids:string[])=>Promise<ProcessBatchResult[]>;
     GetProcessLogs:(id:string,after:number)=>Promise<ProcessOutput[]>;
+    GetResourceHistory:(id:string)=>Promise<ProcessResourceSample[]>;
     ExportProcessConfigs:(redactSensitive:boolean)=>Promise<string>; ImportProcessConfigs:()=>Promise<ProcessView[]>;
     SendHTTPRequest:(request:HttpRequest)=>Promise<HttpResponse>;
     GetRuntimeInfo:()=>Promise<RuntimeInfo>;

@@ -99,6 +99,14 @@ type Snapshot struct {
 	MetricsAt   string  `json:"metricsAt,omitempty"`
 }
 
+// ResourceSample 是一次资源采样点，按时间顺序保存在内存中供前端绘制短期曲线。
+// 只保留最近 5 分钟（采样间隔 2 秒）；进程退出后保留本次运行的最后一段曲线，重启后重新积累。
+type ResourceSample struct {
+	At          string  `json:"at"`
+	CPUPercent  float64 `json:"cpuPercent"`
+	MemoryBytes uint64  `json:"memoryBytes"`
+}
+
 // BatchResult 描述批量操作中单个服务的执行结果。
 type BatchResult struct {
 	ID string `json:"id"`

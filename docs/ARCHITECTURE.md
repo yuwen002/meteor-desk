@@ -78,6 +78,8 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - `CPUPercent` 用两次采样的累计 CPU 时间差除以实际间隔，按单核百分比计算；首次采样只写内存与时间戳，避免把启动前的累计时间当成瞬时占用。
 - 平台实现：Windows 用 `GetProcessTimes` 与 `GetProcessMemoryInfo`（工作集），Linux 读 `/proc/<pid>/stat`（用户态时钟固定 100 Hz），macOS 调用系统 `ps -o time=,rss=`；其他平台返回不支持，不影响服务启停。
 - 采样只读进程状态，失败时跳过本次写入并保留上一组数值；进程退出后 CPU、内存与采样时间统一清空。
+- 每次写入快照时同时追加一个 `ResourceSample` 到实例内的历史窗口，超过 `metricsHistoryLimit`（150 个）只保留最新 5 分钟；`ResourceHistory` 在锁内复制后返回，前端按 3 秒轮询绘制曲线。
+- 历史窗口跟随实例生命周期：重新启动会产生新实例并从头积累；进程退出后快照指标清空，但历史保留本次运行的最后一段曲线供事后查看。
 
 ## 版本与构建信息
 

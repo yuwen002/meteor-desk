@@ -62,6 +62,8 @@ type managedProcess struct {
 	probeOnce sync.Once
 	metricsStop chan struct{}
 	metricsOnce sync.Once
+	// history 是资源采样的环形窗口，只在 m.mu 下读写。
+	history []ResourceSample
 	snapshot Snapshot
 }
 
@@ -830,6 +832,15 @@ func (m *Manager) Logs(id string, afterSequence int64) []OutputLine {
 	lines:=m.outputs[id]; start:=0
 	for start<len(lines)&&lines[start].Sequence<=afterSequence {start++}
 	return append([]OutputLine(nil),lines[start:]...)
+}
+
+// ResourceHistory 返回指定服务最近 5 分钟的资源采样点；没有实例时返回空切片。
+// 返回副本，调用方可在锁外安全使用。
+func (m *Manager) ResourceHistory(id string) []ResourceSample {
+	m.mu.RLock(); defer m.mu.RUnlock()
+	instance:=m.instances[id]
+	if instance==nil||len(instance.history)==0 {return []ResourceSample{}}
+	return append([]ResourceSample(nil),instance.history...)
 }
 func (m *Manager) appendOutput(id,stream,text string) {
 	m.mu.Lock(); defer m.mu.Unlock()

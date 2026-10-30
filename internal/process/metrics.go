@@ -12,6 +12,9 @@ import (
 // metricsSampleInterval 是资源采样间隔；前端按 1 秒轮询快照。
 const metricsSampleInterval = 2 * time.Second
 
+// metricsHistoryLimit 限制每个实例保留的采样点数：2 秒 × 150 = 5 分钟。
+const metricsHistoryLimit = 150
+
 // startMetricsSampler 为一次运行启动资源采样协程。
 // 调用方必须持有 m.mu（与 startHealthProbe 同在实例注册处调用）：
 // stopSamplers 在多处持锁读取 metricsStop，锁外写入会被 -race 判定为数据竞争。
@@ -58,8 +61,23 @@ func runMetricsSampler(m *Manager, id string, instance *managedProcess, pid int,
 		instance.snapshot.CPUPercent = math.Round(percent*10) / 10
 		instance.snapshot.MemoryBytes = memoryBytes
 		instance.snapshot.MetricsAt = now.Format(time.RFC3339Nano)
+		instance.history = appendResourceSample(instance.history, ResourceSample{
+			At: instance.snapshot.MetricsAt, CPUPercent: instance.snapshot.CPUPercent, MemoryBytes: memoryBytes,
+		})
 		m.mu.Unlock()
 	}
+}
+
+// appendResourceSample 追加采样点并只保留最近 metricsHistoryLimit 个。
+// 超出上限时复制到新切片，避免持续 append 复用过的底层数组无限增长。
+func appendResourceSample(history []ResourceSample, sample ResourceSample) []ResourceSample {
+	history = append(history, sample)
+	if len(history) <= metricsHistoryLimit {
+		return history
+	}
+	trimmed := make([]ResourceSample, metricsHistoryLimit)
+	copy(trimmed, history[len(history)-metricsHistoryLimit:])
+	return trimmed
 }
 
 // parseProcStat 从 /proc/<pid>/stat 中取出用户态与内核态 CPU ticks、常驻内存页数。

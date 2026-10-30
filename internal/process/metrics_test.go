@@ -110,3 +110,65 @@ func TestMetricsSamplerReportsCPU(t *testing.T) {
 		t.Fatalf("忙等进程应产生明显的 CPU 占用：%+v", status)
 	}
 }
+
+func TestAppendResourceSampleKeepsWindow(t *testing.T) {
+	var history []ResourceSample
+	for i := 0; i < metricsHistoryLimit+25; i++ {
+		history = appendResourceSample(history, ResourceSample{At: "t", CPUPercent: float64(i)})
+	}
+	if len(history) != metricsHistoryLimit {
+		t.Fatalf("采样窗口长度=%d，期望 %d", len(history), metricsHistoryLimit)
+	}
+	// 只能保留最新的一段；最早的 25 个点必须被丢弃。
+	if history[0].CPUPercent != 25 {
+		t.Fatalf("首点应为第 25 个采样，实际 CPU=%v", history[0].CPUPercent)
+	}
+	if last := history[len(history)-1].CPUPercent; last != float64(metricsHistoryLimit+24) {
+		t.Fatalf("末点 CPU=%v", last)
+	}
+}
+
+func TestResourceHistoryReportsSamples(t *testing.T) {
+	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := manager.Save(helperSpec("资源历史", "", RestartPolicy{}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(view.Spec.ID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Stop(view.Spec.ID) })
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		samples := manager.ResourceHistory(view.Spec.ID)
+		if len(samples) > 0 {
+			if samples[0].At == "" {
+				t.Fatalf("采样点应记录时间：%+v", samples[0])
+			}
+			if samples[0].MemoryBytes == 0 {
+				t.Fatalf("采样点应记录内存：%+v", samples[0])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("10 秒内应至少采集到一次资源采样")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if err := manager.Stop(view.Spec.ID); err != nil {
+		t.Fatal(err)
+	}
+	// 进程退出后清空快照指标，但保留本次运行的最后一段曲线供事后查看。
+	if samples := manager.ResourceHistory(view.Spec.ID); len(samples) == 0 {
+		t.Fatal("停止后仍应保留本次运行的采样曲线")
+	}
+	status := manager.List()[0].Status
+	if status.MemoryBytes != 0 || status.MetricsAt != "" {
+		t.Fatalf("停止后应清空快照指标：%+v", status)
+	}
+}

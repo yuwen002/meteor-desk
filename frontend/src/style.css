@@ -319,3 +319,28 @@ mark{background:rgba(230,190,112,.22);color:#ffdda0;border-radius:2px;padding:0 
 .theme-light .summary-signatures em{color:#a8761a}
 .theme-light .summary-note{color:#1f8a63}
 
+/* v0.5.26: 进程资源历史曲线 */
+.resource-history{margin-top:12px;padding:11px 12px;border:1px solid #2b3543;border-radius:6px;background:rgba(20,27,38,.72)}
+.resource-history-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.resource-history-head span{display:inline-flex;align-items:center;gap:6px;color:#a7b5c6;font-size:10px;letter-spacing:.04em}
+.resource-history-head small{color:#778498;font-size:9px}
+.resource-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:10px}
+.resource-chart{margin:0;padding:8px 9px;border:1px solid rgba(43,53,67,.7);border-radius:5px;background:rgba(16,22,31,.6)}
+.resource-chart figcaption{display:flex;align-items:baseline;gap:6px;color:#8d9bad;font-size:9px}
+.resource-chart strong{color:#d5e1ee;font-size:11px;font-weight:650}
+.resource-chart em{font-style:normal;color:#eccb86;font-size:9px}
+.resource-chart svg{display:block;width:100%;height:32px;margin-top:7px}
+.sparkline{fill:none;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.sparkline.cpu{stroke:#86f7c5}
+.sparkline.memory{stroke:#7fb8ff}
+.resource-history-hint{margin:8px 0 0;color:#6f7d90;font-size:9px;line-height:1.6}
+.theme-light .resource-history{background:#fff;border-color:#dce3ec}
+.theme-light .resource-history-head span{color:#5a6c82}
+.theme-light .resource-history-head small{color:#6c7b90}
+.theme-light .resource-chart{background:#f7fafd;border-color:#e1e8f1}
+.theme-light .resource-chart figcaption{color:#6c7b90}
+.theme-light .resource-chart strong{color:#2f3f55}
+.theme-light .sparkline.cpu{stroke:#1f8a63}
+.theme-light .sparkline.memory{stroke:#2f6fbe}
+.theme-light .resource-history-hint{color:#728095}
+

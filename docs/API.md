@@ -36,6 +36,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `StartProcesses(ids)` | 服务 ID 数组 | `ProcessBatchResult[]` | 按依赖拓扑顺序逐项启动。 |
 | `StopProcesses(ids)` | 服务 ID 数组 | `ProcessBatchResult[]` | 按反向依赖顺序逐项停止。 |
 | `GetProcessLogs(id, after)` | 服务 ID、上次输出序号 | `ProcessOutput[]` | 仅返回序号大于 `after` 的输出行。 |
+| `GetResourceHistory(id)` | 服务 ID | `ResourceSample[]` | 返回最近 5 分钟资源采样点（最多 150 个，按时间升序）；停止后仍保留本次运行的最后一段。 |
 | `ExportProcessConfigs(redactSensitive)` | 是否脱敏 | `string` | 通过系统对话框写入 JSON 文件并返回提示文本。 |
 | `ImportProcessConfigs()` | 无 | `ProcessView[]` | 通过系统文件选择器导入 JSON 配置。 |
 
@@ -158,7 +159,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - 自动重启：`Spec.Restart` 为 `on-failure` 且进程以非零码退出或收到信号时，按指数退避（1 秒起步、翻倍、上限 30 秒）调度重启，次数受 `MaxAttempts` 限制；定时器保存在管理器内部，手动停止、修改配置、删除服务、`Restart` 或再次启动都会取消待执行的重启。正常退出与启动失败（可执行文件创建失败）不触发重启。
 - 健康检查：`health.go` 中的 `startHealthProbe` 在进程启动成功后起一个探测协程，按间隔执行 `probeHealth`（TCP `DialTimeout` 或 HTTP `Client.Get`，只读取 32 KiB 正文后丢弃）；探测结果写回快照，仅在健康状态变化时追加一条 `system` 输出。探测失败只标记状态，不触发重启；进程退出或实例被替换时通过 `probeStop` 结束协程。
 - 依赖就绪：`readiness.go` 的 `waitReady` 在批量启动中等待上游健康。只有本次启动顺序里被下游依赖、且 `Health != nil`、`ReadyTimeoutSeconds > 0` 的服务才等待；每 50 ms 读取一次快照，`healthy` 后继续启动下游，`unhealthy`、实例被替换、进程停止或超时会阻断下游并把原因写入运行输出。
-- 资源采样：`metrics.go` 在每次运行启动一个采样协程，每 2 秒调用平台实现 `sampleProcess`（Windows `GetProcessTimes` / `GetProcessMemoryInfo`，Linux `/proc/<pid>/stat`，macOS `ps -o time=,rss=`），按两次采样的差值计算单核 CPU 百分比并写入快照；停止或退出时通过 `stopSamplers` 关闭协程，采样失败只跳过本次写入。
+- 资源采样：`metrics.go` 在每次运行启动一个采样协程，每 2 秒调用平台实现 `sampleProcess`（Windows `GetProcessTimes` / `GetProcessMemoryInfo`，Linux `/proc/<pid>/stat`，macOS `ps -o time=,rss=`），按两次采样的差值计算单核 CPU 百分比并写入快照；停止或退出时通过 `stopSamplers` 关闭协程，采样失败只跳过本次写入。每次采样同时追加到实例内的历史窗口（`ResourceSample`，上限 150 个点）供 `ResourceHistory` 读取。
 
 ### `internal/config`
 

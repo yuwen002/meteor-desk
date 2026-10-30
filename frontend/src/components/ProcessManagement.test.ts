@@ -23,6 +23,7 @@ function createBridge(views: ProcessView[] = []) {
   return {
     GetProcesses: vi.fn().mockResolvedValue(views),
     GetProcessLogs: vi.fn().mockResolvedValue([]),
+    GetResourceHistory: vi.fn().mockResolvedValue([]),
     SaveProcess: vi.fn(async (spec: ProcessSpec): Promise<ProcessView> => ({ spec, status: { id: spec.id, name: spec.name, state: 'stopped' } })),
     DeleteProcess: vi.fn().mockResolvedValue(undefined),
     StartProcess: vi.fn().mockResolvedValue(undefined),
@@ -142,6 +143,31 @@ describe('process management', () => {
 
     expect(bridge.StartProcess).toHaveBeenCalledWith('api')
     expect(bridge.GetProcesses.mock.calls.length).toBeGreaterThan(1)
+    wrapper.unmount()
+  })
+
+  it('renders the resource history sparkline for the selected service', async () => {
+    const bridge = createBridge([
+      processView('api', 'API', {}, { state: 'running', pid: 4321, startedAt: new Date().toISOString(), memoryBytes: 16 * 1024 * 1024, metricsAt: '2026-10-31T00:00:02Z' }),
+    ])
+    bridge.GetResourceHistory.mockResolvedValue([
+      { at: '2026-10-31T00:00:00Z', cpuPercent: 4, memoryBytes: 10 * 1024 * 1024 },
+      { at: '2026-10-31T00:00:02Z', cpuPercent: 48, memoryBytes: 18 * 1024 * 1024 },
+    ])
+    const wrapper = await mountPanel(bridge)
+    await wrapper.findAll('.process-item')[0].trigger('click')
+    await flushPromises()
+
+    expect(bridge.GetResourceHistory).toHaveBeenCalledWith('api')
+    expect(wrapper.get('.resource-history-head').text()).toContain('2 个采样点')
+    const charts = wrapper.findAll('.resource-chart')
+    expect(charts).toHaveLength(2)
+    expect(charts[0].text()).toContain('CPU 峰值 48.0%')
+    expect(charts[1].text()).toContain('内存峰值 18.0 MB')
+    expect(charts[1].text()).toContain('+8.0 MB')
+    // 峰值缩放到顶边、最小值贴底边，两个采样点即一条对角线。
+    expect(charts[0].get('polyline').attributes('points')).toBe('0.0,32.0 120.0,0.0')
+    expect(wrapper.get('.resource-history').text()).toContain('最多保留 150 个点')
     wrapper.unmount()
   })
 })

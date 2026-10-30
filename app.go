@@ -255,6 +255,8 @@ func (a *App) ImportProcessConfigs() ([]process.View, error) {
 
 // GetProcessLogs 返回序号大于 after 的新输出行，用于前端增量轮询日志。
 func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Logs(id,after),nil}
+// GetResourceHistory 返回服务最近 5 分钟的资源采样点，用于绘制短期曲线。
+func (a *App) GetResourceHistory(id string)([]process.ResourceSample,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.ResourceHistory(id),nil}
 // ReadLogTail 返回日志文件在 offset 之后新增的完整行；offset 为负时从文件末尾开始跟踪。
 func (a *App) ReadLogTail(path string, offset int64, encoding string) (logx.TailResult, error) {
 	return logx.TailFile(path, logx.TailOptions{Offset: offset, Encoding: encoding})
