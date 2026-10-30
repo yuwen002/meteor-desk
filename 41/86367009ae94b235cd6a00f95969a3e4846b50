@@ -1,0 +1,28 @@
+app.go
+  s_25f1e996618fb3::t_45fcbf1fefd02a 14,108-109,344
+internal/httpx/client.go
+  s_25f1e996618fb3::t_d9e098b770fd15 1-86
+frontend/src/types.d.ts
+  s_25f1e996618fb3::t_06c43ebc712b92 18-19,30
+frontend/src/components/DeveloperToolkit.vue
+  s_25f1e996618fb3::t_06c43ebc712b92 3,5,10,23,191-197,328,406-408,411,491,546,590
+internal/httpx/client_test.go
+  s_25f1e996618fb3::t_d9e098b770fd15 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "4186367009ae94b235cd6a00f95969a3e4846b50",
+  "prompts": {},
+  "sessions": {
+    "s_25f1e996618fb3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1587b-d7a7-7411-96c5-f2f426eae46a",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "liuxingyu <yuwen002@163.com>",
+      "generated_lines": 478
+    }
+  }
+}
