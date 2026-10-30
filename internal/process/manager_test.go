@@ -319,6 +319,18 @@ func TestManagerConcurrentStopsComplete(t *testing.T) {
 	}
 }
 
+// 并发停止的等待预算必须覆盖 leader 的完整收尾路径（宽限期 + 强制结束 + 收尾），
+// 否则外部命令稍慢就会让等待者先超时，表现为偶发失败。
+func TestConcurrentStopWaitCoversLeaderBudget(t *testing.T) {
+	leaderBudget := processStopGracePeriod + processForceStopWait + processStopFinalizeWait
+	if processConcurrentStopWait <= leaderBudget {
+		t.Fatalf("并发停止等待预算 %s 未超过 leader 收尾预算 %s", processConcurrentStopWait, leaderBudget)
+	}
+	if processConcurrentStopWait-leaderBudget < time.Second {
+		t.Fatalf("并发停止等待余量不足 1 秒：%s", processConcurrentStopWait-leaderBudget)
+	}
+}
+
 func TestManagerStopFinalizesWhenDescendantKeepsOutputPipeOpen(t *testing.T) {
 	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
 	if err != nil {

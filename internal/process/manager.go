@@ -25,10 +25,14 @@ const maxOutputLineBytes = 64 * 1024
 const maxConfigImportBytes = 1 << 20
 const maxServiceConfigs = 500
 
+// processStopConcurrencyCushion 为并发停止的等待者预留外部命令与调度开销。
+// 结束进程树需要在锁外调用 taskkill（Windows）或信号操作，慢机器上每次可能占用数百毫秒到数秒；
+// 等待预算若不包含这部分余量，跟随 leader 收尾的协程会先超时，误报“等待并发停止操作完成超时”。
+const processStopConcurrencyCushion = 4 * time.Second
 const processStopGracePeriod = 1500 * time.Millisecond
 const processForceStopWait = 2 * time.Second
 const processStopFinalizeWait = 500 * time.Millisecond
-const processConcurrentStopWait = processStopGracePeriod + processForceStopWait + processStopFinalizeWait
+const processConcurrentStopWait = processStopGracePeriod + processForceStopWait + processStopFinalizeWait + processStopConcurrencyCushion
 
 // restartBackoffBase 是首次自动重启前的等待时间；测试中会调小。
 var restartBackoffBase = time.Second

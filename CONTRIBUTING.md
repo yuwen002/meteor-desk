@@ -32,6 +32,27 @@ wails dev
 wails build
 ```
 
+## 数据竞争检测（`-race`）
+
+CI 的「Go 并发数据竞争检查」执行 `go test -race ./...`；推送前应先让这一步在本地或容器里通过。`-race` 依赖 cgo，未安装 C 工具链时会直接报 `-race requires cgo`：
+
+- Linux：安装 `build-essential` 后直接执行 `go test -race ./...`。
+- macOS：安装 Xcode Command Line Tools 后直接执行。
+- Windows：安装 mingw-w64 并把 `mingw64\bin` 加入 `PATH`，再执行：
+
+  ```powershell
+  $env:CGO_ENABLED = "1"
+  go test -race ./internal/process
+  ```
+
+- 没有 C 工具链时，用容器执行同一命令：
+
+  ```bash
+  docker run --rm -v "$PWD:/src" -w /src golang:1.23 go test -race ./internal/process
+  ```
+
+进程管理测试会启动真实子进程并等待进程树退出，`-race` 下耗时明显变长，建议按包缩小范围并放宽超时（例如 `-timeout 1200s`）。出现 `WARNING: DATA RACE` 时，先看写栈与读栈是否分别落在“锁外写字段”和“锁内读字段”；修复应把写入移进同一把锁的保护范围，而不是用 `sync/atomic` 掩盖整块逻辑。
+
 ## 依赖锁文件
 
 提交依赖变更时，必须使用真实工具链更新并提交 `go.sum` 与 `frontend/package-lock.json`，不要手工编造校验值，也不要只提交依赖清单而遗漏锁文件。
