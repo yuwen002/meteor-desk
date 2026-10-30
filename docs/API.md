@@ -142,6 +142,15 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - 分层取最长依赖链；未知依赖、重复依赖与自依赖会被忽略；循环边不参与分层，只标记 `cyclic`，布局仍保持有限。
 - 节点渲染用的运行状态由 `ProcessManagement.vue` 从 `ProcessStatus` 中读取，不属于布局函数的输出。
 
+### cURL 互转
+
+`frontend/src/utils/curl.ts` 在表单与 cURL 命令之间转换，不发起请求，也不经过后端：
+
+- `parseCurlCommand(input)`：返回 `{ ok: true, request, warnings }` 或 `{ ok: false, error }`。`request` 为 `{ method, url, headers, body }`；支持 `-X`/`--request`、`-H`/`--header`、`-d` 及 `--data-*`、`--url`、`-A`、`-b`、`-e`，兼容 `\` 与 `^` 续行、单双引号、`-XPOST` 与 `--data-raw=...` 紧凑写法。只带请求体未写 `-X` 时方法为 POST，否则为 GET；多段请求体以 `&` 连接。
+- `buildCurlCommand(request)`：生成多行命令（`curl -X METHOD 'url' \` + 每行一个 `-H` + `--data-raw`），空名称或空值的请求头被跳过；取值统一用单引号包裹，内部单引号按 `'\''` 转义，可直接粘回 shell。
+- 只影响传输方式的开关（`-k`、`-L`、`--compressed`、`-s`、`-i` 等）解析时直接忽略；未知选项、无效请求头（缺少冒号）与多余位置参数写入 `warnings`，不会中断导入。
+- 未闭合引号、命令不以 `curl` 开头、缺少 URL 或选项缺值时返回 `error`，界面只展示提示且不修改当前表单。
+
 ### HttpRequest / HttpResponse
 
 请求字段包括 `method`、`url`、`headers`（字符串键值对象）、`body`，以及可选的调优字段：`timeoutMs`（毫秒，0 或缺省时按 30 秒处理，超过 120 秒直接报错）、`followRedirects`（`false` 时不跟随重定向并直接返回 3xx；缺省保持默认跟随，最多 10 次）和 `insecureSkipVerify`（`true` 时跳过 TLS 证书校验，仅用于本机自签证书调试）。响应字段包括：`status`（状态码）、`statusText`（标准状态文本，如 `Created`）、`headers`（同名多值以 `, ` 合并）、`body`（最多保留 2 MiB，非法 UTF-8 字节替换为 `�`）、`bodyTruncated`、`sizeBytes`（实际接收字节数，可能大于保留的正文长度）、`durationMs`（毫秒）、`finalUrl`（跟随重定向后的最终地址）、`redirects`（实际跟随次数）和 `binary`（正文含 NUL 或非法 UTF-8）。

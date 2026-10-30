@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowLeftRight, Braces, CheckCircle2, Clock3, Copy, FileJson, KeyRound, Link2, RefreshCw, Send, ShieldAlert } from 'lucide-vue-next'
+import { ArrowLeftRight, Braces, CheckCircle2, Clock3, Copy, Download, FileJson, KeyRound, Link2, RefreshCw, Send, ShieldAlert } from 'lucide-vue-next'
 import { appendJSONPath } from '../utils/jsonPath'
 import { parseRequestHeaders } from '../utils/httpRequest'
 import { redactSensitiveText } from '../utils/redact'
 import { parseCron } from '../utils/cron'
+import { buildCurlCommand, parseCurlCommand } from '../utils/curl'
 import { diffText } from '../utils/textDiff'
 
 type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'http' | 'base64' | 'jwt' | 'url'
@@ -188,6 +189,7 @@ const textDifference = computed(() => {
   try { return { error: '', rows: diffText(diffBefore.value, diffAfter.value) } }
   catch (error) { return { error: String(error), rows: [] } }
 })
+const httpMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 const httpMethod = ref('GET'), httpURL = ref(''), httpHeaders = ref('{\n  "Accept": "application/json"\n}'), httpBody = ref(''), httpResponse = ref<HttpResponse | null>(null), httpError = ref(''), httpBusy = ref(false)
 const httpTimeoutMs = ref(30000), httpFollowRedirects = ref(true), httpInsecureSkipVerify = ref(false)
 interface HTTPHistoryEntry { method: string; url: string; headers: string; body: string; at: string }
@@ -230,6 +232,31 @@ async function sendHTTPRequest() {
   recordHTTPHistory({ method: request.method, url: request.url, headers: httpHeaders.value, body: httpBody.value, at: new Date().toISOString() })
   httpBusy.value = true
   try { httpResponse.value = await api.SendHTTPRequest(request) } catch (error) { httpError.value = error instanceof Error ? error.message : String(error) } finally { httpBusy.value = false }
+}
+
+const curlInput = ref('')
+const curlMessage = ref('')
+function importCurl() {
+  curlMessage.value = ''
+  const result = parseCurlCommand(curlInput.value)
+  if (!result.ok) { curlMessage.value = result.error; return }
+  httpMethod.value = result.request.method
+  httpURL.value = result.request.url
+  httpHeaders.value = Object.keys(result.request.headers).length ? JSON.stringify(result.request.headers, null, 2) : '{}'
+  httpBody.value = result.request.body
+  httpError.value = ''
+  httpResponse.value = null
+  curlMessage.value = '已导入 ' + result.request.method + ' 请求' + (result.warnings.length ? '；已忽略：' + result.warnings.join('、') : '')
+}
+async function copyCurl() {
+  curlMessage.value = ''
+  const url = httpURL.value.trim()
+  if (!url) { curlMessage.value = '先填写请求 URL，再生成 cURL 命令。'; return }
+  let headers: Record<string, string>
+  try { headers = parseRequestHeaders(httpHeaders.value) } catch (error) { curlMessage.value = error instanceof Error ? error.message : String(error); return }
+  const command = buildCurlCommand({ method: httpMethod.value, url, headers, body: httpBody.value })
+  curlInput.value = command
+  await copyText(command, 'cURL 命令')
 }
 
 const base64Source = ref('')
@@ -434,7 +461,13 @@ function resetJSON() {
 
     <div v-else-if="activeTool === 'http'" class="toolkit-card">
       <div class="toolkit-card-heading"><div><h2>HTTP 调试器</h2><p>请求由你显式发送、在桌面端本机执行；不会自动联网，也不会访问未填写的地址。</p></div><Send :size="18" /></div>
-      <div class="http-request-line"><select v-model="httpMethod" class="toolkit-select" aria-label="HTTP 方法"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option></select><input v-model="httpURL" class="toolkit-input mono" aria-label="请求 URL" placeholder="https://api.example.com/v1/health" /><button class="button button-primary" :disabled="httpBusy" @click="sendHTTPRequest"><span v-if="httpBusy" class="spinner"></span><Send v-else :size="14" />{{ httpBusy ? '发送中' : '发送' }}</button></div>
+      <div class="http-curl">
+        <div class="toolkit-output-heading"><label class="toolkit-label" for="http-curl">cURL 命令</label><span>粘贴导入，或把当前请求生成命令</span></div>
+        <textarea id="http-curl" v-model="curlInput" class="toolkit-textarea short curl-textarea mono" spellcheck="false" placeholder="curl -X POST 'https://api.example.com/items' -H 'Content-Type: application/json' -d '{&quot;name&quot;:&quot;meteor&quot;}'" @keydown.ctrl.enter="importCurl"></textarea>
+        <div class="toolkit-action-row"><button class="button button-secondary" @click="importCurl"><Download :size="14" />导入到表单</button><button class="button button-quiet" @click="copyCurl"><Copy :size="14" />生成并复制</button><button class="button button-quiet" @click="curlInput = ''; curlMessage = ''">清空命令</button><span class="toolkit-help curl-hint">支持 -X/-H/-d、续行与引号；-A、-b、-e 会转成对应请求头。</span></div>
+        <p v-if="curlMessage" class="toolkit-help curl-message">{{ curlMessage }}</p>
+      </div>
+      <div class="http-request-line"><select v-model="httpMethod" class="toolkit-select" aria-label="HTTP 方法"><option v-for="method in httpMethods" :key="method">{{ method }}</option><option v-if="!httpMethods.includes(httpMethod)" :value="httpMethod">{{ httpMethod }}</option></select><input v-model="httpURL" class="toolkit-input mono" aria-label="请求 URL" placeholder="https://api.example.com/v1/health" /><button class="button button-primary" :disabled="httpBusy" @click="sendHTTPRequest"><span v-if="httpBusy" class="spinner"></span><Send v-else :size="14" />{{ httpBusy ? '发送中' : '发送' }}</button></div>
       <div class="http-options">
         <label><input v-model="httpFollowRedirects" type="checkbox" />自动跟随重定向</label>
         <label><input v-model="httpInsecureSkipVerify" type="checkbox" />跳过 TLS 证书校验</label>
@@ -531,7 +564,7 @@ function resetJSON() {
 .toolkit-divider{height:1px;margin:22px 0;background:#29313d}
 .redact-output{min-height:210px;white-space:pre-wrap;overflow-wrap:anywhere}
 .text-diff-output{max-height:420px;overflow:auto;margin-top:16px;border:1px solid #29313f;border-radius:6px;background:#0b1018;font:10px/1.65 ui-monospace,monospace}.text-diff-output>div{display:grid;grid-template-columns:22px minmax(0,1fr);padding:5px 8px}.text-diff-output b{color:#738398}.text-diff-output code{white-space:pre-wrap;overflow-wrap:anywhere;color:#bdc9d7}.text-diff-output .added{background:rgba(77,178,125,.12)}.text-diff-output .added b{color:#83edb2}.text-diff-output .removed{background:rgba(214,93,88,.12)}.text-diff-output .removed b{color:#ffaaa1}
-.http-request-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;margin-bottom:12px}.http-request-line .button{height:38px;padding:0 13px;font-size:10px}.http-options{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 4px;color:#8696aa;font-size:10px}.http-options label{display:flex;align-items:center;gap:6px}.http-options input[type=checkbox]{accent-color:#6ed2a5}.http-options .toolkit-select{max-width:84px;padding:6px 8px;font-size:10px}.http-final-url{overflow-wrap:anywhere;color:#a1cdb9;font:10px ui-monospace,monospace}.http-history{margin-top:20px}.http-history .toolkit-output-heading{margin-bottom:9px}.http-history-list{display:flex;flex-direction:column;border:1px solid #293442;border-radius:5px;overflow:hidden}.http-history-item{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 11px;border:0;border-bottom:1px solid #26303c;background:rgba(10,15,22,.35);color:#b9c8d8;text-align:left}.http-history-item:last-child{border-bottom:0}.http-history-item:hover{background:#1a232f}.http-history-item:disabled{opacity:.55;cursor:not-allowed}.http-history-item>span{color:#93dcb8;font:9px ui-monospace,monospace}.http-history-item code{font:10px/1.5 ui-monospace,monospace;overflow-wrap:anywhere;color:#c2d1e1}.http-history-item time{color:#718196;font-size:9px;white-space:nowrap}.http-editors{margin-bottom:15px}.http-response-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:15px 0;border:1px solid #2b3943;border-radius:6px;background:rgba(9,15,21,.7);padding:10px 12px;color:#8291a4;font:10px ui-monospace,monospace}.http-response-summary strong{color:#92ebbc}.http-response-summary strong.error{color:#ffaaa1}.http-response-summary .button{margin-left:auto;height:28px;font-size:9px}.http-response-body{min-height:220px;max-height:420px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.http-curl{margin-bottom:16px}.http-curl .toolkit-output-heading{margin-bottom:7px}.http-curl .toolkit-output-heading>span{color:#718197;font-size:9px}.curl-textarea{min-height:76px}.http-curl .toolkit-action-row{margin-top:9px}.http-curl .curl-hint{margin:0;flex:1;min-width:160px}.http-curl .toolkit-help{margin:0}.http-curl .curl-message{margin-top:8px;color:#93dcb8}.http-request-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;margin-bottom:12px}.http-request-line .button{height:38px;padding:0 13px;font-size:10px}.http-options{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 4px;color:#8696aa;font-size:10px}.http-options label{display:flex;align-items:center;gap:6px}.http-options input[type=checkbox]{accent-color:#6ed2a5}.http-options .toolkit-select{max-width:84px;padding:6px 8px;font-size:10px}.http-final-url{overflow-wrap:anywhere;color:#a1cdb9;font:10px ui-monospace,monospace}.http-history{margin-top:20px}.http-history .toolkit-output-heading{margin-bottom:9px}.http-history-list{display:flex;flex-direction:column;border:1px solid #293442;border-radius:5px;overflow:hidden}.http-history-item{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 11px;border:0;border-bottom:1px solid #26303c;background:rgba(10,15,22,.35);color:#b9c8d8;text-align:left}.http-history-item:last-child{border-bottom:0}.http-history-item:hover{background:#1a232f}.http-history-item:disabled{opacity:.55;cursor:not-allowed}.http-history-item>span{color:#93dcb8;font:9px ui-monospace,monospace}.http-history-item code{font:10px/1.5 ui-monospace,monospace;overflow-wrap:anywhere;color:#c2d1e1}.http-history-item time{color:#718196;font-size:9px;white-space:nowrap}.http-editors{margin-bottom:15px}.http-response-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:15px 0;border:1px solid #2b3943;border-radius:6px;background:rgba(9,15,21,.7);padding:10px 12px;color:#8291a4;font:10px ui-monospace,monospace}.http-response-summary strong{color:#92ebbc}.http-response-summary strong.error{color:#ffaaa1}.http-response-summary .button{margin-left:auto;height:28px;font-size:9px}.http-response-body{min-height:220px;max-height:420px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .compact-result{padding:9px 13px}
 .compact-result .toolkit-result-line:first-child{border-top:0}
 .bottom-converter{align-items:start}
