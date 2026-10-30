@@ -18,6 +18,13 @@ App (app.go)
 
 MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是桌面界面的本地桥接层；文件检索、工具箱变换和进程配置管理都在本机完成。
 
+## 前端组件划分
+
+- `App.vue` 负责页面导航、日志检索状态与结果列表；结果过滤、排序、收藏、聚合统计等纯数据变换放在 `utils/`，可直接单测。
+- `components/ProcessManagement.vue` 与 `components/DeveloperToolkit.vue` 各自管理模块状态，由 `App.vue` 通过 `active` / `v-if` 控制切换。
+- `components/AboutDialog.vue` 与 `components/ShortcutsDialog.vue` 是自包含对话框：前者挂载时读取运行信息，后者持有快捷键草稿并在校验通过后写入本地存储，通过 `close` / `change` 事件回传给 `App.vue`。
+- 单元测试与组件测试与源码同目录（`*.test.ts`），用 `@vue/test-utils` 挂载组件并 mock `window.go.main.App` 桥接。
+
 ## 日志检索数据流
 
 1. 前端生成唯一任务 ID，调用 `SearchLogsAdvanced`；Wails `log-search:update` 事件优先推送进度和新增匹配，250 ms 轮询保留为兼容回退。
