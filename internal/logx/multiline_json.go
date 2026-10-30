@@ -37,6 +37,8 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 	var bytesScanned, lastProgressBytes int64
 	reportedMatches := 0
 	var reachedLimit bool
+	// budget 与事件聚合共用同一份总量上限，避免命中过多时占用失控。
+	budget := int64(maxEventTotalBytes)
 
 	notify := func(force bool) {
 		if onProgress == nil || (!force && bytesScanned-lastProgressBytes < progressStepBytes) {
@@ -60,20 +62,26 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 		}
 		return bytes.Contains(text, []byte(query))
 	}
-	addMatch := func(start int64, text []byte) {
+	// addMatch 记录一条命中；documentMatch 为 true 时额外附上完整 JSON 文档。
+	addMatch := func(start, end int64, text []byte, documentMatch bool) {
 		if matchText(text) {
 			preview := text
 			clipped := len(preview) > maxPreviewBytes
 			if clipped {
 				preview = preview[:maxPreviewBytes]
 			}
-			response.Matches = append(response.Matches, Match{
+			match := Match{
 				LineNumber: start,
 				Content: strings.ToValidUTF8(string(preview), "�"),
 				ContentClipped: clipped,
 				ContextBefore: []LineContext{},
 				ContextAfter: []LineContext{},
-			})
+			}
+			if documentMatch {
+				match.Event = newEventContext(start, end, strings.ToValidUTF8(string(text), "�"), &budget)
+				match.Event.Kind = "document"
+			}
+			response.Matches = append(response.Matches, match)
 			// 新匹配应立即推送，避免取消回调只能在下一批字节或 EOF 时收到结果。
 			notify(true)
 			if len(response.Matches) >= maxResults {
@@ -128,7 +136,7 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 			depth, inString, escaped = 0, false, false
 			consumeJSONLine([]byte(line))
 			if depth <= 0 {
-				addMatch(documentStart, document)
+				addMatch(documentStart, response.ScannedLines, document, true)
 				document = document[:0]
 			}
 		} else if len(document) > 0 {
@@ -138,12 +146,12 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 			document = append(document, line...)
 			consumeJSONLine([]byte(line))
 			if depth <= 0 && !inString {
-				addMatch(documentStart, document)
+				addMatch(documentStart, response.ScannedLines, document, true)
 				document = document[:0]
 			}
 		} else if len(trimmed) > 0 {
 			// 混合日志中的普通行仍可检索，不要求整个文件都是 JSON。
-			addMatch(response.ScannedLines, trimmed)
+			addMatch(response.ScannedLines, response.ScannedLines, trimmed, false)
 		}
 
 		notify(false)

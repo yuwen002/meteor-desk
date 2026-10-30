@@ -15,7 +15,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `SelectLogFile()` | 无 | `string` | 打开系统文件选择器；取消选择时路径为空字符串。 |
 | `PollDroppedFiles()` | 无 | `string[]` | 取出并清空拖放文件队列。 |
 | `SearchLogs(searchID, path, query, useRegex, maxResults)` | 任务 ID、路径、搜索内容、是否正则、结果上限 | `SearchResponse` | 旧版兼容入口，不附加上下文行。 |
-| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding, multiLineJSON, eventContext)` | 任务 ID、路径、查询、正则开关、结果上限、上下文行数、编码模式、多行 JSON 开关、事件上下文开关 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；`multiLineJSON=true` 时将跨行 JSON 对象/数组作为整体匹配单元；`eventContext=true` 时将时间戳事件及其异常堆栈聚合到命中详情。任务需有唯一 ID，响应完成时返回权威完整结果。 |
+| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding, multiLineJSON, eventContext, eventBoundary, eventBoundaryPattern)` | 任务 ID、路径、查询、正则开关、结果上限、上下文行数、编码模式、多行 JSON 开关、事件上下文开关、事件边界模式、自定义边界正则 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；`multiLineJSON=true` 时将跨行 JSON 对象/数组作为整体匹配单元，并为文档命中附带完整文档上下文；`eventContext=true` 时按 `eventBoundary`（`timestamp` 默认 / `blank` / `custom`）聚合事件，`custom` 时使用 `eventBoundaryPattern`。任务需有唯一 ID，响应完成时返回权威完整结果。 |
 | `GetLogSearchProgress(id)` | 任务 ID | `LogSearchProgress` | 读取字节数、扫描行数、匹配数、进度百分比及运行/取消状态。 |
 | `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示；负游标按 0 处理，超出当前结果长度时返回空数组。取消任务会在保留期内保留已发现结果。 |
 | `CancelLogSearch(id)` | 任务 ID | `boolean` | 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。 |
@@ -73,6 +73,10 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 字段包括 `searchId`、`bytesScanned`、`fileSizeBytes`、`scannedLines`、`matchesFound`、`percent`、`running`、`canceled` 和可选的 `error`。
 
+### EventContext
+
+命中详情中的可选字段，默认不返回。字段包括：`startLine`、`endLine`、`content`（完整事件或 JSON 文档，单条最多 512 KiB）、`contentClipped` 和 `kind`（`event` 表示按边界聚合的事件，`document` 表示多行 JSON 文档）。单次检索为所有上下文保留的内容总量上限为 32 MiB；预算耗尽时后续命中不返回内容，前端应回退到行预览。
+
 ### ProcessSpec
 
 配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart` 和 `dependsOn`（服务 ID 数组）。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
@@ -101,7 +105,8 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `SearchFileContext(ctx, path, query, useRegex, maxResults, onProgress)`：支持取消与进度/增量匹配回调。
 - `SearchFileWithOptions(ctx, path, query, useRegex, maxResults, SearchOptions, onProgress)`：支持上下文行配置的核心流式搜索入口。
 - `Progress.Matches`：每次进度通知中新增的匹配增量，不会重复包含此前已通知的结果。匹配对象的前后文可能尚未收集完整；结束时应使用函数最终返回的 `SearchResponse` 作为权威快照。
-- `SearchOptions.MultiLineJSON`：启用多行 JSON 文档检索；对象/数组以括号深度识别，字符串中的括号与转义引号不会结束文档，单个文档限制 4 MiB。混合日志中的普通行仍按行匹配。
+- `SearchOptions.MultiLineJSON`：启用多行 JSON 文档检索；对象/数组以括号深度识别，字符串中的括号与转义引号不会结束文档，单个文档限制 4 MiB。混合日志中的普通行仍按行匹配，只有文档命中附带 `EventContext`。
+- `SearchOptions.EventContext`、`EventBoundary`、`EventBoundaryPattern`：启用事件上下文并按 `timestamp`（默认）、`blank` 或 `custom` 切分事件；`custom` 使用 Go 正则匹配去首尾空白后的整行，长度上限 512 字节，非法正则在打开文件前返回错误。空行模式下分隔空行不计入事件内容。
 - `SearchOptions.Encoding`：接受 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；最终识别结果通过 `SearchResponse.Encoding` 返回。自动模式先检查 BOM，再尝试 UTF-8/无 BOM UTF-16 特征，最后对非 UTF-8 文本按 GB18030 解码。
 
 约束：普通文本按固定缓冲区流式扫描；结果上限为 5,000；结果预览 8 KiB；上下文预览 1 KiB；正则模式单行限制 4 MiB。

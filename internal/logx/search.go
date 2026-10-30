@@ -238,6 +238,10 @@ type SearchOptions struct {
 	// MultiLineJSON 将跨行 JSON 对象/数组作为一个文档匹配；单行日志仍按行检索。
 	MultiLineJSON bool `json:"multiLineJSON,omitempty"`
 	EventContext bool `json:"eventContext,omitempty"`
+	// EventBoundary 指定事件边界规则：timestamp（默认）、blank 或 custom。
+	EventBoundary string `json:"eventBoundary,omitempty"`
+	// EventBoundaryPattern 是 EventBoundary 为 custom 时使用的 Go 正则。
+	EventBoundaryPattern string `json:"eventBoundaryPattern,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
@@ -307,6 +311,16 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	}
 	needle := []byte(query)
 
+	// 事件边界规则在读取文件前解析，非法的自定义正则可以直接失败。
+	var eventRule eventBoundaryRule
+	if options.EventContext {
+		resolved, resolveErr := resolveEventBoundary(options.EventBoundary, options.EventBoundaryPattern)
+		if resolveErr != nil {
+			return SearchResponse{}, resolveErr
+		}
+		eventRule = resolved
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("打开日志文件失败：%w", err)
@@ -352,7 +366,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, onProgress)
 	}
 	if options.EventContext {
-		return searchEventContext(ctx, reader, response, query, matcher, maxResults, onProgress)
+		return searchEventContext(ctx, reader, response, query, matcher, maxResults, eventRule, onProgress)
 	}
 
 	var lineNumber int64
