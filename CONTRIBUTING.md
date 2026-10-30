@@ -76,7 +76,7 @@ GitHub Actions 会运行 Go 静态检查、完整单元测试、约 1 GiB 合成
 
 1. 将 `frontend/package.json` 的版本号更新为待发布版本（`npm version <version> --no-git-tag-version`），同步 CHANGELOG 与文档。
 2. 提交并推送到 `main`，确认基础检查工作流通过。
-3. 创建并推送与版本一致的 tag，例如 `git tag v0.5.21 && git push origin v0.5.21`。
+3. 创建并推送与版本一致的 tag，例如 `git tag v0.5.22 && git push origin v0.5.22`。
 4. `发布` 工作流会在 Ubuntu、Windows、macOS 构建并打包安装包，校验 tag 与前端版本一致后创建 GitHub Release，附带 `SHA256SUMS.txt`。
 
 若 tag 与 `frontend/package.json` 版本不一致，发布流程会直接失败。重新推送同一 tag 时，Release 资产会以 `--clobber` 覆盖更新。
