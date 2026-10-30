@@ -446,6 +446,8 @@ func (m *Manager) startOneCounted(id string, restarts int) error {
 	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, stdout:stdout, stderr:stderr, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano),Restarts:restarts,Health:healthState}}
 	m.instances[id] = instance
 	startHealthProbe(m, id, instance, spec.Health)
+	// 采样协程与健康探测一样在锁内启动，避免 stopSamplers 在锁内读到未初始化的 metricsStop。
+	startMetricsSampler(m, id, instance, cmd.Process.Pid)
 	m.mu.Unlock()
 
 	var readers sync.WaitGroup
@@ -518,7 +520,6 @@ func (m *Manager) startOneCounted(id string, restarts int) error {
 		close(instance.done)
 	}()
 	m.appendOutput(id,"system",fmt.Sprintf("服务已启动，进程号 %d",cmd.Process.Pid))
-	startMetricsSampler(m, id, instance, cmd.Process.Pid)
 	return nil
 }
 

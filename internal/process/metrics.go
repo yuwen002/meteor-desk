@@ -13,7 +13,8 @@ import (
 const metricsSampleInterval = 2 * time.Second
 
 // startMetricsSampler 为一次运行启动资源采样协程。
-// 调用方需持有 m.mu，保证 metricsStop 在实例对外可见前完成设置。
+// 调用方必须持有 m.mu（与 startHealthProbe 同在实例注册处调用）：
+// stopSamplers 在多处持锁读取 metricsStop，锁外写入会被 -race 判定为数据竞争。
 func startMetricsSampler(m *Manager, id string, instance *managedProcess, pid int) {
 	if instance == nil || pid <= 0 {
 		return
