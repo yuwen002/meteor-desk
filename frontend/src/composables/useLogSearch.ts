@@ -1,4 +1,4 @@
-import { ref, type Ref } from 'vue'
+import { computed, ref, type Ref } from 'vue'
 import { getBridge } from '../utils/bridge'
 import { resolveTimeWindow, type TimeWindowZone } from '../utils/timeWindow'
 import type { SearchExportMeta } from '../utils/exporters'
@@ -62,6 +62,18 @@ export function useLogSearch(options: {
   const searchProgress = ref<LogSearchProgress | null>(null)
   const searchID = ref('')
   const lastSearchMeta = ref<SearchExportMeta | null>(null)
+  // 续扫快照（阶段 6 批次 B）：记录上一次因结果上限截断且后端给出续扫点时的字节位置、
+  // 已处理行数，以及当时的输入指纹；只有输入未变且非相对时间窗时才允许“从这里继续”。
+  const resumeState = ref<{ offset: number; line: number; signature: string } | null>(null)
+
+  function currentSignature() {
+    const i = options.input
+    return JSON.stringify([i.filePath.value, i.query.value, i.useRegex.value, i.contextLines.value, i.encodingMode.value, i.multiLineJSON.value, i.eventContext.value, i.eventBoundary.value, i.eventBoundaryPattern.value, i.timeWindowEnabled.value, i.timeWindowPreset.value, i.timeWindowStart.value, i.timeWindowEnd.value, i.timeWindowZone.value])
+  }
+  const canResume = computed(() => {
+    const s = resumeState.value
+    return !!s && !busy.value && s.offset >= 0 && s.signature === currentSignature()
+  })
 
   let progressTimer: number | undefined
   let partialMatchCursor = 0
@@ -137,9 +149,17 @@ export function useLogSearch(options: {
     }
   }
 
-  async function runSearch() {
+  async function execute(resume: boolean) {
     options.errorMessage.value = ''
     if (busy.value) return
+    const prior = options.response.value
+    const snapshot = resumeState.value
+    if (resume) {
+      // 续扫必须复用与上次完全一致的输入，且后端曾给出可用续扫点，否则会读到不同语义的结果。
+      if (!prior || !snapshot || snapshot.offset < 0 || snapshot.signature !== currentSignature()) return
+    } else {
+      resumeState.value = null
+    }
     if (!options.input.filePath.value) {
       options.errorMessage.value = '请先选择日志文件。'
       return
@@ -186,6 +206,8 @@ export function useLogSearch(options: {
       eventBoundary: eventContextActive ? options.input.eventBoundary.value : 'timestamp',
       eventBoundaryPattern: eventContextActive ? options.input.eventBoundaryPattern.value : '',
     }
+    // 快照续扫所用的输入指纹，扫描期间即使输入被改动，完成时也以此判定是否仍可续扫。
+    const baseSignature = currentSignature()
     clearProgressTimer()
     const id = Date.now() + '-' + Math.random().toString(16).slice(2)
     searchID.value = id
@@ -194,10 +216,15 @@ export function useLogSearch(options: {
     busy.value = true
     partialMatchCursor = 0
     lastSearchMeta.value = searchMetaFrom(input, { filePath: input.path, encoding: '', fileSizeBytes: 0, bytesScanned: 0, scannedLines: 0, matches: [], resultLimitReached: false, canceled: false })
-    options.response.value = { filePath: options.input.filePath.value, encoding: '', fileSizeBytes: 0, bytesScanned: 0, scannedLines: 0, matches: [], resultLimitReached: false, canceled: false }
+    if (resume && prior) {
+      // 追加模式保留既有结果供流式增量拼接，并清除上一轮的截断/续扫标记。
+      options.response.value = { ...prior, canceled: false, resultLimitReached: false, resumeOffset: -1 }
+    } else {
+      options.response.value = { filePath: options.input.filePath.value, encoding: '', fileSizeBytes: 0, bytesScanned: 0, scannedLines: 0, matches: [], resultLimitReached: false, canceled: false }
+    }
     options.onSearchStart()
-    options.resetViewState()
-    searchProgress.value = { searchId: id, bytesScanned: 0, fileSizeBytes: 0, scannedLines: 0, matchesFound: 0, percent: 0, running: true, canceled: false }
+    if (!resume) options.resetViewState()
+    searchProgress.value = { searchId: id, bytesScanned: resume && prior ? prior.bytesScanned : 0, fileSizeBytes: resume && prior ? prior.fileSizeBytes : 0, scannedLines: resume && prior ? prior.scannedLines : 0, matchesFound: resume && prior ? prior.matches.length : 0, percent: 0, running: true, canceled: false }
     progressTimer = window.setInterval(() => void pollProgress(id), PROGRESS_POLL_INTERVAL_MS)
     try {
       const searchOptions: LogSearchOptions = {
@@ -212,8 +239,16 @@ export function useLogSearch(options: {
         timeWindowEndMs: timeWindow.endMs,
         timeWindowZone: options.input.timeWindowZone.value,
       }
+      if (resume && snapshot) {
+        searchOptions.startOffset = snapshot.offset
+        searchOptions.startLine = snapshot.line
+      }
       const completed = await a.SearchLogsAdvanced(id, input.path, input.query, input.useRegex, input.resultLimit, searchOptions)
-      options.response.value = completed
+      if (resume && prior) {
+        options.response.value = { ...completed, matches: [...prior.matches, ...completed.matches], timeWindowSkipped: (prior.timeWindowSkipped ?? 0) + (completed.timeWindowSkipped ?? 0) }
+      } else {
+        options.response.value = completed
+      }
       if (lastSearchMeta.value) {
         lastSearchMeta.value = { ...lastSearchMeta.value, encoding: completed.encoding || lastSearchMeta.value.encoding, resultLimitReached: completed.resultLimitReached, canceled: completed.canceled }
       }
@@ -223,12 +258,20 @@ export function useLogSearch(options: {
       if (completed.canceled || completed.resultLimitReached) {
         finalPercent = completed.fileSizeBytes > 0 ? Math.min(99, Math.floor(completed.bytesScanned * 100 / completed.fileSizeBytes)) : 0
       }
-      searchProgress.value = { searchId: id, bytesScanned: completed.bytesScanned, fileSizeBytes: completed.fileSizeBytes, scannedLines: completed.scannedLines, matchesFound: completed.matches.length, percent: finalPercent, running: false, canceled: completed.canceled }
+      searchProgress.value = { searchId: id, bytesScanned: completed.bytesScanned, fileSizeBytes: completed.fileSizeBytes, scannedLines: completed.scannedLines, matchesFound: options.response.value?.matches.length ?? 0, percent: finalPercent, running: false, canceled: completed.canceled }
       await pollProgress(id)
-      if (options.response.value.canceled) {
+      if (options.response.value?.canceled) {
         options.errorMessage.value = '检索已取消，以下保留已找到的部分结果。'
       } else {
-        await options.recordSearch({ query: input.query, path: input.path, useRegex: input.useRegex, contextLines: input.contextLines, encoding: input.encoding, createdAt: new Date().toISOString() })
+        // 记录续扫可用位置：仅在因上限截断、后端给出续扫点、且未使用会随当前时间漂移的相对时间窗时启用。
+        const usesRelativeWindow = options.input.timeWindowEnabled.value && !!options.input.timeWindowPreset.value
+        const nextOffset = completed.resumeOffset ?? -1
+        resumeState.value = completed.resultLimitReached && nextOffset >= 0 && !usesRelativeWindow
+          ? { offset: nextOffset, line: completed.resumeLine ?? 0, signature: baseSignature }
+          : null
+        if (!resume) {
+          await options.recordSearch({ query: input.query, path: input.path, useRegex: input.useRegex, contextLines: input.contextLines, encoding: input.encoding, createdAt: new Date().toISOString() })
+        }
       }
     } catch (e) {
       options.errorMessage.value = String(e)
@@ -240,5 +283,14 @@ export function useLogSearch(options: {
     }
   }
 
-  return { busy, cancelRequested, searchProgress, searchID, lastSearchMeta, runSearch, cancelSearch, pollProgress, onSearchUpdate, attachEventUpdates, dispose }
+  // runSearch 启动一次全新检索；resumeSearch 从上次截断处续扫并追加结果。
+  // 两者都忽略调用方（表单/快捷键）可能传入的事件对象参数。
+  function runSearch() {
+    return execute(false)
+  }
+  function resumeSearch() {
+    return execute(true)
+  }
+
+  return { busy, cancelRequested, searchProgress, searchID, lastSearchMeta, runSearch, resumeSearch, canResume, cancelSearch, pollProgress, onSearchUpdate, attachEventUpdates, dispose }
 }

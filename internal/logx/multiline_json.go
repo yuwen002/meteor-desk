@@ -29,12 +29,13 @@ func readBoundedLine(reader *bufio.Reader, limit int) ([]byte, error, error) {
 
 // searchMultiLineJSON 将跨行 JSON 对象/数组视为一个匹配单元。
 // 单个文档限制为 4 MiB，避免格式错误的输入无限占用内存。
-func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, window timeWindowFilter, onProgress func(Progress)) (SearchResponse, error) {
+func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, window timeWindowFilter, startBytes int64, resumable bool, onProgress func(Progress)) (SearchResponse, error) {
 	var document []byte
 	var documentStart int64
 	var depth int
 	var inString, escaped bool
-	var bytesScanned, lastProgressBytes int64
+	bytesScanned := startBytes
+	var lastProgressBytes int64
 	reportedMatches := 0
 	var reachedLimit bool
 	// budget 与事件聚合共用同一份总量上限，避免命中过多时占用失控。
@@ -167,6 +168,11 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 		notify(false)
 		if reachedLimit {
 			response.BytesScanned = min(bytesScanned, response.FileSizeBytes)
+			if resumable && bytesScanned < response.FileSizeBytes {
+				// 多行文档与单行都是原子单元，命中上限时当前单已完成，从下一行起续扫。
+				response.ResumeOffset = bytesScanned
+				response.ResumeLine = response.ScannedLines
+			}
 			notify(true)
 			return response, nil
 		}

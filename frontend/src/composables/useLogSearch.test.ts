@@ -164,6 +164,57 @@ describe('log search state machine', () => {
     expect(limited.errorMessage.value).toBe('')
   })
 
+  it('continues from the truncation offset and appends without dropping prior results', async () => {
+    installBridge()
+    bridge.SearchLogsAdvanced.mockResolvedValueOnce(result({
+      resultLimitReached: true, resumeOffset: 4096, resumeLine: 100,
+      bytesScanned: 4096, fileSizeBytes: 10000, scannedLines: 100,
+      matches: [match(2, 'boom one'), match(5, 'boom two')],
+    }))
+    const search = create()
+    await search.runSearch()
+    expect(search.canResume.value).toBe(true)
+
+    bridge.SearchLogsAdvanced.mockResolvedValueOnce(result({
+      resultLimitReached: false, resumeOffset: -1,
+      bytesScanned: 10000, fileSizeBytes: 10000, scannedLines: 200,
+      matches: [match(120, 'boom three')],
+    }))
+    await search.resumeSearch()
+
+    const resumeOptions = bridge.SearchLogsAdvanced.mock.calls[1][5]
+    expect(resumeOptions).toMatchObject({ startOffset: 4096, startLine: 100 })
+    expect(search.response.value?.matches.map(item => item.lineNumber)).toEqual([2, 5, 120])
+    // 续扫页扫描到末尾不再截断，续扫入口应自动隐藏。
+    expect(search.canResume.value).toBe(false)
+    // 历史只在首次检索时记录，续扫不应重复写入。
+    expect(search.hooks.recordSearch).toHaveBeenCalledOnce()
+  })
+
+  it('hides the resume option once the search inputs change', async () => {
+    installBridge()
+    bridge.SearchLogsAdvanced.mockResolvedValueOnce(result({
+      resultLimitReached: true, resumeOffset: 4096, resumeLine: 100, matches: [match(2, 'boom one')],
+    }))
+    const search = create()
+    await search.runSearch()
+    expect(search.canResume.value).toBe(true)
+    search.input.query.value = 'other'
+    expect(search.canResume.value).toBe(false)
+  })
+
+  it('does not offer resume when a relative time window is active', async () => {
+    installBridge()
+    bridge.SearchLogsAdvanced.mockResolvedValueOnce(result({
+      resultLimitReached: true, resumeOffset: 4096, resumeLine: 100, matches: [match(2, 'boom one')],
+    }))
+    const search = create()
+    search.input.timeWindowEnabled.value = true
+    search.input.timeWindowPreset.value = '30m'
+    await search.runSearch()
+    expect(search.canResume.value).toBe(false)
+  })
+
   it('surfaces bridge failures and still releases the busy flag', async () => {
     installBridge()
     bridge.SearchLogsAdvanced.mockRejectedValue(new Error('磁盘不可读'))

@@ -256,6 +256,11 @@ type SearchOptions struct {
 	TimeWindowEndMs   int64 `json:"timeWindowEndMs,omitempty"`
 	// TimeWindowZone 指定无时区后缀（naive）日志时间戳与窗口边界的解释参照："local"（默认）或 "utc"。
 	TimeWindowZone string `json:"timeWindowZone,omitempty"`
+	// StartOffset/StartLine 支持“从上次截断处继续”续扫（阶段 6 批次 B）：仅对无需字符解码器的
+	// UTF-8/ASCII 文件生效。StartOffset 为续扫起始的原始字节偏移，StartLine 为已处理行数（保证行号连续）。
+	// StartOffset<=0 表示从文件正文开头扫描。
+	StartOffset int64 `json:"startOffset,omitempty"`
+	StartLine   int64 `json:"startLine,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
@@ -271,6 +276,11 @@ type SearchResponse struct {
 	Canceled           bool    `json:"canceled"`
 	// TimeWindowSkipped 是启用时间窗时，因行首缺少可解析的完整日期时间戳而未计入结果的命中数。
 	TimeWindowSkipped int64 `json:"timeWindowSkipped"`
+	// ResumeOffset 是达到结果上限后可续扫的原始字节偏移；-1 表示当前不可续扫
+	// （已扫描到文件末尾、被取消，或需要字符解码器的 UTF-16/GB18030 编码）。
+	ResumeOffset int64 `json:"resumeOffset"`
+	// ResumeLine 是续扫时应作为 SearchOptions.StartLine 传入的已处理行数。
+	ResumeLine int64 `json:"resumeLine"`
 }
 
 // SearchFile 保留简单调用入口。
@@ -362,7 +372,14 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	if err != nil {
 		return SearchResponse{}, err
 	}
-	if _, err := file.Seek(bomBytes, io.SeekStart); err != nil {
+	// 续扫只在无需字符解码器（UTF-8/ASCII）时按原始字节偏移定位；解码器文件从头扫描，
+	// 因为解码后的行边界无法映射回精确的原始偏移。
+	resumable := decoder == nil
+	startBytes := bomBytes
+	if resumable && options.StartOffset > 0 {
+		startBytes = options.StartOffset
+	}
+	if _, err := file.Seek(startBytes, io.SeekStart); err != nil {
 		return SearchResponse{}, fmt.Errorf("定位日志正文失败：%w", err)
 	}
 
@@ -380,17 +397,19 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		Encoding:      encodingName,
 		FileSizeBytes: info.Size(),
 		Matches:       make([]Match, 0, min(maxResults, 128)),
+		ResumeOffset:  -1,
+		ScannedLines:  options.StartLine,
 	}
 	if options.MultiLineJSON {
-		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, window, onProgress)
+		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, window, startBytes, resumable, onProgress)
 	}
 	if options.EventContext {
-		return searchEventContext(ctx, reader, response, query, matcher, maxResults, eventRule, window, onProgress)
+		return searchEventContext(ctx, reader, response, query, matcher, maxResults, eventRule, window, startBytes, resumable, onProgress)
 	}
 
-	var lineNumber int64
+	lineNumber := options.StartLine
 	var lineBytes int64
-	bytesScanned := bomBytes
+	bytesScanned := startBytes
 	var lastProgressBytes int64
 	var reportedMatchCount int
 	var preview []byte
@@ -620,6 +639,10 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 			notify(false)
 			if reachedLimit {
 				response.BytesScanned = bytesScanned
+				if resumable && bytesScanned < info.Size() {
+					response.ResumeOffset = bytesScanned
+					response.ResumeLine = response.ScannedLines
+				}
 				notify(true)
 				return response, nil
 			}

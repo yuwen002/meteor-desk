@@ -149,10 +149,11 @@ func (c *eventCollector) context() EventContext {
 	return EventContext{StartLine: c.startLine, EndLine: c.endLine, Content: strings.ToValidUTF8(string(c.content), "�"), ContentClipped: c.clipped}
 }
 
-func searchEventContext(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, rule eventBoundaryRule, window timeWindowFilter, onProgress func(Progress)) (SearchResponse, error) {
+func searchEventContext(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, rule eventBoundaryRule, window timeWindowFilter, startBytes int64, resumable bool, onProgress func(Progress)) (SearchResponse, error) {
 	collector := &eventCollector{}
 	budget := int64(maxEventTotalBytes)
-	var bytesScanned, lastProgressBytes int64
+	bytesScanned := startBytes
+	var lastProgressBytes int64
 	reportedMatches := 0
 	matchEvent := func(event EventContext) {
 		if event.StartLine == 0 || len(response.Matches) >= maxResults {
@@ -222,6 +223,14 @@ func searchEventContext(ctx context.Context, reader *bufio.Reader, response Sear
 			if len(response.Matches) >= maxResults {
 				response.ResultLimitReached = true
 				response.BytesScanned = min(bytesScanned, response.FileSizeBytes)
+				if resumable {
+					// 从当前边界行起始处续扫，避免丢掉以该边界开始的新事件；上一个事件已发出，重读这一行不会重复。
+					resumeOff := bytesScanned - int64(len(line))
+					if resumeOff >= 0 && resumeOff < response.FileSizeBytes {
+						response.ResumeOffset = resumeOff
+						response.ResumeLine = response.ScannedLines - 1
+					}
+				}
 				notify(true)
 				return response, nil
 			}
