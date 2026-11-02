@@ -189,3 +189,82 @@ describe('result view state', () => {
     expect(view.scrollTop.value).toBe(0)
   })
 })
+
+describe('field facets and numeric trend', () => {
+  const jsonMatch = (lineNumber: number, value: unknown): LogMatch => match(lineNumber, JSON.stringify(value))
+  const rows = [
+    jsonMatch(1, { level: 'ERROR', ts: '2026-10-30 10:00:00', latency: 100 }),
+    jsonMatch(2, { level: 'WARN', ts: '2026-10-30 10:00:01', latency: 50 }),
+    jsonMatch(3, { level: 'ERROR', ts: '2026-10-30 10:00:02', latency: 30 }),
+  ]
+
+  it('discovers fields and separates numeric candidates', () => {
+    const view = createView(rows)
+    const level = view.fieldInfos.value.find(field => field.path === 'level')
+    const latency = view.fieldInfos.value.find(field => field.path === 'latency')
+    expect(level?.count).toBe(3)
+    expect(latency?.numeric).toBe(3)
+    // 趋势候选只保留有数值的字段，level 全为文本因此不入选。
+    expect(view.trendCandidates.value.map(field => field.path)).toContain('latency')
+    expect(view.trendCandidates.value.map(field => field.path)).not.toContain('level')
+  })
+
+  it('filters by a facet value, keeps the distribution whole and cancels on re-click', () => {
+    const view = createView(rows)
+    view.facetPath.value = 'level'
+    expect(view.activeFacet.value?.values).toEqual([{ value: 'ERROR', count: 2 }, { value: 'WARN', count: 1 }])
+
+    view.selectFacetValue('ERROR')
+    expect(view.filteredMatches.value.map(item => item.lineNumber)).toEqual([1, 3])
+    expect(view.facetValueActive('ERROR')).toBe(true)
+    expect(view.facetValueActive('WARN')).toBe(false)
+    // 叠加取值过滤后，分布图仍统计全部命中。
+    expect(view.activeFacet.value?.values).toHaveLength(2)
+
+    view.selectFacetValue('ERROR')
+    expect(view.facetFilter.value).toBeNull()
+    expect(view.filteredMatches.value).toHaveLength(3)
+  })
+
+  it('clears the facet filter once the distribution field changes', async () => {
+    const view = createView(rows)
+    view.facetPath.value = 'level'
+    view.selectFacetValue('WARN')
+    expect(view.facetFilter.value?.value).toBe('WARN')
+    view.facetPath.value = 'latency'
+    await nextTick()
+    expect(view.facetFilter.value).toBeNull()
+  })
+
+  it('stacks the facet filter with the time bucket filter', () => {
+    const view = createView(rows)
+    view.facetPath.value = 'level'
+    view.selectFacetValue('ERROR')
+    const buckets = view.timeDistribution.value.buckets
+    view.selectTimelineBucket(buckets[0])
+    // 同时满足 level=ERROR 且落在第一格（10:00:00）的只有第 1 行。
+    expect(view.filteredMatches.value.map(item => item.lineNumber)).toEqual([1])
+  })
+
+  it('sums a numeric field into trend buckets', () => {
+    const view = createView(rows)
+    view.trendPath.value = 'latency'
+    expect(view.activeTrend.value?.numericCount).toBe(3)
+    expect(view.activeTrend.value?.sumTotal).toBe(180)
+    expect(view.activeTrend.value?.maxMagnitude).toBe(100)
+    expect(view.trendBarHeight(0)).toBe(0)
+    expect(view.trendBarHeight(100)).toBe(64)
+    expect(view.trendBarHeight(50)).toBe(32)
+  })
+
+  it('resets facet and trend state on a new search', () => {
+    const view = createView(rows)
+    view.facetPath.value = 'level'
+    view.selectFacetValue('ERROR')
+    view.trendPath.value = 'latency'
+    view.resetViewState()
+    expect(view.facetPath.value).toBe('')
+    expect(view.facetFilter.value).toBeNull()
+    expect(view.trendPath.value).toBe('')
+  })
+})

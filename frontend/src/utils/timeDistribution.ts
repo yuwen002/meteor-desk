@@ -45,8 +45,14 @@ function pad(value:number):string {
   return String(value).padStart(2, '0')
 }
 
+// chooseStep 依据时间跨度挑选一个使桶数不超过上限的最小步长。
+// 时间分布与字段趋势共用它，保证两者的步长档位与格数上限完全一致（阶段 6 批次 C）。
+export function chooseStep(span:number, maxBuckets = MAX_TIME_BUCKETS):number {
+  return STEPS.find(value => Math.ceil((span + 1) / value) <= maxBuckets) ?? STEPS[STEPS.length - 1]
+}
+
 // 秒级分桶保留秒，避免同一分钟内的错误被标成同一个时间点。
-function formatBucketLabel(time:number, step:number):string {
+export function formatBucketLabel(time:number, step:number):string {
   const date = new Date(time)
   const clock = pad(date.getUTCHours()) + ':' + pad(date.getUTCMinutes()) + (step < 60000 ? ':' + pad(date.getUTCSeconds()) : '')
   if (time < 86400000) return clock
@@ -54,7 +60,7 @@ function formatBucketLabel(time:number, step:number):string {
   return step >= 86400000 ? day : day + ' ' + clock
 }
 
-function formatStep(step:number):string {
+export function formatStep(step:number):string {
   if (step < 60000) return step / 1000 + ' 秒'
   if (step < 3600000) return step / 60000 + ' 分钟'
   return step / 3600000 + ' 小时'
@@ -82,7 +88,7 @@ export function buildTimeDistribution(matches:Array<{content:string}>, maxBucket
     if (entry.time > maxTime) maxTime = entry.time
   }
   const span = maxTime - minTime
-  const step = STEPS.find(value => Math.ceil((span + 1) / value) <= maxBuckets) ?? STEPS[STEPS.length - 1]
+  const step = chooseStep(span, maxBuckets)
   const firstStart = Math.floor(minTime / step) * step
   const count = Math.min(maxBuckets, Math.floor((maxTime - firstStart) / step) + 1)
   const buckets:TimeBucket[] = Array.from({ length: count }, (_, index) => {

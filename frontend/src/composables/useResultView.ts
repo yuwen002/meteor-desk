@@ -2,11 +2,19 @@ import { computed, nextTick, ref, watch, type Ref } from 'vue'
 import { bookmarkKey } from '../utils/bookmarks'
 import { summarizeMatches } from '../utils/aggregate'
 import { buildTimeDistribution, filterMatchesByTime, type TimeBucket } from '../utils/timeDistribution'
+import {
+  buildFieldFacet,
+  buildFieldTrend,
+  discoverFields,
+  filterMatchesByFacet,
+  type TrendBucket,
+} from '../utils/fieldStats'
 
 // 结果列表是虚拟滚动的，行高与可视行数一起决定切片范围；改行高要同时改这里。
 const ROW_HEIGHT = 42
 const VISIBLE_ROWS = 24
 const TIMELINE_MAX_HEIGHT = 64
+const TREND_MAX_HEIGHT = 64
 
 /** 点击时间分布柱状图后叠加的时间段过滤条件。 */
 export interface TimeRangeFilter {
@@ -32,6 +40,10 @@ export function useResultView(options: {
   const resultListElement = ref<HTMLElement | null>(null)
   const selectedMatch = ref<LogMatch | null>(null)
   const jsonFilter = ref('')
+  // 结构化字段分布与趋势（阶段 6 批次 C）：facetPath/trendPath 选择字段，facetFilter 叠加取值过滤。
+  const facetPath = ref('')
+  const facetFilter = ref<{ path: string; value: string } | null>(null)
+  const trendPath = ref('')
 
   // 先按收藏与关键字筛选，再按时间段筛选，最后排序；虚拟滚动只消费最终列表。
   const keywordFiltered = computed(() => {
@@ -46,9 +58,19 @@ export function useResultView(options: {
   })
   const filteredMatches = computed(() => {
     const filter = timeFilter.value
-    const list = filter ? filterMatchesByTime(keywordFiltered.value, filter.start, filter.stepMs) : keywordFiltered.value
+    const list = filter ? filterMatchesByTime(facetFiltered.value, filter.start, filter.stepMs) : facetFiltered.value
     return resultSort.value === 'desc' ? [...list].reverse() : list
   })
+  // facets：取值过滤基于关键字过滤后的结果，与时间段过滤叠加。
+  const facetFiltered = computed(() => {
+    const filter = facetFilter.value
+    return filter ? filterMatchesByFacet(keywordFiltered.value, filter.path, filter.value) : keywordFiltered.value
+  })
+  // 字段发现与统计只读关键字过滤后的结果：选中某取值时分布图仍保留全貌，只是叠加过滤。
+  const fieldInfos = computed(() => discoverFields(keywordFiltered.value))
+  const trendCandidates = computed(() => fieldInfos.value.filter(field => field.numeric > 0))
+  const activeFacet = computed(() => (facetPath.value ? buildFieldFacet(keywordFiltered.value, facetPath.value) : null))
+  const activeTrend = computed(() => (trendPath.value ? buildFieldTrend(keywordFiltered.value, trendPath.value) : null))
   const resultSummary = computed(() => summarizeMatches(filteredMatches.value))
   // 时间分布只读关键字过滤后的结果：选中某个时间段时柱状图仍保留全貌，只是叠加过滤。
   const timeDistribution = computed(() => buildTimeDistribution(keywordFiltered.value))
@@ -78,6 +100,38 @@ export function useResultView(options: {
   }
   // 时间格多时按比例抽稀标签，保证首尾两端始终可见。
   function timelineLabelVisible(index: number, total: number) {
+    return index % (Math.ceil(total / 6) || 1) === 0 || index === total - 1
+  }
+
+  // 点击某个取值即把结果过滤到该值，再次点击同一取值取消。
+  function selectFacetValue(value: string) {
+    const current = facetFilter.value
+    if (current && current.path === facetPath.value && current.value === value) {
+      facetFilter.value = null
+      return
+    }
+    facetFilter.value = { path: facetPath.value, value }
+    scrollResultListToTop()
+  }
+  function facetValueActive(value: string) {
+    const current = facetFilter.value
+    return !!current && current.path === facetPath.value && current.value === value
+  }
+  function clearFacet() {
+    facetFilter.value = null
+  }
+  // 切换分布字段时，旧的取值过滤不再适用，直接清除。
+  watch(facetPath, () => { facetFilter.value = null })
+
+  // 趋势柱按最大桶量级（含负值取绝对值）归一化高度。
+  function trendBarHeight(sum: number) {
+    const magnitude = activeTrend.value?.maxMagnitude || 1
+    return sum ? Math.max(3, Math.round(Math.abs(sum) * TREND_MAX_HEIGHT / magnitude)) : 0
+  }
+  function trendTitle(bucket: TrendBucket) {
+    return bucket.label + ' · 合计 ' + bucket.sum + '（' + bucket.count + ' 行，均值 ' + (Math.round(bucket.avg * 100) / 100) + '）'
+  }
+  function trendLabelVisible(index: number, total: number) {
     return index % (Math.ceil(total / 6) || 1) === 0 || index === total - 1
   }
 
@@ -118,6 +172,9 @@ export function useResultView(options: {
     bookmarkOnly.value = false
     resultSort.value = 'asc'
     timeFilter.value = null
+    facetPath.value = ''
+    facetFilter.value = null
+    trendPath.value = ''
     scrollResultListToTop()
   }
 
@@ -125,6 +182,8 @@ export function useResultView(options: {
     resultFilter, bookmarkOnly, resultSort, timeFilter,
     scrollTop, resultListElement, selectedMatch, jsonFilter,
     keywordFiltered, filteredMatches, resultSummary, timeDistribution,
+    facetPath, facetFilter, trendPath, fieldInfos, trendCandidates, activeFacet, activeTrend,
+    selectFacetValue, facetValueActive, clearFacet, trendBarHeight, trendTitle, trendLabelVisible,
     virtualStart, visibleMatches, virtualTop, virtualBottom, selectedIndex,
     selectTimelineBucket, timelineActive, timelineHeight, timelineTitle, timelineLabelVisible,
     updateScroll, showMatch, moveMatch, resetViewState,

@@ -41,6 +41,8 @@ const { bookmarkKeys, fileBookmarks, isBookmarked, toggleMatchBookmark } = useBo
 const {
  resultFilter, bookmarkOnly, resultSort, timeFilter, selectedMatch, jsonFilter, resultListElement,
  filteredMatches, resultSummary, timeDistribution,
+ facetPath, facetFilter, trendPath, fieldInfos, trendCandidates, activeFacet, activeTrend,
+ selectFacetValue, facetValueActive, clearFacet, trendBarHeight, trendTitle, trendLabelVisible,
  virtualStart, visibleMatches, virtualTop, virtualBottom, selectedIndex,
  selectTimelineBucket, timelineActive, timelineHeight, timelineTitle, timelineLabelVisible,
  updateScroll, showMatch, moveMatch, resetViewState,
@@ -58,8 +60,8 @@ function displaySegments(text:string){const meta=lastSearchMeta.value;return hig
 function toggleResultSort(){resultSort.value=resultSort.value==='asc'?'desc':'asc'}
 function clearResultFilter(){resultFilter.value=''}
 function clearTimeFilter(){timeFilter.value=null}
-// 「清除过滤」一次撤掉关键字、收藏与时间段三个条件，让列表回到本次检索的原始结果。
-function clearResultFilters(){resultFilter.value='';bookmarkOnly.value=false;timeFilter.value=null}
+// 「清除过滤」一次撤掉关键字、收藏、时间段与字段取值四个条件，让列表回到本次检索的原始结果。
+function clearResultFilters(){resultFilter.value='';bookmarkOnly.value=false;timeFilter.value=null;clearFacet()}
 function closeDetail(){selectedMatch.value=null}
 async function copySummary(){
  const text=summaryText(resultSummary.value)
@@ -159,7 +161,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
       <div v-if="tailEnabled||tailLines.length" ref="tailListElement" class="tail-output"><div v-for="(line,i) in tailLines" :key="i" class="tail-line"><code>{{line}}</code></div><div v-if="!tailLines.length" class="tail-empty">{{tailEnabled?'等待新的日志行……':'上次跟踪的内容已清空。'}}</div></div>
      </div>
      <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{filteredMatches.length}}</span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（CSV，含上下文）" @click="exportResults('csv')"><FileDown :size="13"/>CSV</button><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（JSON，含上下文）" @click="exportResults('json')"><FileDown :size="13"/>JSON</button><span v-if="response.timeWindowSkipped" class="limit-pill" title="启用时间窗后，行首缺少可解析日期时间戳的命中未计入结果">时间窗跳过 {{response.timeWindowSkipped}} 条无时间戳</span><button v-if="response.resultLimitReached&&canResume" class="button button-quiet resume-button" type="button" :disabled="busy" title="从上次截断的位置继续扫描剩余内容，保留已有结果" @click="resumeSearch"><ArrowRight :size="13"/>从这里继续</button><span v-else-if="response.resultLimitReached" class="limit-pill" title="该编码或检索模式暂不支持续扫；可提高结果上限或缩小时间窗后重新检索">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
-     <div v-if="response&&response.matches.length" class="results-toolbar"><div class="result-filter"><Search :size="13"/><input v-model="resultFilter" placeholder="在当前结果中过滤：内容或行号" aria-label="过滤检索结果" spellcheck="false" autocomplete="off"/><button v-if="resultFilter" type="button" class="filter-clear" aria-label="清除过滤" @click="clearResultFilter"><X :size="12"/></button></div><label class="toolbar-toggle"><input v-model="bookmarkOnly" type="checkbox"/><span class="custom-checkbox"><Star v-if="bookmarkOnly" :size="11"/></span><span>仅看收藏</span><em>{{fileBookmarks}}</em></label><button class="button button-quiet sort-button" type="button" :title="resultSort==='asc'?'当前按行号升序，点击改为降序':'当前按行号降序，点击改为升序'" @click="toggleResultSort"><ArrowDownUp :size="13"/>{{resultSort==='asc'?'行号升序':'行号降序'}}</button><button class="button button-quiet summary-toggle" :class="{active:summaryOpen}" type="button" :title="summaryOpen?'收起聚合统计':'按日志级别与错误签名聚合当前结果'" @click="summaryOpen=!summaryOpen"><PieChart :size="13"/>统计</button><button v-if="timeFilter" class="button button-quiet time-filter-chip" type="button" title="清除时间段过滤" @click="clearTimeFilter">时间段 {{timeFilter.label}} <X :size="11"/></button><span class="filter-summary">{{filteredMatches.length}} / {{response.matches.length}} 条</span></div>
+     <div v-if="response&&response.matches.length" class="results-toolbar"><div class="result-filter"><Search :size="13"/><input v-model="resultFilter" placeholder="在当前结果中过滤：内容或行号" aria-label="过滤检索结果" spellcheck="false" autocomplete="off"/><button v-if="resultFilter" type="button" class="filter-clear" aria-label="清除过滤" @click="clearResultFilter"><X :size="12"/></button></div><label class="toolbar-toggle"><input v-model="bookmarkOnly" type="checkbox"/><span class="custom-checkbox"><Star v-if="bookmarkOnly" :size="11"/></span><span>仅看收藏</span><em>{{fileBookmarks}}</em></label><button class="button button-quiet sort-button" type="button" :title="resultSort==='asc'?'当前按行号升序，点击改为降序':'当前按行号降序，点击改为升序'" @click="toggleResultSort"><ArrowDownUp :size="13"/>{{resultSort==='asc'?'行号升序':'行号降序'}}</button><button class="button button-quiet summary-toggle" :class="{active:summaryOpen}" type="button" :title="summaryOpen?'收起聚合统计':'按日志级别与错误签名聚合当前结果'" @click="summaryOpen=!summaryOpen"><PieChart :size="13"/>统计</button><button v-if="timeFilter" class="button button-quiet time-filter-chip" type="button" title="清除时间段过滤" @click="clearTimeFilter">时间段 {{timeFilter.label}} <X :size="11"/></button><button v-if="facetFilter" class="button button-quiet facet-filter-chip" type="button" title="清除字段取值过滤" @click="clearFacet">{{facetFilter.path}}={{facetFilter.value}} <X :size="11"/></button><span class="filter-summary">{{filteredMatches.length}} / {{response.matches.length}} 条</span></div>
      <div v-if="summaryOpen&&filteredMatches.length" class="summary-panel">
       <div class="summary-head"><div><strong>结果摘要</strong><p>共 {{resultSummary.total}} 条，行号 {{resultSummary.firstLine}}–{{resultSummary.lastLine}}；仅统计当前过滤后的结果。</p></div><button class="button button-quiet" type="button" title="复制可粘贴到工单或聊天窗口的纯文本摘要" @click="copySummary"><Copy :size="13"/>复制摘要</button></div>
       <div class="summary-levels"><span v-for="item in resultSummary.levels" :key="item.level" class="level-chip" :class="'level-'+item.level">{{LEVEL_LABEL[item.level]}}<em>{{item.count}}</em></span><span v-if="!resultSummary.levels.length" class="summary-muted">未识别到日志级别。</span></div>
@@ -177,6 +179,28 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
       <p v-else class="summary-muted">当前结果中没有带时间戳的 error/warn 行，暂无时间分布。</p>
       <p v-if="timeDistribution.undated" class="summary-muted">{{timeDistribution.undated}} 条错误/警告行缺少可识别的时间戳，未计入时间分布。</p>
       <p v-if="timeDistribution.buckets.length" class="summary-muted timeline-tip">点击时间格可按该时间段过滤结果，再次点击取消。</p>
+      <div v-if="fieldInfos.length" class="summary-facets">
+       <div class="summary-subtitle">结构化字段分布 · 选择 JSON 字段后点击取值即可过滤</div>
+       <label class="option-select facet-picker">分布字段 <select v-model="facetPath"><option value="">（未选择）</option><option v-for="field in fieldInfos" :key="field.path" :value="field.path">{{field.path}}（{{field.count}} 行）</option></select></label>
+       <div v-if="activeFacet" class="facet-values">
+        <button v-for="item in activeFacet.values" :key="item.value" type="button" class="facet-chip" :class="{active:facetValueActive(item.value)}" @click="selectFacetValue(item.value)">{{item.value}}<em>{{item.count}}</em></button>
+        <span v-if="activeFacet.otherCount" class="facet-other">其他 {{activeFacet.otherDistinct}} 项 · {{activeFacet.otherCount}} 条</span>
+        <p class="summary-muted">含该字段 {{activeFacet.presentCount}} 条，缺失 {{activeFacet.missingCount}} 条；共 {{activeFacet.values.length}} 个主要取值。</p>
+       </div>
+       <p v-else-if="facetPath" class="summary-muted">该字段暂无可统计的取值。</p>
+      </div>
+      <div v-if="trendCandidates.length" class="summary-trend">
+       <div class="summary-subtitle">字段数值趋势 · 按自适应时间桶求和</div>
+       <label class="option-select facet-picker">趋势字段 <select v-model="trendPath"><option value="">（未选择）</option><option v-for="field in trendCandidates" :key="field.path" :value="field.path">{{field.path}}（数值 {{field.numeric}} 行）</option></select></label>
+       <div v-if="activeTrend&&activeTrend.buckets.length" class="trend-bars">
+        <div v-for="(bucket,index) in activeTrend.buckets" :key="bucket.start" class="trend-bucket" :title="trendTitle(bucket)">
+         <div class="trend-bar" :style="{height:trendBarHeight(bucket.sum)+'px'}"></div>
+         <span class="timeline-label">{{trendLabelVisible(index,activeTrend.buckets.length)?bucket.label:''}}</span>
+        </div>
+       </div>
+       <p v-else-if="trendPath" class="summary-muted">该字段没有同时带数值与行首时间戳的行，无法绘制趋势。</p>
+       <p v-if="activeTrend&&activeTrend.undated" class="summary-muted">{{activeTrend.undated}} 行有数值但缺可识别时间戳，未计入趋势。</p>
+      </div>
       <p v-if="summaryMessage" class="summary-note" role="status">{{summaryMessage}}</p>
      </div>
      <div v-if="exportMessage" class="notice notice-success"><span>✓</span>{{exportMessage}}</div>
