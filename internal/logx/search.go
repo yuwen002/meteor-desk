@@ -218,8 +218,10 @@ type LineContext struct {
 
 // Match 表示一条匹配结果，以及可选的前后文。
 type Match struct {
-	LineNumber     int64         `json:"lineNumber"`
-	Content        string        `json:"content"`
+	LineNumber int64  `json:"lineNumber"`
+	Content    string `json:"content"`
+	// FilePath 标注该命中的来源文件，仅多文件目录检索填写；单文件检索留空（阶段 6 批次 E）。
+	FilePath       string        `json:"filePath,omitempty"`
 	ContentClipped bool          `json:"contentClipped"`
 	ContextBefore  []LineContext `json:"contextBefore"`
 	ContextAfter   []LineContext `json:"contextAfter"`

@@ -24,6 +24,10 @@ export interface LogSearchInput {
   timeWindowStart: Ref<string>
   timeWindowEnd: Ref<string>
   timeWindowZone: Ref<TimeWindowZone>
+  // 多文件目录检索（阶段 6 批次 E）：开关、根目录与通配模式；开启时忽略单文件路径。
+  multiFile: Ref<boolean>
+  rootDir: Ref<string>
+  rootPattern: Ref<string>
 }
 
 /**
@@ -154,13 +158,19 @@ export function useLogSearch(options: {
     if (busy.value) return
     const prior = options.response.value
     const snapshot = resumeState.value
+    const multiFile = options.input.multiFile.value
     if (resume) {
-      // 续扫必须复用与上次完全一致的输入，且后端曾给出可用续扫点，否则会读到不同语义的结果。
-      if (!prior || !snapshot || snapshot.offset < 0 || snapshot.signature !== currentSignature()) return
+      // 续扫只适用于单文件；多文件检索不维护续扫点。
+      if (multiFile || !prior || !snapshot || snapshot.offset < 0 || snapshot.signature !== currentSignature()) return
     } else {
       resumeState.value = null
     }
-    if (!options.input.filePath.value) {
+    if (multiFile) {
+      if (!options.input.rootDir.value) {
+        options.errorMessage.value = '请先选择要检索的日志目录。'
+        return
+      }
+    } else if (!options.input.filePath.value) {
       options.errorMessage.value = '请先选择日志文件。'
       return
     }
@@ -194,8 +204,9 @@ export function useLogSearch(options: {
       options.errorMessage.value = timeWindow.error
       return
     }
+    const targetPath = multiFile ? options.input.rootDir.value : options.input.filePath.value
     const input = {
-      path: options.input.filePath.value,
+      path: targetPath,
       query: options.input.query.value,
       useRegex: options.input.useRegex.value,
       resultLimit: options.input.resultLimit.value,
@@ -220,7 +231,7 @@ export function useLogSearch(options: {
       // 追加模式保留既有结果供流式增量拼接，并清除上一轮的截断/续扫标记。
       options.response.value = { ...prior, canceled: false, resultLimitReached: false, resumeOffset: -1 }
     } else {
-      options.response.value = { filePath: options.input.filePath.value, encoding: '', fileSizeBytes: 0, bytesScanned: 0, scannedLines: 0, matches: [], resultLimitReached: false, canceled: false }
+      options.response.value = { filePath: targetPath, encoding: '', fileSizeBytes: 0, bytesScanned: 0, scannedLines: 0, matches: [], resultLimitReached: false, canceled: false }
     }
     options.onSearchStart()
     if (!resume) options.resetViewState()
@@ -243,7 +254,10 @@ export function useLogSearch(options: {
         searchOptions.startOffset = snapshot.offset
         searchOptions.startLine = snapshot.line
       }
-      const completed = await a.SearchLogsAdvanced(id, input.path, input.query, input.useRegex, input.resultLimit, searchOptions)
+      // 多文件目录检索与单文件检索共用同一任务登记与轮询机制，只在这里按开关分流到不同桥接方法。
+      const completed = multiFile
+        ? await a.SearchLogsMultiFile(id, options.input.rootDir.value, options.input.rootPattern.value, input.query, input.useRegex, input.resultLimit, searchOptions)
+        : await a.SearchLogsAdvanced(id, input.path, input.query, input.useRegex, input.resultLimit, searchOptions)
       if (resume && prior) {
         options.response.value = { ...completed, matches: [...prior.matches, ...completed.matches], timeWindowSkipped: (prior.timeWindowSkipped ?? 0) + (completed.timeWindowSkipped ?? 0) }
       } else {

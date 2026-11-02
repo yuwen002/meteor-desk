@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -201,4 +203,101 @@ func TestExportFileNameStripsPathsAndFixesExtension(t *testing.T) {
 			t.Fatalf("exportFileName(%q, %q)=%q，期望 %q", tt.in, tt.format, got, tt.want)
 		}
 	}
+}
+
+func TestSplitPatternsSeparatesSemicolonAndComma(t *testing.T) {
+	got := splitPatterns("*.log; *.txt,*.ndjson")
+	want := map[string]bool{"*.log": true, "*.txt": true, "*.ndjson": true}
+	if len(got) != len(want) {
+		t.Fatalf("拆分结果数量异常：%v", got)
+	}
+	for _, pattern := range got {
+		if !want[strings.TrimSpace(pattern)] {
+			t.Fatalf("拆分出的模式意外：%q", pattern)
+		}
+	}
+}
+
+func TestSearchLogsMultiFileGuardsContextAndTaskID(t *testing.T) {
+	app := NewApp()
+	if _, err := app.SearchLogsMultiFile("id", "dir", "", "needle", false, 10, logx.SearchOptions{}); err == nil || err.Error() != "桌面运行环境尚未就绪" {
+		t.Fatalf("未就绪的桌面环境应拒绝多文件检索：%v", err)
+	}
+	app.ctx = context.Background()
+	if _, err := app.SearchLogsMultiFile("", "dir", "", "needle", false, 10, logx.SearchOptions{}); err == nil || err.Error() != "缺少检索任务编号" {
+		t.Fatalf("缺少任务编号应拒绝：%v", err)
+	}
+}
+
+func TestSearchLogsMultiFileMergesResultsFromDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeFile := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("a.log", "INFO boot\nERROR alpha\n")
+	writeFile("b.log", "ERROR beta\nplain\n")
+
+	app := NewApp()
+	app.ctx = context.Background()
+	response, err := app.SearchLogsMultiFile("multi-1", dir, "*.log", "ERROR", false, 100, logx.SearchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Matches) != 2 {
+		t.Fatalf("应合并两个文件的 2 条命中，实际 %d：%+v", len(response.Matches), response.Matches)
+	}
+	if response.FilePath != dir || response.Encoding != "多文件" {
+		t.Fatalf("响应元信息异常：filePath=%q encoding=%q", response.FilePath, response.Encoding)
+	}
+	if response.FilesSucceeded != 2 || response.FilesTotal != 2 {
+		t.Fatalf("文件计数异常：%+v", response.Files)
+	}
+	for _, m := range response.Matches {
+		if m.FilePath == "" {
+			t.Fatal("多文件命中应标注来源文件")
+		}
+	}
+}
+
+func TestConcurrentMultiFileProgressPollingIsSafe(t *testing.T) {
+	app := NewApp()
+	app.searches["multi-poll"] = &searchJob{
+		progress: LogSearchProgress{SearchID: "multi-poll", Running: true, FilesTotal: 4},
+		matches:  []logx.Match{{LineNumber: 1, Content: "first", FilePath: "a.log"}},
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				if _, err := app.GetLogSearchMatches("multi-poll", 0); err != nil {
+					t.Errorf("并发读取多文件增量结果失败：%v", err)
+					return
+				}
+				if _, err := app.GetLogSearchProgress("multi-poll"); err != nil {
+					t.Errorf("并发读取多文件进度失败：%v", err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			app.updateSearchProgressMulti("multi-poll", logx.MultiProgress{
+				BytesScanned: int64(i),
+				TotalBytes:   400,
+				ScannedLines: int64(i),
+				FilesTotal:   4,
+				FilesDone:    i % 4,
+				MatchesFound: i + 1,
+				Matches:      []logx.Match{{LineNumber: int64(i + 2), Content: "incremental", FilePath: "b.log"}},
+			})
+		}
+	}()
+	wg.Wait()
 }

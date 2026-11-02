@@ -13,15 +13,19 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | 方法 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `SelectLogFile()` | 无 | `string` | 打开系统文件选择器；取消选择时路径为空字符串。 |
+| `SelectLogDirectory()` | 无 | `string` | 打开系统目录选择器，为多文件检索选择根目录；取消选择时路径为空字符串。 |
 | `PollDroppedFiles()` | 无 | `string[]` | 取出并清空拖放文件队列。 |
 | `SearchLogs(searchID, path, query, useRegex, maxResults)` | 任务 ID、路径、搜索内容、是否正则、结果上限 | `SearchResponse` | 旧版兼容入口，不附加上下文行。 |
-| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, contextLines, encoding, multiLineJSON, eventContext, eventBoundary, eventBoundaryPattern)` | 任务 ID、路径、查询、正则开关、结果上限、上下文行数、编码模式、多行 JSON 开关、事件上下文开关、事件边界模式、自定义边界正则 | `SearchResponse` | 执行搜索；编码支持 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；`multiLineJSON=true` 时将跨行 JSON 对象/数组作为整体匹配单元，并为文档命中附带完整文档上下文；`eventContext=true` 时按 `eventBoundary`（`timestamp` 默认 / `blank` / `custom`）聚合事件，`custom` 时使用 `eventBoundaryPattern`。任务需有唯一 ID，响应完成时返回权威完整结果。 |
+| `SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, options)` | 任务 ID、路径、查询、正则开关、结果上限、`SearchOptions` 结构体 | `SearchResponse` | 执行搜索。`options` 承载 `contextLines`、`encoding`（`auto`/`utf-8`/`gb18030`/`utf-16le`/`utf-16be`）、`multiLineJSON`、`eventContext`/`eventBoundary`/`eventBoundaryPattern`，以及时间窗（`timeWindowEnabled`/`timeWindowStartMs`/`timeWindowEndMs`/`timeWindowZone`：`local` 或 `utc`）和续扫起点（`startOffset`/`startLine`，-1 表示从头扫描）。`multiLineJSON=true` 时把跨行 JSON 文档作为整体匹配单元；`eventContext=true` 时按边界聚合事件。时间窗在后端扫描时过滤，行首无时间戳的命中会计入 `timeWindowSkipped`；因结果上限截断时返回续扫点 `resumeOffset`/`resumeLine`。任务需有唯一 ID，响应完成时返回权威完整结果。 |
+| `SearchLogsMultiFile(searchID, rootDir, pattern, query, useRegex, maxResults, options)` | 任务 ID、根目录、通配串、查询、正则开关、结果上限、`SearchOptions` 结构体 | `MultiSearchResponse` | 目录/通配多文件检索（阶段 6 批次 E）。递归遍历 `rootDir` 收集文件名匹配 `pattern`（分号或逗号分隔的 glob，留空用默认扩展名 `.log/.txt/.out/.json/.ndjson`）的普通文件，最多 200 个；以有界并发（`min(NumCPU, 8, 文件数)`）复用单文件扫描内核，`maxResults` 作为所有文件合计的**全局命中上限**。结果按文件路径升序、文件内按行号顺序拼接，每条命中用 `filePath` 标注来源；按文件粒度上报进度、取消时保留已完成文件的结果、失败文件单独记录原因。与单文件共用同一任务登记、`log-search:update` 事件与进度/增量轮询机制。 |
 | `GetLogSearchProgress(id)` | 任务 ID | `LogSearchProgress` | 读取字节数、扫描行数、匹配数、进度百分比及运行/取消状态。 |
 | `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示；负游标按 0 处理，超出当前结果长度时返回空数组。取消任务会在保留期内保留已发现结果。 |
 | `CancelLogSearch(id)` | 任务 ID | `boolean` | 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。 |
 | `ReadLogTail(path, offset, encoding)` | 路径、上次偏移、编码模式 | `TailResult` | 增量读取日志新增行；`offset` 为负时从文件末尾回退（默认 256 KiB）开始跟踪。只返回到最后一个换行符为止的完整行，支持 `auto`、`utf-8`、`gb18030`，UTF-16 直接返回错误。 |
 
 前端建议先生成唯一的 `searchID`，在调用 `SearchLogsAdvanced` 的同时监听 Wails `log-search:update` 事件以低延迟接收进度和新增匹配；轮询进度/增量接口仍作为兼容回退。事件包含 `searchId`、`progress` 和可选的 `matches`，前端必须按任务 ID 过滤并与轮询共用游标，防止重复追加。最终 Promise 返回后，以最终响应替换临时快照。取消是协作式操作：底层扫描会在检查点停止，并返回已累计结果。
+
+多文件检索（`SearchLogsMultiFile`）与单文件共用上述任务登记、事件与轮询链路，前端只需按「多文件开关」分流到不同桥接方法即可复用同一套结果渲染与增量拼接；`MultiSearchResponse` 的字段命名与 `SearchResponse` 对齐，额外携带 `files` 文件级明细供「来源文件总览」与按文件分组过滤使用。
 
 ### 本地服务
 
@@ -84,7 +88,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### LogSearchProgress
 
-字段包括 `searchId`、`bytesScanned`、`fileSizeBytes`、`scannedLines`、`matchesFound`、`percent`、`running`、`canceled` 和可选的 `error`。
+字段包括 `searchId`、`bytesScanned`、`fileSizeBytes`、`scannedLines`、`matchesFound`、`percent`、`running`、`canceled` 和可选的 `error`。多文件检索还携带可选的文件级字段：`filesTotal`、`filesDone`、`filesFailed` 与 `currentFile`（单文件检索时省略）。
 
 ### TailResult
 
@@ -93,6 +97,28 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 ### EventContext
 
 命中详情中的可选字段，默认不返回。字段包括：`startLine`、`endLine`、`content`（完整事件或 JSON 文档，单条最多 512 KiB）、`contentClipped` 和 `kind`（`event` 表示按边界聚合的事件，`document` 表示多行 JSON 文档）。单次检索为所有上下文保留的内容总量上限为 32 MiB；预算耗尽时后续命中不返回内容，前端应回退到行预览。
+
+### Match.filePath 与 MultiSearchResponse
+
+每条命中（`Match`）都带可选的 `filePath`，仅多文件目录检索填写以标注来源文件，单文件检索省略；前端以「来源文件 + 行号」作为结果唯一标识，因此同名的行号在不同文件间不会串选。
+
+`SearchLogsMultiFile` 返回 `MultiSearchResponse`，在 `SearchResponse` 的字段之外追加文件级明细：
+
+```json
+{
+  "filePath": "/path/to/logs",
+  "encoding": "多文件",
+  "fileSizeBytes": 8388608,
+  "bytesScanned": 8388608,
+  "scannedLines": 96000,
+  "matches": [{ "lineNumber": 2, "filePath": "/path/to/logs/app.log", "content": "..." }],
+  "files": [{ "path": "/path/to/logs/app.log", "bytesScanned": 1048576, "fileSizeBytes": 1048576, "scannedLines": 12000, "matchesFound": 3, "done": true, "failed": false }],
+  "filesTotal": 8, "filesSucceeded": 7, "filesFailed": 1, "filesSkipped": 0,
+  "filesTruncated": false, "resultLimitReached": false, "canceled": false
+}
+```
+
+`files[]` 按枚举（路径升序）顺序给出每个文件的处理状态：`done`/`failed` 标记成功或失败，失败时 `error` 记录原因；被跳过的文件（全局上限耗尽或取消后未领取）两者皆为 false。`filesSkipped` 为未扫描文件数，恒满足 `filesSucceeded + filesFailed + filesSkipped = filesTotal`；`filesTruncated` 表示目录内匹配文件超过 200 个、仅检索了排序后的前 200 个。
 
 ### ProcessSpec
 
@@ -195,6 +221,8 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `SearchOptions.EventContext`、`EventBoundary`、`EventBoundaryPattern`：启用事件上下文并按 `timestamp`（默认）、`blank` 或 `custom` 切分事件；`custom` 使用 Go 正则匹配去首尾空白后的整行，长度上限 512 字节，非法正则在打开文件前返回错误。空行模式下分隔空行不计入事件内容。
 - `SearchOptions.Encoding`：接受 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；最终识别结果通过 `SearchResponse.Encoding` 返回。自动模式先检查 BOM，再尝试 UTF-8/无 BOM UTF-16 特征，最后对非 UTF-8 文本按 GB18030 解码。
 - `TailFile(path, TailOptions)`：按偏移增量读取新增完整行，返回行、下一次偏移、文件大小、实际编码与重置/截断标记，供实时跟踪使用；编码识别与检索共用同一套抽样逻辑，UTF-16 明确拒绝。
+- `EnumerateLogFiles(root, patterns, max)`：递归遍历目录，按 glob 模式（空则用默认日志扩展名）收集普通文件并按路径升序返回，最多 `max` 个（<=0 或超过 200 时按 `MaxMultiFiles`）；第二个返回值表示是否因超过文件数上限或访问条目上限（5 万）而截断；传入单个文件而非目录时报错。
+- `SearchFilesConcurrently(ctx, files, query, useRegex, maxResults, SearchOptions, onProgress)`：以 `min(NumCPU, 8, 文件数)` 个 goroutine 从原子索引领取文件、逐个复用 `SearchFileWithOptions`（每文件回调传 nil），把结果合并成一份全局有序结果集。`maxResults` 是所有文件合计的命中上限，预算耗尽后停止领取新文件并把剩余文件计为跳过；`ctx` 取消后停止领取并保留已扫描文件（含中途取消部分）的结果；单文件失败只记入 `FileSearchState`，不整体报错。`onProgress` 在每个文件完成时以文件粒度回调一次，携带该文件新增匹配与跨文件聚合进度。
 
 约束：普通文本按固定缓冲区流式扫描；结果上限为 5,000；结果预览 8 KiB；上下文预览 1 KiB；正则模式单行限制 4 MiB。
 

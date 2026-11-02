@@ -4,6 +4,7 @@ import { searchMetaFrom, useLogSearch } from './useLogSearch'
 
 type Bridge = {
   SearchLogsAdvanced: ReturnType<typeof vi.fn>
+  SearchLogsMultiFile: ReturnType<typeof vi.fn>
   GetLogSearchProgress: ReturnType<typeof vi.fn>
   GetLogSearchMatches: ReturnType<typeof vi.fn>
   CancelLogSearch: ReturnType<typeof vi.fn>
@@ -25,6 +26,7 @@ let bridge: Bridge
 function installBridge() {
   bridge = {
     SearchLogsAdvanced: vi.fn().mockResolvedValue(result()),
+    SearchLogsMultiFile: vi.fn().mockResolvedValue(result({ filePath: 'C:/logs', encoding: '多文件' })),
     GetLogSearchProgress: vi.fn().mockResolvedValue(progress('any')),
     GetLogSearchMatches: vi.fn().mockResolvedValue([]),
     CancelLogSearch: vi.fn().mockResolvedValue(true),
@@ -50,6 +52,9 @@ function create(options: { filePath?: string; query?: string } = {}) {
     timeWindowStart: ref(''),
     timeWindowEnd: ref(''),
     timeWindowZone: ref<'local' | 'utc'>('local'),
+    multiFile: ref(false),
+    rootDir: ref('C:/logs'),
+    rootPattern: ref('*.log;*.txt'),
   }
   const response = ref<LogSearchResponse | null>(null)
   const errorMessage = ref('')
@@ -121,6 +126,33 @@ describe('log search state machine', () => {
     expect(search.hooks.onSearchFinish).toHaveBeenCalledOnce()
     expect(search.busy.value).toBe(false)
     expect(search.searchProgress.value).toMatchObject({ percent: 100, running: false, matchesFound: 0 })
+  })
+
+  it('routes a multi-file scan to the directory bridge and labels the source', async () => {
+    installBridge()
+    const search = create()
+    search.input.multiFile.value = true
+    await search.runSearch()
+
+    expect(bridge.SearchLogsAdvanced).not.toHaveBeenCalled()
+    expect(bridge.SearchLogsMultiFile).toHaveBeenCalledOnce()
+    const [id, rootDir, pattern, query] = bridge.SearchLogsMultiFile.mock.calls[0]
+    expect([rootDir, pattern, query]).toEqual(['C:/logs', '*.log;*.txt', 'boom'])
+    expect(search.searchID.value).toBe(id)
+    // 目录检索的“已打开位置”承载根目录，且回填文件级明细供总览面板使用。
+    expect(search.response.value?.filePath).toBe('C:/logs')
+    expect(search.response.value?.encoding).toBe('多文件')
+    expect(search.hooks.recordSearch).toHaveBeenCalledWith(expect.objectContaining({ path: 'C:/logs' }))
+  })
+
+  it('requires a directory before a multi-file scan and never offers resume', async () => {
+    installBridge()
+    const search = create()
+    search.input.multiFile.value = true
+    search.input.rootDir.value = ''
+    await search.runSearch()
+    expect(search.errorMessage.value).toBe('请先选择要检索的日志目录。')
+    expect(bridge.SearchLogsMultiFile).not.toHaveBeenCalled()
   })
 
   it('resolves the time window and forwards it to the backend options', async () => {

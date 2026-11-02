@@ -190,6 +190,45 @@ describe('result view state', () => {
   })
 })
 
+describe('multi-file source filter', () => {
+  const fileMatch = (filePath: string, lineNumber: number, content: string): LogMatch =>
+    ({ filePath, lineNumber, content, contentClipped: false, contextBefore: [], contextAfter: [] })
+  const rows = [
+    fileMatch('C:/logs/a.log', 2, 'ERROR a-one'),
+    fileMatch('C:/logs/b.log', 2, 'ERROR b-one'),
+    fileMatch('C:/logs/b.log', 5, 'ERROR b-two'),
+  ]
+
+  it('keys matches by file plus line so identical line numbers stay distinct', () => {
+    const view = createView(rows)
+    expect(view.matchKey(rows[0])).toBe('C:/logs/a.log:2')
+    expect(view.matchKey(rows[1])).toBe('C:/logs/b.log:2')
+    expect(view.matchKey(rows[0])).not.toBe(view.matchKey(rows[1]))
+  })
+
+  it('narrows results to one source file and toggles off on reselect', () => {
+    const view = createView(rows)
+    view.selectFileFilter('C:/logs/b.log')
+    expect(view.fileFilter.value).toBe('C:/logs/b.log')
+    expect(view.filteredMatches.value.map(m => m.content)).toEqual(['ERROR b-one', 'ERROR b-two'])
+    // 选中某文件时聚合统计随之收窄。
+    expect(view.resultSummary.value.total).toBe(2)
+
+    view.selectFileFilter('C:/logs/b.log')
+    expect(view.fileFilter.value).toBeNull()
+    expect(view.filteredMatches.value).toHaveLength(3)
+  })
+
+  it('keeps selection via matchKey and clears the filter on reset', () => {
+    const view = createView(rows)
+    view.selectFileFilter('C:/logs/a.log')
+    view.showMatch(rows[0])
+    expect(view.selectedIndex.value).toBe(0)
+    view.resetViewState()
+    expect(view.fileFilter.value).toBeNull()
+  })
+})
+
 describe('field facets and numeric trend', () => {
   const jsonMatch = (lineNumber: number, value: unknown): LogMatch => match(lineNumber, JSON.stringify(value))
   const rows = [

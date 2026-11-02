@@ -21,6 +21,9 @@ function createInput(): LogSearchInput {
     timeWindowStart: ref('2026-01-02T10:00:00'),
     timeWindowEnd: ref('2026-01-02T11:00:00'),
     timeWindowZone: ref('utc'),
+    multiFile: ref(false),
+    rootDir: ref(''),
+    rootPattern: ref('*.log;*.txt;*.out;*.json;*.ndjson'),
   }
 }
 

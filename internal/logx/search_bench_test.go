@@ -2,6 +2,8 @@ package logx
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -76,6 +78,65 @@ func BenchmarkSearchFileRealLog(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := SearchFile(path, query, false, 500); err != nil {
 			b.Fatalf("真实日志扫描失败：%v", err)
+		}
+	}
+}
+
+// BenchmarkSearchFilesDirectory 测量多文件目录扫描吞吐（阶段 6 批次 E）。
+// 默认 64 个文件、单文件约 1 MiB；METEORDESK_BENCH_FILES/METEORDESK_BENCH_SIZE_MB 可分别调文件数与单文件体积。
+func BenchmarkSearchFilesDirectory(b *testing.B) {
+	fileCount := 64
+	if value := os.Getenv("METEORDESK_BENCH_FILES"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 {
+			b.Fatal("METEORDESK_BENCH_FILES 必须是正整数")
+		}
+		fileCount = parsed
+	}
+	sizeMB := 1
+	if value := os.Getenv("METEORDESK_BENCH_SIZE_MB"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 {
+			b.Fatal("METEORDESK_BENCH_SIZE_MB 必须是正整数")
+		}
+		sizeMB = parsed
+	}
+	dir := b.TempDir()
+	line := []byte("2026-10-15T12:00:00Z INFO service=api request=abcdef123456 latency_ms=17 status=200 payload=synthetic-benchmark-data\n")
+	block := bytes.Repeat(line, (1024*1024)/len(line))
+	target := int64(sizeMB) * 1024 * 1024
+	files := make([]string, 0, fileCount)
+	var totalBytes int64
+	for i := 0; i < fileCount; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("bench-%03d.log", i))
+		file, err := os.Create(path)
+		if err != nil {
+			b.Fatal(err)
+		}
+		var written int64
+		for written < target {
+			chunk := len(block)
+			if int64(chunk) > target-written {
+				chunk = int(target - written)
+			}
+			n, writeErr := file.Write(block[:chunk])
+			written += int64(n)
+			if writeErr != nil {
+				b.Fatal(writeErr)
+			}
+		}
+		if err := file.Close(); err != nil {
+			b.Fatal(err)
+		}
+		totalBytes += written
+		files = append(files, path)
+	}
+	b.SetBytes(totalBytes)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := SearchFilesConcurrently(context.Background(), files, "NEVER_MATCH", false, 5000, SearchOptions{}, nil); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

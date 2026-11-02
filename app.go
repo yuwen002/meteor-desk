@@ -40,6 +40,11 @@ type LogSearchProgress struct {
 	Running       bool   `json:"running"`
 	Canceled      bool   `json:"canceled"`
 	Error         string `json:"error,omitempty"`
+	// 多文件目录检索按文件粒度上报进度（阶段 6 批次 E）；单文件检索这些字段保持零值不输出。
+	FilesTotal  int    `json:"filesTotal,omitempty"`
+	FilesDone   int    `json:"filesDone,omitempty"`
+	FilesFailed int    `json:"filesFailed,omitempty"`
+	CurrentFile string `json:"currentFile,omitempty"`
 }
 type SearchMatchesEvent struct {
 	SearchID string            `json:"searchId"`
@@ -132,6 +137,14 @@ func (a *App) SelectLogFile() (string, error) {
 	return path, err
 }
 
+// SelectLogDirectory 打开系统目录选择器，返回用户选中的日志目录，供多文件目录检索使用（阶段 6 批次 E）。
+func (a *App) SelectLogDirectory() (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("桌面运行环境尚未就绪")
+	}
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "选择要检索的日志目录"})
+}
+
 // PollDroppedFiles 取出并清空桌面拖放事件中积累的文件路径。
 func (a *App) PollDroppedFiles() []string {
 	a.mu.Lock()
@@ -172,6 +185,49 @@ func (a *App) SearchLogsAdvanced(searchID, path, query string, useRegex bool, ma
 	a.mu.Unlock()
 	response, err := logx.SearchFileWithOptions(searchCtx, path, query, useRegex, maxResults, options, func(p logx.Progress) { a.updateSearchProgress(searchID, p) })
 	a.finishSearchJob(searchID, path, response, err)
+	cancel()
+	return response, err
+}
+
+// splitPatterns 把用户输入的通配串按分号或逗号拆成模式列表；空输入交给 logx 回退默认扩展名。
+func splitPatterns(pattern string) []string {
+	return strings.FieldsFunc(pattern, func(r rune) bool { return r == ';' || r == ',' })
+}
+
+// SearchLogsMultiFile 按目录或通配模式收集最多 200 个文件并统一检索（阶段 6 批次 E）。
+// 与 SearchLogsAdvanced 共用同一套任务登记、进度轮询与增量匹配机制，因此不改变单文件既有行为：
+// 扫描期间通过 updateSearchProgressMulti 上报按文件粒度的进度，取消时保留已完成文件的结果，失败文件单独记录原因。
+func (a *App) SearchLogsMultiFile(searchID, rootDir, pattern, query string, useRegex bool, maxResults int, options logx.SearchOptions) (logx.MultiSearchResponse, error) {
+	if a.ctx == nil {
+		return logx.MultiSearchResponse{}, errors.New("桌面运行环境尚未就绪")
+	}
+	if searchID == "" {
+		return logx.MultiSearchResponse{}, errors.New("缺少检索任务编号")
+	}
+	files, truncated, err := logx.EnumerateLogFiles(rootDir, splitPatterns(pattern), logx.MaxMultiFiles)
+	if err != nil {
+		return logx.MultiSearchResponse{}, err
+	}
+	if len(files) == 0 {
+		return logx.MultiSearchResponse{}, errors.New("目录中没有匹配到可检索的日志文件")
+	}
+	a.mu.Lock()
+	a.pruneSearchesLocked()
+	if _, exists := a.searches[searchID]; exists {
+		a.mu.Unlock()
+		return logx.MultiSearchResponse{}, errors.New("检索任务编号重复")
+	}
+	searchCtx, cancel := context.WithCancel(a.ctx)
+	a.searches[searchID] = &searchJob{cancel: cancel, progress: LogSearchProgress{SearchID: searchID, Running: true, FilesTotal: len(files)}}
+	a.mu.Unlock()
+
+	response, err := logx.SearchFilesConcurrently(searchCtx, files, query, useRegex, maxResults, options, func(p logx.MultiProgress) {
+		a.updateSearchProgressMulti(searchID, p)
+	})
+	response.FilePath = rootDir
+	response.Encoding = "多文件"
+	response.FilesTruncated = truncated
+	a.finishMultiSearchJob(searchID, response, err)
 	cancel()
 	return response, err
 }
@@ -602,6 +658,73 @@ func (a *App) finishSearchJob(id, path string, response logx.SearchResponse, sea
 	if searchErr == nil && !response.Canceled {
 		_ = a.persistCurrentSettings()
 	}
+}
+
+// updateSearchProgressMulti 把多文件检索的聚合进度写回任务快照，并缓存本批新到达的匹配。
+// 与单文件 updateSearchProgress 一一对应，因此前端的轮询与事件订阅无需区分两种检索。
+func (a *App) updateSearchProgressMulti(id string, p logx.MultiProgress) {
+	a.mu.Lock()
+	job, ok := a.searches[id]
+	if !ok {
+		a.mu.Unlock()
+		return
+	}
+	job.progress.BytesScanned = p.BytesScanned
+	job.progress.FileSizeBytes = p.TotalBytes
+	job.progress.ScannedLines = p.ScannedLines
+	job.progress.MatchesFound = p.MatchesFound
+	job.progress.FilesTotal = p.FilesTotal
+	job.progress.FilesDone = p.FilesDone
+	job.progress.FilesFailed = p.FilesFailed
+	job.progress.CurrentFile = p.CurrentFile
+	if len(p.Matches) > 0 {
+		job.matches = append(job.matches, p.Matches...)
+	}
+	job.progress.Percent = calcPercent(p.BytesScanned, p.TotalBytes, job.progress.Running, false)
+	event := SearchMatchesEvent{
+		SearchID: id,
+		Progress: job.progress,
+		Matches:  append([]logx.Match(nil), p.Matches...),
+	}
+	ctx, enabled := a.ctx, a.eventsEnabled
+	a.mu.Unlock()
+
+	if enabled && ctx != nil {
+		runtime.EventsEmit(ctx, "log-search:update", event)
+	}
+}
+
+// finishMultiSearchJob 发布多文件检索的最终快照。与单文件一致，被取消的任务保留
+// 已完成文件的增量结果供迟到轮询，成功任务则由最终响应交付，这里释放增量缓存。
+func (a *App) finishMultiSearchJob(id string, response logx.MultiSearchResponse, searchErr error) {
+	a.mu.Lock()
+	if current, ok := a.searches[id]; ok {
+		current.cancel = nil
+		current.completedAt = time.Now()
+		current.progress.Running = false
+		current.progress.Canceled = response.Canceled
+		if searchErr != nil {
+			current.progress.Error = searchErr.Error()
+		}
+		if response.FileSizeBytes > 0 {
+			current.progress.FileSizeBytes = response.FileSizeBytes
+		}
+		if response.BytesScanned > current.progress.BytesScanned {
+			current.progress.BytesScanned = response.BytesScanned
+		}
+		if response.ScannedLines > current.progress.ScannedLines {
+			current.progress.ScannedLines = response.ScannedLines
+		}
+		current.progress.MatchesFound = len(response.Matches)
+		current.progress.FilesTotal = response.FilesTotal
+		current.progress.FilesDone = response.FilesSucceeded
+		current.progress.FilesFailed = response.FilesFailed
+		current.progress.Percent = calcPercent(current.progress.BytesScanned, current.progress.FileSizeBytes, false, response.Canceled || searchErr != nil)
+		if !response.Canceled || searchErr != nil {
+			current.matches = nil
+		}
+	}
+	a.mu.Unlock()
 }
 
 // pruneSearchesLocked expires old completed tasks and then bounds retained task metadata.

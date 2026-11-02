@@ -44,11 +44,19 @@ export function useResultView(options: {
   const facetPath = ref('')
   const facetFilter = ref<{ path: string; value: string } | null>(null)
   const trendPath = ref('')
+  // 多文件检索（阶段 6 批次 E）：文件过滤把结果收窄到某个来源文件，等价于“按文件分组查看”。
+  const fileFilter = ref<string | null>(null)
 
-  // 先按收藏与关键字筛选，再按时间段筛选，最后排序；虚拟滚动只消费最终列表。
+  // matchKey 同时兼顾行号与来源文件：单文件时 filePath 为空，退化为按行号唯一。
+  function matchKey(match: LogMatch): string {
+    return (match.filePath ?? '') + ':' + match.lineNumber
+  }
+
+  // 先按文件收窄（多文件），再按收藏与关键字筛选，最后叠加时间段与 facets；虚拟滚动只消费最终列表。
   const keywordFiltered = computed(() => {
     const keyword = resultFilter.value.trim().toLowerCase()
     let list = options.matches()
+    if (fileFilter.value) list = list.filter(m => (m.filePath ?? '') === fileFilter.value)
     if (bookmarkOnly.value) {
       const keys = options.bookmarkKeys.value
       list = list.filter(m => keys.has(bookmarkKey(options.filePath.value, m.lineNumber)))
@@ -120,6 +128,14 @@ export function useResultView(options: {
   function clearFacet() {
     facetFilter.value = null
   }
+  // 点击某个来源文件即把结果收窄到该文件，再次点击同一文件取消。
+  function selectFileFilter(path: string) {
+    fileFilter.value = fileFilter.value === path ? null : path
+    scrollResultListToTop()
+  }
+  function clearFileFilter() {
+    fileFilter.value = null
+  }
   // 切换分布字段时，旧的取值过滤不再适用，直接清除。
   watch(facetPath, () => { facetFilter.value = null })
 
@@ -139,7 +155,10 @@ export function useResultView(options: {
   const visibleMatches = computed(() => filteredMatches.value.slice(virtualStart.value, virtualStart.value + VISIBLE_ROWS))
   const virtualTop = computed(() => virtualStart.value * ROW_HEIGHT)
   const virtualBottom = computed(() => Math.max(0, (filteredMatches.value.length - virtualStart.value - visibleMatches.value.length) * ROW_HEIGHT))
-  const selectedIndex = computed(() => filteredMatches.value.findIndex(m => m.lineNumber === selectedMatch.value?.lineNumber))
+  const selectedIndex = computed(() => {
+    const key = selectedMatch.value ? matchKey(selectedMatch.value) : ''
+    return filteredMatches.value.findIndex(m => matchKey(m) === key)
+  })
 
   function updateScroll(event: Event) {
     if (event.target instanceof HTMLElement) scrollTop.value = event.target.scrollTop
@@ -175,6 +194,7 @@ export function useResultView(options: {
     facetPath.value = ''
     facetFilter.value = null
     trendPath.value = ''
+    fileFilter.value = null
     scrollResultListToTop()
   }
 
@@ -184,6 +204,7 @@ export function useResultView(options: {
     keywordFiltered, filteredMatches, resultSummary, timeDistribution,
     facetPath, facetFilter, trendPath, fieldInfos, trendCandidates, activeFacet, activeTrend,
     selectFacetValue, facetValueActive, clearFacet, trendBarHeight, trendTitle, trendLabelVisible,
+    fileFilter, selectFileFilter, clearFileFilter, matchKey,
     virtualStart, visibleMatches, virtualTop, virtualBottom, selectedIndex,
     selectTimelineBucket, timelineActive, timelineHeight, timelineTitle, timelineLabelVisible,
     updateScroll, showMatch, moveMatch, resetViewState,

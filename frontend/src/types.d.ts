@@ -3,10 +3,11 @@ export {}
 declare global {
   interface LogLineContext { lineNumber:number; content:string; contentClipped:boolean }
   interface LogEventContext { startLine:number; endLine:number; content:string; contentClipped:boolean; kind?:'event'|'document' }
-  interface LogMatch extends LogLineContext { contextBefore:LogLineContext[]; contextAfter:LogLineContext[]; event?:LogEventContext }
-  interface LogSearchResponse { filePath:string; encoding:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean; timeWindowSkipped?:number; resumeOffset?:number; resumeLine?:number }
+  interface LogMatch extends LogLineContext { filePath?:string; contextBefore:LogLineContext[]; contextAfter:LogLineContext[]; event?:LogEventContext }
+  interface LogFileSearchState { path:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; done:boolean; failed:boolean; error?:string }
+  interface LogSearchResponse { filePath:string; encoding:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean; timeWindowSkipped?:number; resumeOffset?:number; resumeLine?:number; files?:LogFileSearchState[]; filesTotal?:number; filesSucceeded?:number; filesFailed?:number; filesSkipped?:number; filesTruncated?:boolean }
   interface LogSearchOptions { contextLines:number; encoding?:string; multiLineJSON?:boolean; eventContext?:boolean; eventBoundary?:string; eventBoundaryPattern?:string; timeWindowEnabled?:boolean; timeWindowStartMs?:number; timeWindowEndMs?:number; timeWindowZone?:'local'|'utc'; startOffset?:number; startLine?:number }
-  interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string }
+  interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string; filesTotal?:number; filesDone?:number; filesFailed?:number; currentFile?:string }
   interface SearchMatchesEvent { searchId:string; progress:LogSearchProgress; matches?:LogMatch[] }
   interface SearchRecord { query:string; path:string; useRegex:boolean; contextLines:number; encoding?:string; createdAt:string }
   interface AppSettings { recentFiles:string[]; searchHistory:SearchRecord[]; contextLines:number; resultLimit:number }
@@ -31,7 +32,9 @@ declare global {
   interface RuntimeInfo { appVersion:string; goVersion:string; platform:string; dataDir:string }
   interface Window { runtime?:{EventsOn:(eventName:string,callback:(event:SearchMatchesEvent)=>void)=>()=>void}; go?:{main?:{App?:{
     SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
+    SelectLogDirectory:()=>Promise<string>;
     SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,options:LogSearchOptions)=>Promise<LogSearchResponse>;
+    SearchLogsMultiFile:(id:string,rootDir:string,pattern:string,query:string,useRegex:boolean,maxResults:number,options:LogSearchOptions)=>Promise<LogSearchResponse>;
     GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; GetLogSearchMatches:(id:string,afterIndex:number)=>Promise<LogMatch[]>; CancelLogSearch:(id:string)=>Promise<boolean>;
     GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
     GetProcesses:()=>Promise<ProcessView[]>; SaveProcess:(spec:ProcessSpec)=>Promise<ProcessView>; DeleteProcess:(id:string)=>Promise<void>;
