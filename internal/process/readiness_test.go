@@ -51,7 +51,7 @@ func TestStartBatchWaitsForDependencyReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
 	if err != nil {
@@ -71,7 +71,7 @@ func TestStartBatchWaitsForDependencyReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer manager.StopAll()
+	defer func() { _ = manager.StopAll() }()
 
 	started := time.Now()
 	results, err := manager.StartBatch([]string{dependent.Spec.ID})
@@ -129,7 +129,7 @@ func TestStartBatchBlocksDownstreamWhenDependencyUnhealthy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer manager.StopAll()
+	defer func() { _ = manager.StopAll() }()
 
 	started := time.Now()
 	results, err := manager.StartBatch([]string{dependent.Spec.ID})

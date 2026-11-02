@@ -14,7 +14,7 @@ func TestSearchLogsRejectsDuplicateTaskID(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 	app.searches["duplicate"] = &searchJob{
-		progress: LogSearchProgress{SearchID: "duplicate", Running: false},
+		progress:    LogSearchProgress{SearchID: "duplicate", Running: false},
 		completedAt: time.Now(),
 	}
 
@@ -29,15 +29,15 @@ func TestCanceledSearchKeepsIncrementalResultsUntilExpiry(t *testing.T) {
 	match := logx.Match{LineNumber: 7, Content: "needle found"}
 	app.searches["canceled"] = &searchJob{
 		progress: LogSearchProgress{SearchID: "canceled", Running: true},
-		matches: []logx.Match{match},
+		matches:  []logx.Match{match},
 	}
 
 	response := logx.SearchResponse{
-		Canceled: true,
-		Matches: []logx.Match{match},
+		Canceled:      true,
+		Matches:       []logx.Match{match},
 		FileSizeBytes: 100,
-		BytesScanned: 50,
-		ScannedLines: 7,
+		BytesScanned:  50,
+		ScannedLines:  7,
 	}
 	app.finishSearchJob("canceled", "", response, nil)
 
@@ -68,9 +68,9 @@ func TestSearchMatchesCursorBoundaries(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
+		name  string
 		after int
-		want []int64
+		want  []int64
 	}{
 		{name: "negative starts at beginning", after: -1, want: []int64{1, 2}},
 		{name: "zero starts at beginning", after: 0, want: []int64{1, 2}},
@@ -100,7 +100,7 @@ func TestConcurrentSearchPollingIsSafe(t *testing.T) {
 	app := NewApp()
 	app.searches["poll"] = &searchJob{
 		progress: LogSearchProgress{SearchID: "poll", Running: true},
-		matches: []logx.Match{{LineNumber: 1, Content: "first"}},
+		matches:  []logx.Match{{LineNumber: 1, Content: "first"}},
 	}
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
@@ -124,11 +124,11 @@ func TestConcurrentSearchPollingIsSafe(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
 			app.updateSearchProgress("poll", logx.Progress{
-				BytesScanned: int64(i),
+				BytesScanned:  int64(i),
 				FileSizeBytes: 100,
-				ScannedLines: int64(i),
-				MatchesFound: i + 1,
-				Matches: []logx.Match{{LineNumber: int64(i + 2), Content: "incremental"}},
+				ScannedLines:  int64(i),
+				MatchesFound:  i + 1,
+				Matches:       []logx.Match{{LineNumber: int64(i + 2), Content: "incremental"}},
 			})
 		}
 	}()
@@ -138,7 +138,7 @@ func TestConcurrentSearchPollingIsSafe(t *testing.T) {
 func TestPruneSearchesExpiresCompletedJobsButKeepsRunningJobs(t *testing.T) {
 	app := NewApp()
 	app.searches["expired"] = &searchJob{
-		progress: LogSearchProgress{SearchID: "expired", Running: false},
+		progress:    LogSearchProgress{SearchID: "expired", Running: false},
 		completedAt: time.Now().Add(-searchJobRetention - time.Second),
 	}
 	app.searches["running"] = &searchJob{

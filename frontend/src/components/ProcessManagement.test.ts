@@ -36,12 +36,18 @@ function createBridge(views: ProcessView[] = []) {
     ExportProcessConfigs: vi.fn().mockResolvedValue(''),
     ImportProcessConfigs: vi.fn().mockResolvedValue([]),
     SaveExportFile: vi.fn().mockResolvedValue(''),
+    GetProcessRunHistory: vi.fn().mockResolvedValue([]),
+    ListProcessGroups: vi.fn().mockResolvedValue([]),
+    SaveProcessGroup: vi.fn(async (group: ProcessGroup): Promise<ProcessGroup> => ({ ...group, id: group.id || 'group-1' })),
+    DeleteProcessGroup: vi.fn().mockResolvedValue(undefined),
+    StartProcessGroup: vi.fn().mockResolvedValue([]),
+    StopProcessGroup: vi.fn().mockResolvedValue([]),
   }
 }
 
-async function mountPanel(bridge: ReturnType<typeof createBridge>) {
+async function mountPanel(bridge: ReturnType<typeof createBridge>, props: Record<string, unknown> = {}) {
   Object.defineProperty(window, 'go', { configurable: true, value: { main: { App: bridge } } })
-  const wrapper = mount(ProcessManagement, { props: { active: true }, attachTo: document.body })
+  const wrapper = mount(ProcessManagement, { props: { active: true, ...props }, attachTo: document.body })
   await flushPromises()
   return wrapper
 }
@@ -266,6 +272,117 @@ describe('process management', () => {
     expect(rows[2].text()).toContain('异常退出（退出码 7）')
     expect(rows[2].text()).toContain('运行 9.0 秒')
     expect(wrapper.get('.timeline-hint').text()).toContain('首次输出或健康检查通过')
+    wrapper.unmount()
+  })
+
+  it('emits open-log with the disk path so the log page can take over', async () => {
+    const logPath = 'C:\\Users\\me\\AppData\\logs\\API.log'
+    const bridge = createBridge([processView('api', 'API', { logToDisk: true }, { state: 'running', pid: 1, logFilePath: logPath })])
+    const wrapper = await mountPanel(bridge)
+    await wrapper.findAll('.process-item')[0].trigger('click')
+    await flushPromises()
+
+    const panel = wrapper.get('.disk-log-panel')
+    expect(panel.text()).toContain('输出落盘')
+    expect(panel.get('.disk-log-path').text()).toBe(logPath)
+    await panel.get('button').trigger('click')
+    expect(wrapper.emitted('open-log')?.[0]).toEqual([logPath])
+    wrapper.unmount()
+  })
+
+  it('renders the persisted run history newest first with peak metrics', async () => {
+    const bridge = createBridge([processView('api', 'API')])
+    bridge.GetProcessRunHistory.mockResolvedValue([
+      { serviceId: 'api', serviceName: 'API', startedAt: '2026-10-31T00:00:00Z', finishedAt: '2026-10-31T00:01:00Z', durationMs: 60000, exitReason: 'normal', exitCode: 0, peakCpuPercent: 12.5, peakMemoryBytes: 20 * 1024 * 1024 },
+      { serviceId: 'api', serviceName: 'API', startedAt: '2026-10-31T01:00:00Z', finishedAt: '2026-10-31T01:00:05Z', durationMs: 5000, exitReason: 'nonzero', exitCode: 2, restarts: 3, peakCpuPercent: 88, peakMemoryBytes: 40 * 1024 * 1024 },
+    ])
+    const wrapper = await mountPanel(bridge)
+    await wrapper.findAll('.process-item')[0].trigger('click')
+    await flushPromises()
+
+    expect(bridge.GetProcessRunHistory).toHaveBeenCalledWith('api')
+    const head = wrapper.get('.run-history-head')
+    expect(head.text()).toContain('共 2 次')
+    expect(head.text()).toContain('异常退出 1 次')
+    expect(head.text()).toContain('累计自动重启 3 次')
+    const rows = wrapper.findAll('.run-row')
+    expect(rows).toHaveLength(2)
+    // 最新一次排在最前，并标记为异常退出。
+    expect(rows[0].classes().length).toBeGreaterThan(0)
+    expect(rows[0].text()).toContain('第 2 次')
+    expect(rows[0].text()).toContain('非零退出（2）')
+    expect(rows[0].text()).toContain('内存 40.0 MB')
+    expect(rows[1].text()).toContain('正常退出（0）')
+    wrapper.unmount()
+  })
+
+  it('lists groups and starts the whole group through the bridge', async () => {
+    const bridge = createBridge([processView('db', '数据库'), processView('api', 'API', { dependsOn: ['db'] })])
+    bridge.ListProcessGroups.mockResolvedValue([{ id: 'g1', name: '本地联调', description: '一起起', memberIds: ['db', 'api'] }])
+    bridge.StartProcessGroup.mockResolvedValue([{ id: 'db', success: true }, { id: 'api', success: true }])
+    const wrapper = await mountPanel(bridge)
+    await flushPromises()
+
+    const group = wrapper.get('.group-item')
+    expect(group.text()).toContain('本地联调')
+    expect(group.text()).toContain('数据库')
+    expect(group.text()).toContain('API')
+    const startButton = wrapper.findAll('.group-item-actions button').find(button => button.text().includes('整组启动'))
+    if (!startButton) throw new Error('整组启动按钮未渲染')
+    await startButton.trigger('click')
+    await flushPromises()
+    expect(bridge.StartProcessGroup).toHaveBeenCalledWith('g1')
+    wrapper.unmount()
+  })
+
+  it('saves a new group from the editor with toggled members', async () => {
+    const bridge = createBridge([processView('db', '数据库'), processView('api', 'API')])
+    const wrapper = await mountPanel(bridge)
+    await fillRequiredFields(wrapper, 'ignore', 'ignore')
+    await wrapper.get('input[aria-label="分组名称"]').setValue('联调场景')
+    const members = wrapper.findAll('.group-member-item')
+    expect(members).toHaveLength(2)
+    await members[0].get('input').setValue(true)
+    await members[1].get('input').setValue(true)
+    const saveGroupButton = wrapper.findAll('.group-editor-actions button').find(button => button.text().includes('新建分组'))
+    if (!saveGroupButton) throw new Error('新建分组按钮未渲染')
+    await saveGroupButton.trigger('click')
+    await flushPromises()
+
+    expect(bridge.SaveProcessGroup).toHaveBeenCalledTimes(1)
+    expect(bridge.SaveProcessGroup.mock.calls[0][0]).toMatchObject({ name: '联调场景', memberIds: ['db', 'api'] })
+    wrapper.unmount()
+  })
+
+  it('selects a service requested via focusId and reports the jump handled', async () => {
+    const bridge = createBridge([processView('db', '数据库'), processView('api', 'API')])
+    const wrapper = await mountPanel(bridge)
+    await wrapper.setProps({ focusId: 'api' })
+    await flushPromises()
+
+    expect((wrapper.get('input[placeholder="例如：后端 API"]').element as HTMLInputElement).value).toBe('API')
+    expect(wrapper.emitted('focus-handled')).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('stops the occupying managed service when a declared port is taken by it', async () => {
+    const bridge = createBridge([processView('api', 'API', { ports: [8080] })])
+    bridge.GetPortDiagnostics.mockResolvedValue({
+      specId: 'api', declared: [8080],
+      ports: [{ port: 8080, state: 'occupied', pid: 999, process: 'node', ownerSpecId: 'db', ownerName: '数据库' }],
+      listening: [], scannedAt: '2026-10-31T00:00:05Z',
+    })
+    const wrapper = await mountPanel(bridge)
+    await wrapper.findAll('.process-item')[0].trigger('click')
+    await flushPromises()
+
+    const panel = wrapper.get('.port-diagnostics')
+    expect(panel.text()).toContain('被本工作台服务“数据库”占用')
+    const stopButton = panel.find('.port-stop')
+    expect(stopButton.exists()).toBe(true)
+    await stopButton.trigger('click')
+    await flushPromises()
+    expect(bridge.StopProcess).toHaveBeenCalledWith('db')
     wrapper.unmount()
   })
 })

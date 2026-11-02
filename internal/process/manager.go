@@ -1,135 +1,102 @@
 // Package process 管理本地开发服务，配置保存在用户目录，输出只保留有限缓存。
+//
+// 文件按职责划分，行为约定集中在 Manager 的锁纪律上：
+//   - manager.go：管理器状态、配置加载与持久化、快照查询、配置增删。
+//   - spec.go：服务定义的校验、克隆与 ID 生成。
+//   - transfer.go：配置导入导出（含敏感变量脱敏）。
+//   - lifecycle.go：单个服务的启动、退出收尾与停止，以及对外启停入口。
+//   - batch.go：批量启停与依赖拓扑排序。
+//   - restart.go：异常退出的自动重启与指数退避。
+//   - health.go / readiness.go / metrics.go / ports.go：健康探测、就绪等待、资源采样与端口诊断。
+//   - output.go：输出缓存与按行读取；events.go：生命周期事件时间线。
+//   - instance.go：单次运行实例的内部结构。
 package process
 
 import (
-	"bufio"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
-const maxOutputLines = 1500
-const maxProcessEvents = 40
-const maxOutputLineBytes = 64 * 1024
-const maxConfigImportBytes = 1 << 20
-const maxServiceConfigs = 500
-
-// processStopConcurrencyCushion 为并发停止的等待者预留外部命令与调度开销。
-// 结束进程树需要在锁外调用 taskkill（Windows）或信号操作，慢机器上每次可能占用数百毫秒到数秒；
-// 等待预算若不包含这部分余量，跟随 leader 收尾的协程会先超时，误报“等待并发停止操作完成超时”。
-const processStopConcurrencyCushion = 4 * time.Second
-const processStopGracePeriod = 1500 * time.Millisecond
-const processForceStopWait = 2 * time.Second
-const processStopFinalizeWait = 500 * time.Millisecond
-const processConcurrentStopWait = processStopGracePeriod + processForceStopWait + processStopFinalizeWait + processStopConcurrencyCushion
-
-// restartBackoffBase 是首次自动重启前的等待时间；测试中会调小。
-var restartBackoffBase = time.Second
-
-const maxRestartBackoff = 30 * time.Second
-
-// OutputLine 表示某个服务的一条本机输出或生命周期消息。
-type OutputLine struct {
-	Sequence int64 `json:"sequence"`
-	Time string `json:"time"`
-	Stream string `json:"stream"`
-	Text string `json:"text"`
-}
-// View 将服务配置与当前运行快照组合，作为前端列表项的数据结构。
-type View struct {
-	Spec Spec `json:"spec"`
-	Status Snapshot `json:"status"`
-}
-type managedProcess struct {
-	cmd *exec.Cmd
-	done chan struct{}
-	startedAt time.Time
-	stdout io.Closer
-	stderr io.Closer
-	closeOutputOnce sync.Once
-	probeStop chan struct{}
-	probeOnce sync.Once
-	metricsStop chan struct{}
-	metricsOnce sync.Once
-	// history 是资源采样的环形窗口，只在 m.mu 下读写。
-	history []ResourceSample
-	// readyDone 标记本次运行是否已记录就绪事件（首次输出或健康通过，先到为准）。
-	readyDone bool
-	snapshot Snapshot
-}
-
-// stopProbe 结束健康检查协程；重复调用是安全的。
-func (p *managedProcess) stopProbe() {
-	if p == nil || p.probeStop == nil {
-		return
-	}
-	p.probeOnce.Do(func() { close(p.probeStop) })
-}
-
-// stopSamplers 结束健康检查与资源采样协程；重复调用是安全的。
-func (p *managedProcess) stopSamplers() {
-	p.stopProbe()
-	if p == nil || p.metricsStop == nil {
-		return
-	}
-	p.metricsOnce.Do(func() { close(p.metricsStop) })
-}
-
-func (p *managedProcess) closeOutputPipes() {
-	if p == nil {
-		return
-	}
-	p.closeOutputOnce.Do(func() {
-		if p.stdout != nil {
-			_ = p.stdout.Close()
-		}
-		if p.stderr != nil {
-			_ = p.stderr.Close()
-		}
-	})
-}
 // Manager 持有服务配置、受管理的进程实例及有界的输出缓存。
 // 所有共享状态均通过 mu 保护；调用耗时操作前会尽量释放锁。
 type Manager struct {
-	mu sync.RWMutex
-	configPath string
-	specs map[string]Spec
-	instances map[string]*managedProcess
-	outputs map[string][]OutputLine
+	mu             sync.RWMutex
+	configPath     string
+	specs          map[string]Spec
+	instances      map[string]*managedProcess
+	outputs        map[string][]OutputLine
 	outputSequence map[string]int64
-	restartTimers map[string]*time.Timer
-	// events 按服务保存最近 maxProcessEvents 条生命周期事件，跨重启保留，进程退出后仍可回看。
+	restartTimers  map[string]*time.Timer
+	// events 按服务保存最近 maxProcessEvents 条生命周期事件，跨重启保留并落盘到 eventsPath。
 	events map[string][]ProcessEvent
+	// eventsPath 是与 processes.json 同目录的 process-events.json 全路径，构造后不再变更。
+	eventsPath string
+	// eventsDirty 标记时间线自上次落盘后是否有变更，由 m.mu 保护；
+	// 落盘在各生命周期方法释放 m.mu 前于锁内串行完成（见 persistEventsLocked）。
+	eventsDirty bool
+	// runHistory 按服务保存最近 maxRunHistory 条运行记录，跨重启保留并落盘到 runHistoryPath。
+	runHistory map[string][]RunRecord
+	// runHistoryPath 是与 processes.json 同目录的 run-history.json 全路径，构造后不再变更。
+	runHistoryPath string
+	// runHistoryDirty 标记运行历史自上次落盘后是否有变更，由 m.mu 保护。
+	runHistoryDirty bool
+	// groups 保存命名服务分组（场景），只按 ID 引用服务，落盘到与 processes.json 同目录的 groups.json。
+	groups map[string]Group
+	// groupsPath 构造后不再变更，为 groups.json 的绝对路径。
+	groupsPath string
 }
 
 // NewManager 在当前用户配置目录中创建进程管理器。
 func NewManager() (*Manager, error) {
 	base, err := os.UserConfigDir()
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return NewManagerAt(filepath.Join(base, "MeteorDesk", "processes.json"))
 }
 
 // NewManagerAt 从指定文件加载服务定义，主要用于隔离测试或自定义本地路径。
+// 配置文件不存在时返回空管理器，不会视为错误。
 func NewManagerAt(path string) (*Manager, error) {
-	m := &Manager{configPath:path, specs:map[string]Spec{}, instances:map[string]*managedProcess{}, outputs:map[string][]OutputLine{}, outputSequence:map[string]int64{}, restartTimers:map[string]*time.Timer{}, events:map[string][]ProcessEvent{}}
+	m := &Manager{
+		configPath:     path,
+		specs:          map[string]Spec{},
+		instances:      map[string]*managedProcess{},
+		outputs:        map[string][]OutputLine{},
+		outputSequence: map[string]int64{},
+		restartTimers:  map[string]*time.Timer{},
+		events:         map[string][]ProcessEvent{},
+		eventsPath:     filepath.Join(filepath.Dir(path), eventsFileName),
+		runHistory:     map[string][]RunRecord{},
+		runHistoryPath: filepath.Join(filepath.Dir(path), runHistoryFileName),
+		groups:         map[string]Group{},
+		groupsPath:     filepath.Join(filepath.Dir(path), groupsFileName),
+	}
+	m.loadEventsFromDisk()
+	m.loadRunHistoryFromDisk()
+	m.loadGroupsFromDisk()
 	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) { return nil, fmt.Errorf("读取进程配置失败：%w", err) }
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("读取进程配置失败：%w", err)
+	}
 	if err == nil {
 		var specs []Spec
-		if err := json.Unmarshal(data, &specs); err != nil { return nil, fmt.Errorf("解析进程配置失败：%w", err) }
-		for _, spec := range specs { if spec.ID != "" { m.specs[spec.ID] = cloneSpec(spec) } }
+		if err := json.Unmarshal(data, &specs); err != nil {
+			return nil, fmt.Errorf("解析进程配置失败：%w", err)
+		}
+		for _, spec := range specs {
+			if spec.ID != "" {
+				m.specs[spec.ID] = cloneSpec(spec)
+			}
+		}
 	}
 	return m, nil
 }
@@ -139,211 +106,46 @@ func (m *Manager) List() []View {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	ids := make([]string, 0, len(m.specs))
-	for id := range m.specs { ids = append(ids, id) }
+	for id := range m.specs {
+		ids = append(ids, id)
+	}
 	sort.Strings(ids)
 	items := make([]View, 0, len(ids))
 	for _, id := range ids {
 		spec := cloneSpec(m.specs[id])
-		status := Snapshot{ID:id, Name:spec.Name, State:StateStopped}
-		if instance := m.instances[id]; instance != nil { status = instance.snapshot }
-		items = append(items, View{Spec:spec, Status:status})
+		status := Snapshot{ID: id, Name: spec.Name, State: StateStopped}
+		if instance := m.instances[id]; instance != nil {
+			status = instance.snapshot
+		}
+		items = append(items, View{Spec: spec, Status: status})
 	}
 	return items
 }
 
-
- // ExportConfig serializes service definitions. Sensitive environment values
- // are blanked when redaction is requested; the keys are retained for editing.
-func (m *Manager) ExportConfig(redactSensitive bool) ([]byte, error) {
+// FindServiceByLogPath 根据日志文件绝对路径反查归属的本工作台服务，用于日志分析向进程详情的跳转。
+// 匹配已落盘服务的当前落盘路径（服务停止后仍保留最后一次路径）；找不到时返回 false。
+// 路径比较先做 Clean 归一，Windows 下不区分大小写。
+func (m *Manager) FindServiceByLogPath(path string) (Snapshot, bool) {
+	if strings.TrimSpace(path) == "" {
+		return Snapshot{}, false
+	}
+	target := filepath.Clean(path)
 	m.mu.RLock()
-	specs := make([]Spec, 0, len(m.specs))
-	for _, spec := range m.specs { specs = append(specs, cloneSpec(spec)) }
-	m.mu.RUnlock()
-	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
-	if redactSensitive {
-		for i := range specs {
-			for key := range specs[i].Env {
-				if isSensitiveEnvKey(key) { specs[i].Env[key] = "" }
-			}
+	defer m.mu.RUnlock()
+	for _, instance := range m.instances {
+		if instance == nil || instance.snapshot.LogFilePath == "" {
+			continue
+		}
+		candidate := filepath.Clean(instance.snapshot.LogFilePath)
+		matched := candidate == target
+		if !matched && runtime.GOOS == "windows" {
+			matched = strings.EqualFold(candidate, target)
+		}
+		if matched {
+			return instance.snapshot, true
 		}
 	}
-	return json.MarshalIndent(specs, "", "  ")
-}
-
-// ImportConfig merges definitions as new, stopped services. IDs are regenerated
-// and dependency references within the import file are rewritten.
-func (m *Manager) ImportConfig(data []byte) ([]View, error) {
-	if len(data) == 0 { return nil, errors.New("导入文件为空") }
-	if len(data) > maxConfigImportBytes {
-		return nil, fmt.Errorf("导入文件过大，最大支持 %d KiB", maxConfigImportBytes/1024)
-	}
-	var incoming []Spec
-	if err := json.Unmarshal(data, &incoming); err != nil {
-		return nil, fmt.Errorf("解析服务配置失败：%w", err)
-	}
-	if len(incoming) > maxServiceConfigs {
-		return nil, fmt.Errorf("单次最多导入 %d 个服务配置", maxServiceConfigs)
-	}
-	if len(incoming) == 0 { return []View{}, nil }
-	sourceIDs := make(map[string]struct{}, len(incoming))
-	for i := range incoming {
-		incoming[i].ID = strings.TrimSpace(incoming[i].ID)
-		if incoming[i].ID == "" { return nil, fmt.Errorf("第 %d 个服务缺少配置 ID", i+1) }
-		if _, exists := sourceIDs[incoming[i].ID]; exists {
-			return nil, fmt.Errorf("导入文件中存在重复服务 ID：%s", incoming[i].ID)
-		}
-		sourceIDs[incoming[i].ID] = struct{}{}
-		if err := normalizeSpec(&incoming[i]); err != nil {
-			return nil, fmt.Errorf("服务“%s”配置无效：%w", incoming[i].Name, err)
-		}
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.specs)+len(incoming) > maxServiceConfigs {
-		return nil, fmt.Errorf("导入后服务配置总数不能超过 %d 个", maxServiceConfigs)
-	}
-	idMap := make(map[string]string, len(incoming))
-	for _, spec := range incoming { idMap[spec.ID] = newID() }
-	for i := range incoming {
-		sourceID := incoming[i].ID
-		incoming[i].ID = idMap[sourceID]
-		for j, dependencyID := range incoming[i].DependsOn {
-			if mappedID, exists := idMap[dependencyID]; exists {
-				incoming[i].DependsOn[j] = mappedID
-				continue
-			}
-			if _, exists := m.specs[dependencyID]; !exists {
-				return nil, fmt.Errorf("服务“%s”依赖的服务 ID 不存在：%s", incoming[i].Name, dependencyID)
-			}
-		}
-	}
-	importedIDs := make([]string, 0, len(incoming))
-	batchIDs := make(map[string]struct{}, len(incoming))
-	for _, spec := range incoming {
-		batchIDs[spec.ID] = struct{}{}
-		importedIDs = append(importedIDs, spec.ID)
-	}
-	for _, spec := range incoming {
-		for _, dependencyID := range spec.DependsOn {
-			if dependencyID == spec.ID { return nil, fmt.Errorf("服务“%s”不能依赖自身", spec.Name) }
-			if _, exists := m.specs[dependencyID]; !exists {
-				if _, inBatch := batchIDs[dependencyID]; !inBatch {
-					return nil, fmt.Errorf("服务“%s”依赖的服务不存在：%s", spec.Name, dependencyID)
-				}
-			}
-		}
-	}
-	for _, spec := range incoming { m.specs[spec.ID] = cloneSpec(spec) }
-	rollback := func() { for _, id := range importedIDs { delete(m.specs, id) } }
-	if _, err := m.dependencyOrderLocked(importedIDs, true); err != nil {
-		rollback()
-		return nil, err
-	}
-	if err := m.persistLocked(); err != nil {
-		rollback()
-		return nil, err
-	}
-	views := make([]View, 0, len(incoming))
-	for _, spec := range incoming {
-		views = append(views, View{Spec: cloneSpec(spec), Status: Snapshot{ID:spec.ID, Name:spec.Name, State:StateStopped}})
-	}
-	return views, nil
-}
-
-func normalizeSpec(spec *Spec) error {
-	spec.ID = strings.TrimSpace(spec.ID)
-	spec.Name = strings.TrimSpace(spec.Name)
-	spec.Executable = strings.TrimSpace(spec.Executable)
-	spec.WorkingDir = strings.TrimSpace(spec.WorkingDir)
-	if spec.Name == "" { return errors.New("服务名称不能为空") }
-	if spec.Executable == "" { return errors.New("可执行文件不能为空") }
-	if strings.ContainsRune(spec.ID, 0) { return errors.New("服务 ID 包含非法字符") }
-	if len(spec.Args) > 128 || len(spec.Env) > 128 || len(spec.DependsOn) > 64 {
-		return errors.New("参数最多 128 个、环境变量最多 128 个、依赖最多 64 个")
-	}
-	if strings.ContainsRune(spec.Executable, 0) { return errors.New("可执行文件路径包含非法字符") }
-	for _, arg := range spec.Args {
-		if strings.ContainsRune(arg, 0) { return errors.New("命令参数包含非法字符") }
-	}
-	for key, value := range spec.Env {
-		if strings.TrimSpace(key) == "" || strings.ContainsAny(key, "=\x00") || strings.ContainsRune(value, 0) {
-			return fmt.Errorf("环境变量名称或值无效：%q", key)
-		}
-	}
-	spec.Args = append([]string(nil), spec.Args...)
-	spec.DependsOn = uniqueIDs(spec.DependsOn)
-	if len(spec.Ports) > maxDeclaredPorts { return fmt.Errorf("监听端口最多声明 %d 个", maxDeclaredPorts) }
-	ports := make([]int, 0, len(spec.Ports))
-	seenPorts := make(map[int]struct{}, len(spec.Ports))
-	for _, port := range spec.Ports {
-		if port < 1 || port > 65535 { return fmt.Errorf("监听端口需在 1 到 65535 之间：%d", port) }
-		if _, exists := seenPorts[port]; exists { continue }
-		seenPorts[port] = struct{}{}
-		ports = append(ports, port)
-	}
-	// 统一升序去重，保证配置文件与端口诊断面板的顺序稳定。
-	sort.Ints(ports)
-	spec.Ports = ports
-	if spec.Env == nil { spec.Env = map[string]string{} }
-	spec.Restart.Mode = strings.ToLower(strings.TrimSpace(spec.Restart.Mode))
-	if spec.Restart.Mode == "" { spec.Restart.Mode = RestartModeNone }
-	if spec.Restart.Mode != RestartModeNone && spec.Restart.Mode != RestartModeOnFailure {
-		return errors.New("自动重启模式只支持 none 或 on-failure")
-	}
-	if spec.Restart.Mode == RestartModeOnFailure {
-		if spec.Restart.MaxAttempts == 0 { spec.Restart.MaxAttempts = 3 }
-		if spec.Restart.MaxAttempts < 1 || spec.Restart.MaxAttempts > 20 {
-			return errors.New("自动重启次数需在 1 到 20 之间")
-		}
-	} else {
-		spec.Restart.MaxAttempts = 0
-	}
-	if spec.Health != nil {
-		check := *spec.Health
-		check.Type = strings.ToLower(strings.TrimSpace(check.Type))
-		check.Target = strings.TrimSpace(check.Target)
-		switch check.Type {
-		case HealthCheckTCP:
-			if _, _, err := net.SplitHostPort(check.Target); err != nil {
-				return errors.New("TCP 健康检查目标需为 host:port，例如 127.0.0.1:8080")
-			}
-		case HealthCheckHTTP:
-			parsed, err := url.Parse(check.Target)
-			if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-				return errors.New("HTTP 健康检查目标需为 http:// 或 https:// 地址")
-			}
-		default:
-			return errors.New("健康检查类型只支持 tcp 或 http")
-		}
-		if check.IntervalSeconds == 0 { check.IntervalSeconds = 10 }
-		if check.IntervalSeconds < 1 || check.IntervalSeconds > 300 {
-			return errors.New("健康检查间隔需在 1 到 300 秒之间")
-		}
-		if check.TimeoutSeconds == 0 { check.TimeoutSeconds = 2 }
-		if check.TimeoutSeconds < 1 || check.TimeoutSeconds > 30 {
-			return errors.New("健康检查超时需在 1 到 30 秒之间")
-		}
-		if check.TimeoutSeconds > check.IntervalSeconds { check.TimeoutSeconds = check.IntervalSeconds }
-		if check.FailureThreshold == 0 { check.FailureThreshold = 3 }
-		if check.FailureThreshold < 1 || check.FailureThreshold > 10 {
-			return errors.New("健康检查失败阈值需在 1 到 10 次之间")
-		}
-		spec.Health = &check
-	}
-	if spec.ReadyTimeoutSeconds < 0 || spec.ReadyTimeoutSeconds > 600 {
-		return errors.New("依赖就绪等待需在 0 到 600 秒之间")
-	}
-	// 没有健康检查时无法判断就绪，统一归零，避免导入文件里残留无意义的值。
-	if spec.Health == nil { spec.ReadyTimeoutSeconds = 0 }
-	return nil
-}
-
-func isSensitiveEnvKey(key string) bool {
-	normalized := strings.NewReplacer("_", "", "-", "", ".", "").Replace(strings.ToLower(key))
-	for _, fragment := range []string{"password", "passwd", "pwd", "secret", "token", "apikey", "accesskey", "privatekey", "credential", "authorization", "cookie", "signingkey", "clientsecret", "dsn", "databaseurl", "dburl", "redisurl", "mongouri", "postgresurl", "mysqlurl", "jdbcurl", "connectionstring", "connectionuri", "webhook"} {
-		if strings.Contains(normalized, fragment) { return true }
-	}
-	return false
+	return Snapshot{}, false
 }
 
 // Save 校验并持久化一个服务定义。运行中的服务不能直接修改配置。
@@ -357,19 +159,34 @@ func (m *Manager) Save(spec Spec) (View, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if instance := m.instances[spec.ID]; instance != nil && isActive(instance.snapshot.State) { return View{}, errors.New("运行中的服务不能修改配置，请先停止服务") }
+	if instance := m.instances[spec.ID]; instance != nil && isActive(instance.snapshot.State) {
+		return View{}, errors.New("运行中的服务不能修改配置，请先停止服务")
+	}
 	for _, dependencyID := range spec.DependsOn {
-		if dependencyID == spec.ID { return View{}, errors.New("服务不能依赖自身") }
-		if _, exists := m.specs[dependencyID]; !exists { return View{}, fmt.Errorf("依赖服务不存在：%s", dependencyID) }
+		if dependencyID == spec.ID {
+			return View{}, errors.New("服务不能依赖自身")
+		}
+		if _, exists := m.specs[dependencyID]; !exists {
+			return View{}, fmt.Errorf("依赖服务不存在：%s", dependencyID)
+		}
 	}
 	oldSpec, hadOldSpec := m.specs[spec.ID]
 	m.specs[spec.ID] = cloneSpec(spec)
+	// 依赖成环或落盘失败都要把配置回滚到修改前，避免留下无效状态。
 	if _, err := m.dependencyOrderLocked([]string{spec.ID}, true); err != nil {
-		if hadOldSpec { m.specs[spec.ID] = oldSpec } else { delete(m.specs, spec.ID) }
+		if hadOldSpec {
+			m.specs[spec.ID] = oldSpec
+		} else {
+			delete(m.specs, spec.ID)
+		}
 		return View{}, err
 	}
 	if err := m.persistLocked(); err != nil {
-		if hadOldSpec { m.specs[spec.ID] = oldSpec } else { delete(m.specs, spec.ID) }
+		if hadOldSpec {
+			m.specs[spec.ID] = oldSpec
+		} else {
+			delete(m.specs, spec.ID)
+		}
 		return View{}, err
 	}
 	// 配置变更后放弃待执行的重启，避免用旧策略继续拉起服务。
@@ -379,650 +196,111 @@ func (m *Manager) Save(spec Spec) (View, error) {
 		instance.snapshot.NextRestartAt = ""
 		instance.stopSamplers()
 	}
-	status := Snapshot{ID:spec.ID, Name:spec.Name, State:StateStopped}
-	if instance := m.instances[spec.ID]; instance != nil { status = instance.snapshot }
-	return View{Spec:cloneSpec(spec), Status:status}, nil
+	status := Snapshot{ID: spec.ID, Name: spec.Name, State: StateStopped}
+	if instance := m.instances[spec.ID]; instance != nil {
+		status = instance.snapshot
+	}
+	return View{Spec: cloneSpec(spec), Status: status}, nil
 }
 
 // Delete 删除已停止且未被其他服务引用的配置及其输出缓存。
+// 若服务开启了落盘且没有其它配置共用同名文件，会一并删除其输出文件。
 func (m *Manager) Delete(id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.specs[id]; !ok { return errors.New("未找到该服务配置") }
-	if instance := m.instances[id]; instance != nil && isActive(instance.snapshot.State) { return errors.New("请先停止服务，再删除配置") }
-	for otherID, spec := range m.specs {
-		if otherID == id { continue }
-		for _, dependencyID := range spec.DependsOn {
-			if dependencyID == id {
-				return fmt.Errorf("服务仍被“%s”依赖，请先移除依赖关系", spec.Name)
-			}
-		}
-	}
-	delete(m.specs,id); delete(m.instances,id); delete(m.outputs,id); delete(m.outputSequence,id); delete(m.events,id); m.cancelRestartLocked(id)
-	return m.persistLocked()
-}
-
-// diagnoseStartError 将底层启动错误转成更可操作的本地诊断提示。
-func diagnoseStartError(spec Spec, err error) string {
-	base := fmt.Sprintf("启动可执行文件 %q 失败：%v", spec.Executable, err)
-	if spec.WorkingDir != "" {
-		info, statErr := os.Stat(spec.WorkingDir)
-		if statErr != nil {
-			if errors.Is(statErr, os.ErrNotExist) {
-				return base + fmt.Sprintf("；配置的工作目录 %q 不存在，请检查路径。", spec.WorkingDir)
-			}
-			if errors.Is(statErr, os.ErrPermission) {
-				return base + fmt.Sprintf("；无权访问工作目录 %q，请检查目录权限。", spec.WorkingDir)
-			}
-		} else if !info.IsDir() {
-			return base + fmt.Sprintf("；配置的工作目录 %q 不是目录。", spec.WorkingDir)
-		}
-	}
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound) {
-		return base + "；请确认可执行文件存在，或命令已加入 PATH。"
-	}
-	if errors.Is(err, os.ErrPermission) {
-		return base + "；请检查可执行权限和当前用户权限。"
-	}
-	return base + "；请检查可执行文件、参数、工作目录及所需环境变量。"
-}
-
-// startOne 启动服务并清零自动重启计数。
-func (m *Manager) startOne(id string) error { return m.startOneCounted(id, 0) }
-
-// startOneCounted 在锁内完成状态检查和 cmd.Start，确保同一服务不会被两个调用同时启动。
-// restarts 由自动重启流程传入，手动启动时为 0。
-func (m *Manager) startOneCounted(id string, restarts int) error {
-	m.mu.Lock()
-	m.cancelRestartLocked(id)
 	spec, ok := m.specs[id]
-	if !ok { m.mu.Unlock(); return errors.New("未找到该服务配置") }
-	if instance := m.instances[id]; instance != nil && isActive(instance.snapshot.State) { m.mu.Unlock(); return errors.New("该服务已经运行或正在启停") }
-	// 直接传递可执行文件和参数，绝不隐式拼接或执行 Shell 字符串。
-	cmd := exec.Command(spec.Executable, spec.Args...)
-	configureProcess(cmd)
-	if spec.WorkingDir != "" { cmd.Dir = spec.WorkingDir }
-	cmd.Env = mergeEnv(os.Environ(), spec.Env)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil { m.mu.Unlock(); return fmt.Errorf("创建标准输出管道失败：%w", err) }
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdout.Close()
+	if !ok {
 		m.mu.Unlock()
-		return fmt.Errorf("创建标准错误管道失败：%w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		_ = stdout.Close()
-		_ = stderr.Close()
-		finishedAt := time.Now()
-		reason := diagnoseStartError(spec, err)
-		m.instances[id] = &managedProcess{snapshot: Snapshot{
-			ID: id, Name: spec.Name, State: StateFailed, ExitReason: ExitReasonStartFailed, Restarts: restarts,
-			Error: reason, FinishedAt: finishedAt.Format(time.RFC3339Nano),
-		}}
-		m.appendEventLocked(id, ProcessEvent{At: finishedAt.Format(time.RFC3339Nano), Kind: EventExit, Detail: "启动失败：" + reason})
-		m.mu.Unlock()
-		m.appendOutput(id, "stderr", reason)
-		return fmt.Errorf("%s: %w", reason, err)
-	}
-	startedAt := time.Now()
-	healthState := ""
-	if spec.Health != nil { healthState = HealthChecking }
-	instance := &managedProcess{cmd:cmd, done:make(chan struct{}), startedAt:startedAt, stdout:stdout, stderr:stderr, snapshot:Snapshot{ID:id,Name:spec.Name,State:StateRunning,PID:cmd.Process.Pid,StartedAt:startedAt.Format(time.RFC3339Nano),Restarts:restarts,Health:healthState}}
-	m.instances[id] = instance
-	startDetail := "手动启动"
-	if restarts > 0 { startDetail = fmt.Sprintf("自动重启第 %d 次", restarts) }
-	m.appendEventLocked(id, ProcessEvent{At: startedAt.Format(time.RFC3339Nano), Kind: EventStart, Detail: startDetail})
-	startHealthProbe(m, id, instance, spec.Health)
-	// 采样协程与健康探测一样在锁内启动，避免 stopSamplers 在锁内读到未初始化的 metricsStop。
-	startMetricsSampler(m, id, instance, cmd.Process.Pid)
-	m.mu.Unlock()
-
-	var readers sync.WaitGroup
-	readers.Add(2)
-	go func(){ defer readers.Done(); readOutput(stdout,func(line string){m.appendOutput(id,"stdout",line)}) }()
-	go func(){ defer readers.Done(); readOutput(stderr,func(line string){m.appendOutput(id,"stderr",line)}) }()
-	go func(){
-		readers.Wait()
-		waitErr := cmd.Wait()
-		finishedAt := time.Now()
-		durationMsValue := finishedAt.Sub(instance.startedAt).Milliseconds()
-		if durationMsValue < 0 { durationMsValue = 0 }
-		durationMs := &durationMsValue
-		exitCode, signaled := processExitStatus(cmd)
-		restartAttempt := 0
-		var restartDelay time.Duration
-		restartExhausted := false
-		m.mu.Lock()
-		if current := m.instances[id]; current == instance {
-			current.snapshot.ExitCode = exitCode
-			current.snapshot.FinishedAt = finishedAt.Format(time.RFC3339Nano)
-			current.snapshot.DurationMs = durationMs
-			switch {
-			case current.snapshot.State == StateStopping:
-				current.snapshot.State = StateStopped
-				current.snapshot.ExitReason = ExitReasonManualStop
-				current.snapshot.Error = ""
-			case waitErr == nil:
-				current.snapshot.State = StateStopped
-				current.snapshot.ExitReason = ExitReasonNormal
-				current.snapshot.Error = ""
-			case signaled:
-				current.snapshot.State = StateFailed
-				current.snapshot.ExitReason = ExitReasonSignal
-				current.snapshot.Error = waitErr.Error()
-			default:
-				current.snapshot.State = StateFailed
-				current.snapshot.ExitReason = ExitReasonNonzero
-				current.snapshot.Error = waitErr.Error()
-			}
-			// 进程已结束：健康状态与资源占用失效，采样协程随实例一起退出。
-			current.stopSamplers()
-			current.snapshot.Health = ""
-			current.snapshot.HealthMessage = ""
-			current.snapshot.HealthCheckedAt = ""
-			current.snapshot.CPUPercent = 0
-			current.snapshot.MemoryBytes = 0
-			current.snapshot.MetricsAt = ""
-			if current.snapshot.State == StateFailed {
-				if spec, ok := m.specs[id]; ok && spec.Restart.Mode == RestartModeOnFailure {
-					if current.snapshot.Restarts < spec.Restart.MaxAttempts {
-						current.snapshot.Restarts++
-						restartAttempt = current.snapshot.Restarts
-						restartDelay = restartBackoff(restartAttempt)
-						current.snapshot.NextRestartAt = time.Now().Add(restartDelay).Format(time.RFC3339Nano)
-					} else {
-						restartExhausted = true
-					}
-				}
-			}
-			// 退出与重启事件在同一把锁内追加，保证时间线顺序与状态快照一致。
-			m.appendEventLocked(id, ProcessEvent{At: finishedAt.Format(time.RFC3339Nano), Kind: EventExit, Detail: exitEventDetail(current.snapshot.ExitReason, exitCode), DurationMs: durationMs})
-			if restartAttempt > 0 {
-				m.appendEventLocked(id, ProcessEvent{At: time.Now().Format(time.RFC3339Nano), Kind: EventRestart, Detail: fmt.Sprintf("第 %d 次自动重启，等待 %s", restartAttempt, restartDelay)})
-			} else if restartExhausted {
-				m.appendEventLocked(id, ProcessEvent{At: time.Now().Format(time.RFC3339Nano), Kind: EventRestart, Detail: "自动重启次数已达上限"})
-			}
-		}
-		m.mu.Unlock()
-		if waitErr != nil { m.appendOutput(id,"system","进程已退出："+waitErr.Error()) } else { m.appendOutput(id,"system","进程已正常退出") }
-		if restartAttempt > 0 {
-			m.appendOutput(id,"system",fmt.Sprintf("异常退出，将在 %s 后自动重启（第 %d 次）",restartDelay,restartAttempt))
-			m.scheduleRestart(id, instance, restartAttempt, restartDelay)
-		} else if restartExhausted {
-			m.appendOutput(id,"system","异常退出，自动重启次数已达上限，请检查日志后手动启动")
-		}
-		close(instance.done)
-	}()
-	m.appendOutput(id,"system",fmt.Sprintf("服务已启动，进程号 %d",cmd.Process.Pid))
-	// 端口扫描要调用系统命令，放在启动完成后后台执行，不阻塞 Start。
-	go m.warnPortConflicts(id, append([]int(nil), spec.Ports...), cmd.Process.Pid)
-	return nil
-}
-
-// stopOne 先请求优雅停止，超过宽限期后强制结束进程树，并保证输出管道有收尾期限。
-func (m *Manager) stopOne(id string) error {
-	m.mu.Lock()
-	m.cancelRestartLocked(id)
-	instance := m.instances[id]
-	if instance == nil {
-		_, configured := m.specs[id]
-		m.mu.Unlock()
-		if configured {
-			return nil
-		}
 		return errors.New("未找到该服务配置")
 	}
-	if instance.snapshot.State == StateStopped || instance.snapshot.State == StateFailed {
-		instance.snapshot.Restarts = 0
-		instance.snapshot.NextRestartAt = ""
-		instance.stopSamplers()
+	if instance := m.instances[id]; instance != nil && isActive(instance.snapshot.State) {
 		m.mu.Unlock()
-		return nil
+		return errors.New("请先停止服务，再删除配置")
 	}
-	if instance.snapshot.State == StateStopping {
-		done := instance.done
-		m.mu.Unlock()
-		timer := time.NewTimer(processConcurrentStopWait)
-		defer timer.Stop()
-		select {
-		case <-done:
-			return nil
-		case <-timer.C:
-			// A descendant may keep inherited output handles open after the root exits.
-			instance.closeOutputPipes()
-			select {
-			case <-done:
-				return nil
-			case <-time.After(processStopFinalizeWait):
-				return errors.New("等待并发停止操作完成超时，已关闭进程输出管道")
+	for otherID, other := range m.specs {
+		if otherID == id {
+			continue
+		}
+		for _, dependencyID := range other.DependsOn {
+			if dependencyID == id {
+				m.mu.Unlock()
+				return fmt.Errorf("服务仍被“%s”依赖，请先移除依赖关系", other.Name)
 			}
 		}
 	}
-	instance.snapshot.State = StateStopping
-	instance.stopSamplers()
-	cmd, done := instance.cmd, instance.done
-	m.mu.Unlock()
-
-	if err := requestProcessStop(cmd); err != nil {
-		select { case <-done: return nil; default: }
-		m.appendOutput(id, "system", "停止进程树请求失败，将尝试强制结束："+err.Error())
-		if killErr := forceStopProcess(cmd); killErr != nil {
-			instance.closeOutputPipes()
-			select { case <-done: return nil; case <-time.After(processStopFinalizeWait):
-				return fmt.Errorf("停止进程树失败：%w（请求停止错误：%v）", killErr, err)
+	// 只在落盘文件名不被其它服务共用时才清理，避免误删他人在写的日志。
+	cleanupBase := ""
+	if spec.LogToDisk {
+		base := logBaseNameOf(spec.Name)
+		shared := false
+		for otherID, other := range m.specs {
+			if otherID == id || !other.LogToDisk {
+				continue
 			}
-		}
-	}
-	timer := time.NewTimer(processStopGracePeriod)
-	defer timer.Stop()
-	select {
-	case <-done: return nil
-	case <-timer.C:
-		m.appendOutput(id, "system", "进程未在宽限期内退出，正在强制结束进程树")
-		if err := forceStopProcess(cmd); err != nil {
-			instance.closeOutputPipes()
-			select { case <-done: return nil; case <-time.After(processStopFinalizeWait): return fmt.Errorf("强制结束进程树失败：%w", err) }
-		}
-		forceTimer := time.NewTimer(processForceStopWait)
-		defer forceTimer.Stop()
-		select {
-		case <-done:
-			return nil
-		case <-forceTimer.C:
-			// Avoid leaving the service permanently in "stopping" if an unrelated
-			// descendant inherited an output pipe and survived the process-group kill.
-			instance.closeOutputPipes()
-			select {
-			case <-done:
-				return nil
-			case <-time.After(processStopFinalizeWait):
-				return errors.New("已发送强制结束请求并关闭输出管道，但进程仍未完成退出")
-			}
-		}
-	}
-}
-
-// Start 启动单个服务，并通过批处理入口自动满足其上游依赖。
-func (m *Manager) Start(id string) error {
-	results, err := m.StartBatch([]string{id})
-	if err != nil { return err }
-	for _, result := range results {
-		if result.ID == id && !result.Success { return errors.New(result.Message) }
-	}
-	return nil
-}
-
-// StartBatch 自动包含所选服务的上游依赖，并按依赖优先顺序启动。
-func (m *Manager) StartBatch(ids []string) ([]BatchResult, error) {
-	m.mu.RLock()
-	order, err := m.dependencyOrderLocked(ids, true)
-	var needed map[string]bool
-	if err == nil { needed = m.readinessIDsLocked(order) }
-	m.mu.RUnlock()
-	if err != nil { return nil, err }
-
-	resultsByID := make(map[string]BatchResult, len(order))
-	results := make([]BatchResult, 0, len(order))
-	for _, id := range order {
-		m.mu.RLock()
-		spec := cloneSpec(m.specs[id])
-		instance := m.instances[id]
-		running := instance != nil && (instance.snapshot.State == StateRunning || instance.snapshot.State == StateStarting)
-		m.mu.RUnlock()
-
-		blockedBy := ""
-		for _, dep := range spec.DependsOn {
-			if previous, exists := resultsByID[dep]; exists && !previous.Success {
-				blockedBy = dep
+			if logBaseNameOf(other.Name) == base {
+				shared = true
 				break
 			}
 		}
-		result := BatchResult{ID:id, Name:spec.Name, Action:"start"}
-		switch {
-		case blockedBy != "":
-			result.Message = "依赖服务启动失败，已跳过：" + blockedBy
-		case running:
-			result.Success = true
-			result.Message = "服务已在运行"
-		default:
-			if startErr := m.startOne(id); startErr != nil {
-				// Another concurrent StartBatch call may have created the instance
-				// after this batch checked the state. Treat that race as idempotent.
-				m.mu.RLock()
-				latest := m.instances[id]
-				startedConcurrently := latest != nil && (latest.snapshot.State == StateRunning || latest.snapshot.State == StateStarting)
-				m.mu.RUnlock()
-				if startedConcurrently {
-					result.Success = true
-					result.Message = "服务已在运行"
-				} else {
-					result.Message = startErr.Error()
-				}
-			} else {
-				result.Success = true
-				result.Message = "启动成功"
-			}
-		}
-		if result.Success && needed[id] {
-			if timeout := readinessTimeout(spec); timeout > 0 {
-				if message := m.waitReady(id, timeout); message != "" {
-					result.Success = false
-					result.Message = message
-					m.appendOutput(id, "system", message)
-				} else if result.Message == "启动成功" {
-					result.Message = "启动成功，已通过健康检查"
-				}
-			}
-		}
-		resultsByID[id] = result
-		results = append(results, result)
-	}
-	return results, nil
-}
-
-// Stop 停止指定服务及依赖该服务的下游服务。
-func (m *Manager) Stop(id string) error {
-	results, err := m.StopBatch([]string{id})
-	if err != nil { return err }
-	for _, result := range results {
-		if !result.Success { return errors.New(result.Message) }
-	}
-	return nil
-}
-
-// StopBatch 先停止所选服务的下游依赖方，再停止目标服务。
-func (m *Manager) StopBatch(ids []string) ([]BatchResult, error) {
-	m.mu.RLock()
-	targets := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		if _, exists := m.specs[id]; !exists {
-			m.mu.RUnlock()
-			return nil, fmt.Errorf("未找到服务配置：%s", id)
-		}
-		targets[id] = struct{}{}
-	}
-	if len(targets) == 0 {
-		m.mu.RUnlock()
-		return []BatchResult{}, nil
-	}
-
-	changed := true
-	for changed {
-		changed = false
-		for id, spec := range m.specs {
-			if _, selected := targets[id]; selected { continue }
-			for _, dep := range spec.DependsOn {
-				if _, dependsOnTarget := targets[dep]; dependsOnTarget {
-					targets[id] = struct{}{}
-					changed = true
-					break
-				}
-			}
+		if !shared {
+			cleanupBase = base
 		}
 	}
-	targetIDs := make([]string, 0, len(targets))
-	for id := range targets { targetIDs = append(targetIDs, id) }
-	order, err := m.dependencyOrderLocked(targetIDs, true)
-	m.mu.RUnlock()
-	if err != nil { return nil, err }
-
-	results := make([]BatchResult, 0, len(targets))
-	for i := len(order)-1; i >= 0; i-- {
-		id := order[i]
-		if _, wanted := targets[id]; !wanted { continue }
-		m.mu.RLock()
-		spec := m.specs[id]
-		instance := m.instances[id]
-		active := instance != nil && isActive(instance.snapshot.State)
-		m.mu.RUnlock()
-
-		result := BatchResult{ID:id, Name:spec.Name, Action:"stop"}
-		if !active {
-			// 已失败的实例可能还在等待自动重启，手动停止需要取消定时器。
-			m.cancelRestart(id)
-			result.Success = true
-			result.Message = "服务已停止"
-		} else if stopErr := m.stopOne(id); stopErr != nil {
-			result.Message = stopErr.Error()
-		} else {
-			result.Success = true
-			result.Message = "停止成功"
-		}
-		results = append(results, result)
-	}
-	return results, nil
-}
-
-// Restart 在 Stop 完成后再启动；停止失败时不会继续启动第二个实例。
-func (m *Manager) Restart(id string) error {
-	if err := m.Stop(id); err != nil { return err }
-	return m.Start(id)
-}
-
-// StopAll 按依赖的反向顺序停止所有服务。
-// StopAll 按逆依赖顺序停止所有已配置服务，并汇总失败项。
-func (m *Manager) StopAll() error {
-	m.mu.RLock()
-	ids := make([]string, 0, len(m.specs))
-	for id := range m.specs { ids = append(ids, id) }
-	m.mu.RUnlock()
-	results, err := m.StopBatch(ids)
-	if err != nil { return err }
-	var failures []string
-	for _, result := range results {
-		if !result.Success { failures = append(failures, result.Name+": "+result.Message) }
-	}
-	if len(failures) > 0 { return errors.New("停止部分服务失败：" + strings.Join(failures, "；")) }
-	return nil
-}
-
-// dependencyOrderLocked 执行拓扑排序；includeDependencies 为 true 时递归包含上游依赖。
-func (m *Manager) dependencyOrderLocked(ids []string, includeDependencies bool) ([]string, error) {
-	if len(ids) == 0 { return []string{}, nil }
-	state := make(map[string]uint8, len(m.specs))
-	order := make([]string, 0, len(m.specs))
-	var visit func(string) error
-	visit = func(id string) error {
-		spec, exists := m.specs[id]
-		if !exists { return fmt.Errorf("未找到服务配置：%s", id) }
-		if state[id] == 1 { return fmt.Errorf("检测到服务依赖循环，涉及服务：%s", spec.Name) }
-		if state[id] == 2 { return nil }
-		state[id] = 1
-		if includeDependencies {
-			for _, dep := range spec.DependsOn {
-				if err := visit(dep); err != nil { return err }
-			}
-		}
-		state[id] = 2
-		order = append(order, id)
-		return nil
-	}
-	for _, id := range ids {
-		if err := visit(id); err != nil { return nil, err }
-	}
-	return order, nil
-}
-
-func uniqueIDs(ids []string) []string {
-	seen := make(map[string]struct{}, len(ids))
-	result := make([]string, 0, len(ids))
-	for _, id := range ids {
-		id = strings.TrimSpace(id)
-		if id == "" { continue }
-		if _, exists := seen[id]; exists { continue }
-		seen[id] = struct{}{}
-		result = append(result, id)
-	}
-	return result
-}
-
-// Logs 返回序号大于 afterSequence 的缓存输出，适合前端按游标轮询。
-func (m *Manager) Logs(id string, afterSequence int64) []OutputLine {
-	m.mu.RLock(); defer m.mu.RUnlock()
-	lines:=m.outputs[id]; start:=0
-	for start<len(lines)&&lines[start].Sequence<=afterSequence {start++}
-	return append([]OutputLine(nil),lines[start:]...)
-}
-
-// ResourceHistory 返回指定服务最近 5 分钟的资源采样点；没有实例时返回空切片。
-// 返回副本，调用方可在锁外安全使用。
-func (m *Manager) ResourceHistory(id string) []ResourceSample {
-	m.mu.RLock(); defer m.mu.RUnlock()
-	instance:=m.instances[id]
-	if instance==nil||len(instance.history)==0 {return []ResourceSample{}}
-	return append([]ResourceSample(nil),instance.history...)
-}
-func (m *Manager) appendOutput(id,stream,text string) {
-	m.mu.Lock(); defer m.mu.Unlock()
-	m.outputSequence[id]++
-	line:=OutputLine{Sequence:m.outputSequence[id],Time:time.Now().Format("15:04:05.000"),Stream:stream,Text:strings.ToValidUTF8(text,"�")}
-	lines:=append(m.outputs[id],line)
-	if len(lines)>maxOutputLines { lines=append([]OutputLine(nil),lines[len(lines)-maxOutputLines:]...) }
-	m.outputs[id]=lines
-	// 首行进程输出视为启动完成信号；没有健康检查时也能量出启动耗时。
-	if stream=="stdout"||stream=="stderr" { m.markReadyLocked(id,"首次输出") }
-}
-
-// appendEventLocked 追加生命周期事件并保留最近 maxProcessEvents 条；调用方需持有 m.mu。
-func (m *Manager) appendEventLocked(id string, event ProcessEvent) {
-	events:=append(m.events[id],event)
-	if len(events)>maxProcessEvents { events=append([]ProcessEvent(nil),events[len(events)-maxProcessEvents:]...) }
-	m.events[id]=events
-}
-
-// markReadyLocked 记录本次运行的就绪事件：首次输出与首次健康通过先到为准，只记一次。
-// 调用方需持有 m.mu。
-func (m *Manager) markReadyLocked(id,source string) {
-	instance:=m.instances[id]
-	// 启动失败的实例没有启动时间，写它的 stderr 不能当成就绪信号。
-	if instance==nil||instance.readyDone||instance.startedAt.IsZero() { return }
-	instance.readyDone=true
-	now:=time.Now()
-	durationMs:=now.Sub(instance.startedAt).Milliseconds()
-	if durationMs<0 { durationMs=0 }
-	m.appendEventLocked(id,ProcessEvent{At:now.Format(time.RFC3339Nano),Kind:EventReady,Detail:source,DurationMs:&durationMs})
-}
-
-// Timeline 返回指定服务最近的生命周期事件，按发生顺序排列，进程退出后仍可回看；返回副本。
-func (m *Manager) Timeline(id string) []ProcessEvent {
-	m.mu.RLock(); defer m.mu.RUnlock()
-	return append([]ProcessEvent(nil),m.events[id]...)
-}
-
-// exitEventDetail 把退出原因转为可读说明；启动失败的原因由调用方拼在事件里。
-func exitEventDetail(reason ExitReason, code *int) string {
-	switch reason {
-	case ExitReasonNormal: return "正常退出"
-	case ExitReasonManualStop: return "已手动停止"
-	case ExitReasonSignal: return "被信号终止"
-	case ExitReasonStartFailed: return "启动失败"
-	}
-	if code!=nil&&*code!=0 { return fmt.Sprintf("异常退出（退出码 %d）",*code) }
-	return "异常退出"
-}
-func readOutput(reader io.Reader,emit func(string)) {
-	br:=bufio.NewReaderSize(reader,32*1024); line:=make([]byte,0,4096); clipped:=false
-	for {
-		part,err:=br.ReadSlice('\n'); newline:=len(part)>0&&part[len(part)-1]=='\n'
-		if newline {part=part[:len(part)-1]}
-		if newline&&len(part)>0&&part[len(part)-1]=='\r' {part=part[:len(part)-1]}
-		room:=maxOutputLineBytes-len(line)
-		if room>0 {take:=min(room,len(part));line=append(line,part[:take]...);if take<len(part){clipped=true}} else if len(part)>0 {clipped=true}
-		if newline {if clipped{line=append(line,[]byte(" …[输出过长，已截断]")...)};emit(string(line));line=line[:0];clipped=false}
-		if err==bufio.ErrBufferFull {continue}
-		if err==io.EOF {if len(line)>0||clipped{if clipped{line=append(line,[]byte(" …[输出过长，已截断]")...)};emit(string(line))};return}
-		if err!=nil {
-			if errors.Is(err, os.ErrClosed) {
-				return
-			}
-			emit("读取进程输出失败："+err.Error())
-			return
-		}
-	}
-}
-// cancelRestartLocked 取消待执行的重启定时器；调用方需持有 m.mu。
-func (m *Manager) cancelRestartLocked(id string) {
-	if timer := m.restartTimers[id]; timer != nil {
-		timer.Stop()
-		delete(m.restartTimers, id)
-	}
-}
-
-// cancelRestart 取消待执行的重启并清零重启计数，用于手动停止已失败的服务。
-func (m *Manager) cancelRestart(id string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	delete(m.specs, id)
+	delete(m.instances, id)
+	delete(m.outputs, id)
+	delete(m.outputSequence, id)
+	delete(m.events, id)
+	delete(m.runHistory, id)
+	// 删除服务后其历史时间线也不应残留，标脏并在锁内与配置一并落盘。
+	m.eventsDirty = true
+	m.runHistoryDirty = true
 	m.cancelRestartLocked(id)
-	if instance := m.instances[id]; instance != nil {
-		instance.snapshot.Restarts = 0
-		instance.snapshot.NextRestartAt = ""
+	err := m.persistLocked()
+	if ferr := m.persistEventsLocked(); err == nil {
+		err = ferr
 	}
-}
-
-// scheduleRestart 在退避时间后尝试自动重启；只对当前实例有效。
-func (m *Manager) scheduleRestart(id string, previous *managedProcess, attempt int, delay time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.instances[id] != previous {
-		return
+	if ferr := m.persistRunHistoryLocked(); err == nil {
+		err = ferr
 	}
-	m.cancelRestartLocked(id)
-	m.restartTimers[id] = time.AfterFunc(delay, func() { m.autoRestart(id, previous, attempt) })
-}
-
-// autoRestart 在定时器到期后重新启动服务；已被停止、删除或替换时放弃。
-func (m *Manager) autoRestart(id string, previous *managedProcess, attempt int) {
-	m.mu.Lock()
-	_, pending := m.restartTimers[id]
-	if !pending || m.instances[id] != previous {
-		m.mu.Unlock()
-		return
+	// 被删除的服务不应再残留于任何分组，顺带清理并落盘分组。
+	if ferr := m.purgeGroupMembershipLocked(id); err == nil {
+		err = ferr
 	}
-	delete(m.restartTimers, id)
 	m.mu.Unlock()
-	m.appendOutput(id, "system", "正在自动重启服务")
-	if err := m.startOneCounted(id, attempt); err != nil {
-		m.appendOutput(id, "stderr", "自动重启失败："+err.Error())
+	if cleanupBase != "" {
+		m.removeOutputLogFiles(cleanupBase)
 	}
+	return err
 }
 
-// restartBackoff 返回指数退避时间：1s、2s、4s……最长 30s。
-func restartBackoff(attempt int) time.Duration {
-	delay := restartBackoffBase
-	for i := 1; i < attempt; i++ {
-		delay *= 2
-		if delay >= maxRestartBackoff { return maxRestartBackoff }
-	}
-	if delay > maxRestartBackoff { return maxRestartBackoff }
-	return delay
-}
-
+// persistLocked 把当前全部配置写入文件；先写临时文件再重命名，
+// 避免中途失败留下半份配置。调用方需持有 m.mu。
 func (m *Manager) persistLocked() error {
-	if err:=os.MkdirAll(filepath.Dir(m.configPath),0700);err!=nil{return err}
-	specs:=make([]Spec,0,len(m.specs));for _,spec:=range m.specs{specs=append(specs,cloneSpec(spec))}
-	sort.Slice(specs,func(i,j int)bool{return specs[i].ID<specs[j].ID})
-	data,err:=json.MarshalIndent(specs,"","  ");if err!=nil{return err}
-	tmp:=m.configPath+".tmp";if err:=os.WriteFile(tmp,data,0600);err!=nil{return err}
-	if err:=os.Rename(tmp,m.configPath);err!=nil {
-		if removeErr:=os.Remove(m.configPath);removeErr==nil {if retryErr:=os.Rename(tmp,m.configPath);retryErr==nil{return nil}}
-		_ = os.Remove(tmp);return fmt.Errorf("保存服务配置失败：%w",err)
+	if err := os.MkdirAll(filepath.Dir(m.configPath), 0700); err != nil {
+		return err
+	}
+	specs := make([]Spec, 0, len(m.specs))
+	for _, spec := range m.specs {
+		specs = append(specs, cloneSpec(spec))
+	}
+	sort.Slice(specs, func(i, j int) bool { return specs[i].ID < specs[j].ID })
+	data, err := json.MarshalIndent(specs, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := m.configPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, m.configPath); err != nil {
+		// Windows 上目标文件被占用时重命名会失败，先删后重试一次。
+		if removeErr := os.Remove(m.configPath); removeErr == nil {
+			if retryErr := os.Rename(tmp, m.configPath); retryErr == nil {
+				return nil
+			}
+		}
+		_ = os.Remove(tmp)
+		return fmt.Errorf("保存服务配置失败：%w", err)
 	}
 	return nil
 }
-func mergeEnv(base []string,overrides map[string]string) []string {
-	values:=make(map[string]string,len(base)+len(overrides))
-	for _,item:=range base {if i:=strings.IndexByte(item,'=');i>0{values[item[:i]]=item[i+1:]}}
-	for k,v:=range overrides{values[k]=v}
-	keys:=make([]string,0,len(values));for key:=range values{keys=append(keys,key)};sort.Strings(keys)
-	out:=make([]string,0,len(keys));for _,key:=range keys{out=append(out,key+"="+values[key])};return out
-}
-func cloneSpec(spec Spec) Spec {
-	spec.Args=append([]string(nil),spec.Args...)
-	spec.Ports=append([]int(nil),spec.Ports...)
-	if spec.Env!=nil{env:=make(map[string]string,len(spec.Env));for k,v:=range spec.Env{env[k]=v};spec.Env=env}
-	if spec.Health!=nil{check:=*spec.Health;spec.Health=&check}
-	return spec
-}
-func isActive(state State) bool {return state==StateStarting||state==StateRunning||state==StateStopping}
-func newID() string {var data [16]byte;if _,err:=rand.Read(data[:]);err==nil{return hex.EncodeToString(data[:])};return fmt.Sprintf("service-%d",time.Now().UnixNano())}

@@ -117,7 +117,8 @@ func Send(request Request) (Response, error) {
 		}
 		return Response{}, fmt.Errorf("请求失败：%w", err)
 	}
-	defer httpResponse.Body.Close()
+	// 正文读取完成后释放连接，Close 的错误不影响已经拼好的响应。
+	defer func() { _ = httpResponse.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(httpResponse.Body, maxResponseBodyBytes+1))
 	if err != nil {
 		return Response{}, fmt.Errorf("读取响应失败：%w", err)

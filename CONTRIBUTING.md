@@ -16,13 +16,38 @@ go vet ./...
 go test ./...
 ```
 
+格式与静态检查（与 CI 门禁一致，存量问题已清零，新增告警会直接阻断合并）：
+
+```bash
+gofmt -l -s $(git ls-files '*.go')   # 输出为空即通过；需要自动修复时执行 gofmt -w -s
+# golangci-lint 版本由 .github/workflows/ci.yml 固定
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run ./...
+```
+
+规则集中在根目录 `.golangci.yml`：`linters.default: standard`（errcheck、govet、ineffassign、staticcheck、unused）加上 `formatters: gofmt`。`defer x.Close()` 一类“只会失败在操作系统释放阶段”的写法统一写成 `defer func() { _ = x.Close() }()`，明确表示忽略是有意的。
+
+覆盖率门禁（总覆盖率低于下限会直接阻断合并，单包明显下降只告警）：
+
+```bash
+go test ./... -covermode=atomic -coverprofile=coverage.out
+bash scripts/coverage-check.sh coverage.out
+```
+
+明细表对比 `.github/coverage-baseline.txt`；重构导致包结构变化或覆盖率整体抬升后，用 `bash scripts/coverage-check.sh coverage.out --update-baseline` 刷新基线并提交。下限与告警幅度由 `COVERAGE_FLOOR`、`COVERAGE_DROP_TOLERANCE` 控制，CI 里当前为 70% / 2 个百分点。
+
+统计口径只包含仓库自身的 Go 代码：`go test ./...` 会把 `frontend/node_modules` 里带 go 源码的第三方包（例如 flatted 的 golang 包）也写进 profile，脚本按路径剔除它们，否则总覆盖率会因为“本地有没有先跑过 `npm ci`”而在门禁线上下波动。Windows 下请用 Git 自带的 Bash 执行该脚本。
+
 构建前端：
 
 ```bash
 cd frontend
 npm install
+npm run lint
+npm test
 npm run build
 ```
+
+前端规则在 `frontend/eslint.config.js`（ESLint flat config：`js.configs.recommended` + `eslint-plugin-vue` 的 `flat/recommended` + `@vue/eslint-config-typescript` 推荐集）。模板排版类规则（每行属性数、缩进、插值空格）已关闭，因为现有模板采用“一个元素一行”的紧凑写法；`vue/no-v-html`、`@typescript-eslint/no-explicit-any`、`no-console` 保留为告警。需要自动修复时执行 `npm run lint:fix`。
 
 桌面端验证：
 
@@ -89,7 +114,7 @@ npm run build
 
 ## CI
 
-GitHub Actions 会运行 Go 静态检查、完整单元测试、约 1 GiB 合成日志基准、前端类型检查/构建，并在 Ubuntu、Windows 和 macOS 编译桌面应用。大文件基准有固定的磁盘与时间开销；普通开发阶段可使用默认的 64 MiB 基准。
+GitHub Actions 会运行 gofmt 格式检查、`go vet`、golangci-lint 静态分析、带覆盖率的完整单元测试（总覆盖率下限 70%）、约 1 GiB 合成日志基准、前端 ESLint 检查、前端类型检查/构建，并在 Ubuntu、Windows 和 macOS 编译桌面应用。大文件基准有固定的磁盘与时间开销；普通开发阶段可使用默认的 64 MiB 基准。
 
 ## 发布
 

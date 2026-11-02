@@ -166,7 +166,7 @@ func TestManagerHealthCheckTCP(t *testing.T) {
 	if err := manager.Start(view.Spec.ID); err != nil {
 		t.Fatal(err)
 	}
-	defer manager.Stop(view.Spec.ID)
+	defer func() { _ = manager.Stop(view.Spec.ID) }()
 
 	waitForStatus(t, manager, view.Spec.ID, 5*time.Second, func(snapshot Snapshot) bool {
 		return snapshot.Health == HealthHealthy
@@ -197,7 +197,7 @@ func TestManagerHealthCheckHTTP(t *testing.T) {
 	if err := manager.Start(view.Spec.ID); err != nil {
 		t.Fatal(err)
 	}
-	defer manager.Stop(view.Spec.ID)
+	defer func() { _ = manager.Stop(view.Spec.ID) }()
 
 	status := waitForStatus(t, manager, view.Spec.ID, 5*time.Second, func(snapshot Snapshot) bool {
 		return snapshot.Health == HealthUnhealthy

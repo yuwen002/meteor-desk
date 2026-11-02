@@ -96,7 +96,8 @@ func probeHealth(kind, target string, timeout time.Duration) string {
 		if err != nil {
 			return "HTTP 请求失败：" + err.Error()
 		}
-		defer response.Body.Close()
+		// 排空并关闭响应体以复用连接，关闭错误不影响健康结论。
+		defer func() { _ = response.Body.Close() }()
 		// 只读取少量正文，避免健康接口返回大内容时占用内存。
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 32*1024))
 		if response.StatusCode >= 400 {

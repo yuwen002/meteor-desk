@@ -1,0 +1,156 @@
+/* 工具箱共享样式：由 DeveloperToolkit 及其面板组件共用，
+   选择器均以 toolkit-/http-/curl- 等前缀命名，仅 .mono 需要 .toolkit-page 限定，
+   避免影响其他页面的同名类。 */
+.toolkit-page{max-width:1320px}
+.toolkit-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 15px;padding:6px;border:1px solid #29313f;border-radius:8px;background:#111721}
+.toolkit-tab{display:flex;align-items:center;gap:8px;border:1px solid transparent;border-radius:5px;padding:10px 12px;background:transparent;color:#8291a4;font-size:10px;white-space:nowrap}
+.toolkit-tab:hover{background:#19212d;color:#d4e1ed}
+.toolkit-tab.active{border-color:rgba(134,247,197,.2);background:rgba(134,247,197,.08);color:#a0f3cd}
+.toolkit-card{min-width:0;border:1px solid #29313f;border-radius:9px;background:linear-gradient(150deg,rgba(20,26,37,.98),rgba(16,21,31,.98));padding:19px}
+.toolkit-card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;margin:0 0 20px;color:#8feac2}
+.toolkit-card-heading h2{margin:0 0 6px;color:#e0e8f1;font-size:13px;font-weight:650}
+.toolkit-card-heading h3{margin:0 0 5px;color:#dce5ee;font-size:11px;font-weight:650}
+.toolkit-card-heading p{margin:0;color:#7e8da1;font-size:10px;line-height:1.6}
+.toolkit-card-heading.compact{margin-bottom:12px}
+.toolkit-grid-two,.toolkit-json-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.toolkit-label{display:block;margin:0 0 7px;color:#9aa9ba;font-size:10px;font-weight:600}
+.toolkit-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}
+.toolkit-input,.toolkit-select,.toolkit-textarea{width:100%;min-width:0;border:1px solid #303b4a;border-radius:5px;background:#0d131c;color:#dbe4ed;padding:10px 11px;font-size:11px;outline:none}
+.toolkit-input:focus,.toolkit-select:focus,.toolkit-textarea:focus{border-color:#5eaa8a;box-shadow:0 0 0 2px rgba(110,210,165,.06)}
+.toolkit-select{width:auto;max-width:130px;color:#b4c1d0}
+.toolkit-help{margin:8px 0 14px;color:#718197;font-size:9px;line-height:1.7}
+.toolkit-help:last-child{margin-bottom:0}
+.toolkit-help.small,.toolkit-error.small{margin-top:7px}
+.toolkit-error{color:#ffaaa1;font-size:10px;line-height:1.7;overflow-wrap:anywhere}
+.toolkit-action-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:13px}
+.toolkit-action-row .button{height:32px;padding:0 10px;font-size:10px}
+.toolkit-result-panel{min-width:0;border:1px solid #2b3943;border-radius:7px;background:rgba(9,15,21,.7);padding:15px}
+.toolkit-result-kicker{display:block;margin-bottom:8px;color:#6f8d83;font:9px ui-monospace,monospace;letter-spacing:.6px;text-transform:uppercase}
+.toolkit-time-result{display:block;margin-bottom:15px;color:#c8f5df;font-size:14px;line-height:1.6;font-weight:600;overflow-wrap:anywhere}
+.toolkit-result-line{display:grid;grid-template-columns:78px minmax(0,1fr) 25px;align-items:start;gap:8px;padding:9px 0;border-top:1px solid rgba(46,60,70,.58)}
+.toolkit-result-line>span{color:#738398;font-size:9px;padding-top:2px}
+.toolkit-result-line code{color:#b8d8c9;font:10px/1.6 ui-monospace,monospace;overflow-wrap:anywhere}
+.toolkit-result-line button{display:grid;place-items:center;padding:4px;border:0;background:transparent;color:#7d9a8e;border-radius:3px}
+.toolkit-result-line button:hover{background:#1a2827;color:#c9f4dd}
+.toolkit-divider{height:1px;margin:22px 0;background:#29313d}
+.redact-output{min-height:210px;white-space:pre-wrap;overflow-wrap:anywhere}
+.text-diff-output{max-height:420px;overflow:auto;margin-top:16px;border:1px solid #29313f;border-radius:6px;background:#0b1018;font:10px/1.65 ui-monospace,monospace}.text-diff-output>div{display:grid;grid-template-columns:22px minmax(0,1fr);padding:5px 8px}.text-diff-output b{color:#738398}.text-diff-output code{white-space:pre-wrap;overflow-wrap:anywhere;color:#bdc9d7}.text-diff-output .added{background:rgba(77,178,125,.12)}.text-diff-output .added b{color:#83edb2}.text-diff-output .removed{background:rgba(214,93,88,.12)}.text-diff-output .removed b{color:#ffaaa1}
+.http-curl{margin-bottom:16px}.http-curl .toolkit-output-heading{margin-bottom:7px}.http-curl .toolkit-output-heading>span{color:#718197;font-size:9px}.curl-textarea{min-height:76px}.http-curl .toolkit-action-row{margin-top:9px}.http-curl .curl-hint{margin:0;flex:1;min-width:160px}.http-curl .toolkit-help{margin:0}.http-curl .curl-message{margin-top:8px;color:#93dcb8}.http-request-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;margin-bottom:12px}.http-request-line .button{height:38px;padding:0 13px;font-size:10px}.http-options{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 4px;color:#8696aa;font-size:10px}.http-options label{display:flex;align-items:center;gap:6px}.http-options input[type=checkbox]{accent-color:#6ed2a5}.http-options .toolkit-select{max-width:84px;padding:6px 8px;font-size:10px}.http-final-url{overflow-wrap:anywhere;color:#a1cdb9;font:10px ui-monospace,monospace}.http-history{margin-top:20px}.http-history .toolkit-output-heading{margin-bottom:9px}.http-history-list{display:flex;flex-direction:column;border:1px solid #293442;border-radius:5px;overflow:hidden}.http-history-item{display:grid;grid-template-columns:56px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 11px;border:0;border-bottom:1px solid #26303c;background:rgba(10,15,22,.35);color:#b9c8d8;text-align:left}.http-history-item:last-child{border-bottom:0}.http-history-item:hover{background:#1a232f}.http-history-item:disabled{opacity:.55;cursor:not-allowed}.http-history-item>span{color:#93dcb8;font:9px ui-monospace,monospace}.http-history-item code{font:10px/1.5 ui-monospace,monospace;overflow-wrap:anywhere;color:#c2d1e1}.http-history-item time{color:#718196;font-size:9px;white-space:nowrap}.http-editors{margin-bottom:15px}.http-response-summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:15px 0;border:1px solid #2b3943;border-radius:6px;background:rgba(9,15,21,.7);padding:10px 12px;color:#8291a4;font:10px ui-monospace,monospace}.http-response-summary strong{color:#92ebbc}.http-response-summary strong.error{color:#ffaaa1}.http-response-summary .button{margin-left:auto;height:28px;font-size:9px}.http-response-body{min-height:220px;max-height:420px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.compact-result{padding:9px 13px}
+.compact-result .toolkit-result-line:first-child{border-top:0}
+.bottom-converter{align-items:start}
+.toolkit-feedback{display:flex;align-items:center;gap:8px;margin:0 0 12px;border:1px solid rgba(134,247,197,.18);background:rgba(134,247,197,.05);border-radius:5px;padding:9px 11px;color:#a3edce;font-size:10px}
+.toolkit-feedback button{margin-left:auto;border:0;background:transparent;color:#859c91;font-size:9px}
+.json-global-actions{margin:-4px 0 14px}
+.toolkit-editor-pane{min-width:0}
+.toolkit-textarea{min-height:220px;resize:vertical;line-height:1.65;font-size:11px}
+.toolkit-textarea.tall{min-height:310px}
+.toolkit-textarea.short{min-height:84px}
+.toolkit-textarea.jwt-input{min-height:105px;margin-bottom:12px}
+.toolkit-textarea.url-input{min-height:90px}
+.toolkit-page .mono,.toolkit-json-output,.toolkit-diff-values,.toolkit-param-list code,.toolkit-encoded-value{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.toolkit-inline-message{margin:12px 0;color:#91dcb8;font-size:10px;overflow-wrap:anywhere}
+.toolkit-diff-heading{display:flex;justify-content:space-between;gap:12px;margin:20px 0 9px;color:#d4dfea;font-size:10px}
+.toolkit-diff-heading span{color:#77889a;font-weight:400}
+.toolkit-diff-list{display:flex;flex-direction:column;border:1px solid #2a3441;border-radius:6px;overflow:hidden}
+.toolkit-diff-row{padding:10px 11px;border-bottom:1px solid #26303c;background:rgba(10,15,22,.43)}
+.toolkit-diff-row:last-child{border-bottom:0}
+.toolkit-diff-row.鏂板 .toolkit-diff-path>span{color:#9ae8c0;background:rgba(70,162,119,.12)}
+.toolkit-diff-row.鍒犻櫎 .toolkit-diff-path>span{color:#ffb2a9;background:rgba(170,73,73,.15)}
+.toolkit-diff-row.淇敼 .toolkit-diff-path>span{color:#e9ce8f;background:rgba(176,140,62,.12)}
+.toolkit-diff-path{display:flex;align-items:center;gap:9px;margin-bottom:7px;min-width:0}
+.toolkit-diff-path>span{padding:3px 5px;border-radius:3px;font-size:9px;flex-shrink:0}
+.toolkit-diff-path code{color:#a1cdb9;font:10px ui-monospace,monospace;overflow-wrap:anywhere}
+.toolkit-diff-values{display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);align-items:start;gap:8px;color:#8291a4;font-size:10px}
+.toolkit-diff-values code{overflow-wrap:anywhere;white-space:pre-wrap;color:#b3c1d0}
+.toolkit-diff-values svg{margin-top:2px;color:#718196}
+.toolkit-empty{display:flex;align-items:center;gap:7px;padding:15px 12px;color:#90e7bc;font-size:10px}
+.toolkit-output-block{margin-top:13px;border:1px solid #293340;border-radius:6px;overflow:hidden}
+.toolkit-output-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.toolkit-output-heading strong{color:#cbd8e5;font-size:10px}
+.toolkit-output-heading .toolkit-label{margin:0}
+.toolkit-output-heading .button{height:27px;padding:0 8px;font-size:9px}
+.toolkit-output-block>pre,.toolkit-json-output{display:block;max-height:300px;overflow:auto;margin:0;padding:12px;background:#0c1118;color:#b9d9cb;font:10px/1.7 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.toolkit-security-note{display:flex;align-items:flex-start;gap:9px;padding:11px;border:1px solid rgba(221,177,99,.2);border-radius:5px;background:rgba(110,78,27,.09);color:#cdb783;font-size:9px;line-height:1.7;margin:12px 0}
+.toolkit-security-note svg{flex-shrink:0;margin-top:1px}
+.toolkit-jwt-status{display:flex;align-items:center;gap:7px;margin:13px 0;padding:10px 12px;border:1px solid #313a45;border-radius:5px;background:#111721;color:#b0bfce;font-size:10px}
+.toolkit-jwt-status.valid{color:#99e4b9;border-color:rgba(134,247,197,.2)}
+.toolkit-jwt-status.expired{color:#ffaca3;border-color:rgba(248,113,113,.22)}
+.toolkit-url-meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin:13px 0}
+.toolkit-url-meta>div{min-width:0;display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid #293442;border-radius:5px;background:#111721}
+.toolkit-url-meta span{color:#75869b;font-size:9px}
+.toolkit-url-meta code{color:#bbd6c9;font:10px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}
+.toolkit-param-list{border:1px solid #293442;border-radius:5px;overflow:hidden}
+.toolkit-param-list>div{display:grid;grid-template-columns:minmax(90px,.7fr) minmax(0,1.4fr) 25px;align-items:start;gap:10px;padding:9px 11px;border-bottom:1px solid #26303c;background:rgba(10,15,22,.35)}
+.toolkit-param-list>div:last-child{border-bottom:0}
+.toolkit-param-list code{font-size:10px;color:#93dcb8;overflow-wrap:anywhere}
+.toolkit-param-list span{font:10px/1.6 ui-monospace,monospace;color:#b9c8d8;overflow-wrap:anywhere}
+.toolkit-param-list button{border:0;background:transparent;color:#82998f}
+.toolkit-encoded-value{flex:1;min-width:0;overflow-wrap:anywhere;white-space:pre-wrap;color:#b9d9cb;font-size:10px;line-height:1.6}
+.toolkit-footer-note{display:flex;align-items:flex-start;gap:8px;margin-top:15px;padding:0 3px;color:#748499;font-size:9px;line-height:1.7}
+.toolkit-footer-note svg{flex-shrink:0;color:#88c6a9}
+@media(max-width:980px){.toolkit-grid-two,.toolkit-json-grid{grid-template-columns:1fr}.toolkit-textarea{min-height:180px}.toolkit-url-meta{grid-template-columns:1fr}.toolkit-card{padding:14px}}
+@media(max-width:600px){.http-request-line{grid-template-columns:1fr}.http-request-line .toolkit-select{max-width:none;width:100%}.http-history-item{grid-template-columns:48px minmax(0,1fr)}.http-history-item time{display:none}}
+@media(max-width:680px){.toolkit-tabs{display:grid;grid-template-columns:1fr 1fr}.toolkit-tab{justify-content:flex-start}.toolkit-diff-values{grid-template-columns:minmax(0,1fr)}.toolkit-diff-values svg{display:none}.toolkit-result-line{grid-template-columns:70px minmax(0,1fr) 25px}}
+
+/* 娴呰壊涓婚锛氬伐鍏风浣跨敤鐙珛 scoped 鏍峰紡锛屽繀椤绘樉寮忓搷搴斿簲鐢ㄧ骇涓婚鐘舵€併€?*/
+.theme-light .toolkit-tabs{background:#f7f9fc;border-color:#dce3ec}
+.theme-light .toolkit-tab{color:#65758b}
+.theme-light .toolkit-tab:hover{background:#edf3f8;color:#253247}
+.theme-light .toolkit-tab.active{background:#e1f5ec;border-color:#c4e8d8;color:#176b50}
+.theme-light .toolkit-card{background:linear-gradient(150deg,#fff,#fbfcfe);border-color:#dce3ec;box-shadow:0 4px 18px rgba(35,55,80,.035)}
+.theme-light .text-diff-output{background:#f7f9fc;border-color:#dce3ec}.theme-light .text-diff-output code{color:#425168}
+.theme-light .toolkit-card-heading{color:#23815f}
+.theme-light .toolkit-card-heading h2,.theme-light .toolkit-card-heading h3{color:#253247}
+.theme-light .toolkit-card-heading p{color:#6c7b90}
+.theme-light .toolkit-label{color:#52647b}
+.theme-light .toolkit-input,.theme-light .toolkit-select,.theme-light .toolkit-textarea{background:#fff;border-color:#cfd9e5;color:#253247}
+.theme-light .toolkit-input::placeholder,.theme-light .toolkit-textarea::placeholder{color:#9aa7b8}
+.theme-light .toolkit-select{color:#52647b}
+.theme-light .toolkit-help{color:#718096}
+.theme-light .toolkit-error{color:#c2413a}
+.theme-light .toolkit-result-panel{background:#f7f9fc;border-color:#dce3ec}
+.theme-light .toolkit-result-kicker{color:#56816f}
+.theme-light .toolkit-time-result{color:#176b50}
+.theme-light .toolkit-result-line{border-color:#e3e9f0}
+.theme-light .toolkit-result-line>span{color:#718096}
+.theme-light .toolkit-result-line code{color:#28664f}
+.theme-light .toolkit-result-line button{color:#688779}
+.theme-light .toolkit-result-line button:hover{background:#e4f3ec;color:#176b50}
+.theme-light .toolkit-divider{background:#e1e7ef}
+.theme-light .toolkit-feedback{background:#edf8f2;border-color:#d1ecdd;color:#176b50}
+.theme-light .toolkit-feedback button{color:#688779}
+.theme-light .toolkit-diff-heading{color:#34445b}
+.theme-light .toolkit-diff-heading span{color:#718096}
+.theme-light .toolkit-diff-list,.theme-light .toolkit-output-block,.theme-light .toolkit-param-list{border-color:#dce3ec}
+.theme-light .toolkit-diff-row{background:#fff;border-color:#e5ebf2}
+.theme-light .toolkit-diff-path code{color:#28664f}
+.theme-light .toolkit-diff-values{color:#718096}
+.theme-light .toolkit-diff-values code{color:#52647b}
+.theme-light .toolkit-diff-values svg{color:#8291a4}
+.theme-light .toolkit-output-heading strong{color:#34445b}
+.theme-light .toolkit-output-block>pre,.theme-light .toolkit-json-output{background:#f7f9fc;color:#28664f}
+.theme-light .toolkit-security-note{background:#fff9eb;border-color:#f0dfb5;color:#866a2e}
+.theme-light .toolkit-jwt-status{background:#f7f9fc;border-color:#dce3ec;color:#52647b}
+.theme-light .toolkit-jwt-status.valid{color:#176b50;border-color:#c4e8d8}
+.theme-light .toolkit-jwt-status.expired{color:#b93832;border-color:#f0cdca}
+.theme-light .http-response-summary{background:#f7f9fc;border-color:#dce3ec}
+.theme-light .http-options{color:#718096}
+.theme-light .http-final-url{color:#23815f}
+.theme-light .http-history-list{border-color:#dce3ec}
+.theme-light .http-history-item{background:#fff;border-color:#e5ebf2;color:#52647b}
+.theme-light .http-history-item:hover{background:#f0f5fa}
+.theme-light .http-history-item>span{color:#23815f}
+.theme-light .http-history-item code{color:#34445b}
+.theme-light .http-history-item time{color:#8291a4}
+.theme-light .toolkit-url-meta>div{background:#f7f9fc;border-color:#dce3ec}
+.theme-light .toolkit-url-meta span{color:#718096}
+.theme-light .toolkit-url-meta code{color:#28664f}
+.theme-light .toolkit-param-list>div{background:#fff;border-color:#e5ebf2}
+.theme-light .toolkit-param-list code{color:#23815f}
+.theme-light .toolkit-param-list span{color:#52647b}
+.theme-light .toolkit-param-list button{color:#688779}
+.theme-light .toolkit-encoded-value{color:#28664f}
+.theme-light .toolkit-footer-note{color:#718096}
+.theme-light .toolkit-footer-note svg{color:#56816f}
+

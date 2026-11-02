@@ -61,6 +61,13 @@ func runMetricsSampler(m *Manager, id string, instance *managedProcess, pid int,
 		instance.snapshot.CPUPercent = math.Round(percent*10) / 10
 		instance.snapshot.MemoryBytes = memoryBytes
 		instance.snapshot.MetricsAt = now.Format(time.RFC3339Nano)
+		// 跟踪本次运行的峰值，供退出时写入运行历史。
+		if instance.snapshot.CPUPercent > instance.peakCPUPercent {
+			instance.peakCPUPercent = instance.snapshot.CPUPercent
+		}
+		if memoryBytes > instance.peakMemoryBytes {
+			instance.peakMemoryBytes = memoryBytes
+		}
 		instance.history = appendResourceSample(instance.history, ResourceSample{
 			At: instance.snapshot.MetricsAt, CPUPercent: instance.snapshot.CPUPercent, MemoryBytes: memoryBytes,
 		})
@@ -78,6 +85,18 @@ func appendResourceSample(history []ResourceSample, sample ResourceSample) []Res
 	trimmed := make([]ResourceSample, metricsHistoryLimit)
 	copy(trimmed, history[len(history)-metricsHistoryLimit:])
 	return trimmed
+}
+
+// ResourceHistory 返回指定服务最近 5 分钟的资源采样点；没有实例时返回空切片。
+// 返回副本，调用方可在锁外安全使用。
+func (m *Manager) ResourceHistory(id string) []ResourceSample {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	instance := m.instances[id]
+	if instance == nil || len(instance.history) == 0 {
+		return []ResourceSample{}
+	}
+	return append([]ResourceSample(nil), instance.history...)
 }
 
 // parseProcStat 从 /proc/<pid>/stat 中取出用户态与内核态 CPU ticks、常驻内存页数。

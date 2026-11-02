@@ -1,0 +1,7 @@
+# Go 测试覆盖率基线：由 bash scripts/coverage-check.sh coverage.out --update-baseline 生成。
+# 每行「包路径<TAB>覆盖率」，CI 用它打印分包变化明细；总覆盖率下限见 COVERAGE_FLOOR。
+github.com/yuwen002/meteor-desk	34.0
+github.com/yuwen002/meteor-desk/internal/config	61.0
+github.com/yuwen002/meteor-desk/internal/httpx	90.2
+github.com/yuwen002/meteor-desk/internal/logx	82.0
+github.com/yuwen002/meteor-desk/internal/process	81.7

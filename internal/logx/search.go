@@ -30,7 +30,6 @@ const (
 	maxRegexLineBytes = 4 * 1024 * 1024
 )
 
-
 const maxEncodingSampleBytes = 64 * 1024
 
 // byteCountingReader 统计解码器从底层文件读取的原始字节数。
@@ -159,13 +158,21 @@ func isValidUTF8Prefix(prefix []byte) bool {
 		if i == 1 {
 			switch lead {
 			case 0xE0:
-				if b < 0xA0 { return false }
+				if b < 0xA0 {
+					return false
+				}
 			case 0xED:
-				if b > 0x9F { return false }
+				if b > 0x9F {
+					return false
+				}
 			case 0xF0:
-				if b < 0x90 { return false }
+				if b < 0x90 {
+					return false
+				}
 			case 0xF4:
-				if b > 0x8F { return false }
+				if b > 0x8F {
+					return false
+				}
 			}
 		}
 	}
@@ -204,27 +211,27 @@ func guessUTF16(sample []byte) string {
 
 // LineContext 是上下文窗口中的一行日志。
 type LineContext struct {
-	LineNumber int64  `json:"lineNumber"`
-	Content string `json:"content"`
-	ContentClipped bool `json:"contentClipped"`
+	LineNumber     int64  `json:"lineNumber"`
+	Content        string `json:"content"`
+	ContentClipped bool   `json:"contentClipped"`
 }
 
 // Match 表示一条匹配结果，以及可选的前后文。
 type Match struct {
-	LineNumber int64 `json:"lineNumber"`
-	Content string `json:"content"`
-	ContentClipped bool `json:"contentClipped"`
-	ContextBefore []LineContext `json:"contextBefore"`
-	ContextAfter []LineContext `json:"contextAfter"`
-	Event *EventContext `json:"event,omitempty"`
+	LineNumber     int64         `json:"lineNumber"`
+	Content        string        `json:"content"`
+	ContentClipped bool          `json:"contentClipped"`
+	ContextBefore  []LineContext `json:"contextBefore"`
+	ContextAfter   []LineContext `json:"contextAfter"`
+	Event          *EventContext `json:"event,omitempty"`
 }
 
 // Progress 描述扫描进度，供桌面界面轮询展示。
 type Progress struct {
-	BytesScanned int64 `json:"bytesScanned"`
+	BytesScanned  int64 `json:"bytesScanned"`
 	FileSizeBytes int64 `json:"fileSizeBytes"`
-	ScannedLines int64 `json:"scannedLines"`
-	MatchesFound int `json:"matchesFound"`
+	ScannedLines  int64 `json:"scannedLines"`
+	MatchesFound  int   `json:"matchesFound"`
 	// Matches 只包含自上次进度通知后新出现的匹配，避免反复复制整个结果集。
 	Matches []Match `json:"matches,omitempty"`
 }
@@ -232,12 +239,12 @@ type Progress struct {
 // SearchOptions 是一次检索的可选参数。
 // ContextLines 会被限制在 0 到 10 之间，超过上限的值按 10 处理。
 type SearchOptions struct {
-	ContextLines int    `json:"contextLines"`
+	ContextLines int `json:"contextLines"`
 	// Encoding 可选 auto、utf-8、gb18030、utf-16le、utf-16be；空值等同 auto。
 	Encoding string `json:"encoding,omitempty"`
 	// MultiLineJSON 将跨行 JSON 对象/数组作为一个文档匹配；单行日志仍按行检索。
 	MultiLineJSON bool `json:"multiLineJSON,omitempty"`
-	EventContext bool `json:"eventContext,omitempty"`
+	EventContext  bool `json:"eventContext,omitempty"`
 	// EventBoundary 指定事件边界规则：timestamp（默认）、blank 或 custom。
 	EventBoundary string `json:"eventBoundary,omitempty"`
 	// EventBoundaryPattern 是 EventBoundary 为 custom 时使用的 Go 正则。
@@ -248,13 +255,13 @@ type SearchOptions struct {
 type SearchResponse struct {
 	FilePath string `json:"filePath"`
 	// Encoding 是本次检索实际使用的文本编码。
-	Encoding string `json:"encoding"`
-	FileSizeBytes int64 `json:"fileSizeBytes"`
-	BytesScanned int64 `json:"bytesScanned"`
-	ScannedLines int64 `json:"scannedLines"`
-	Matches []Match `json:"matches"`
-	ResultLimitReached bool `json:"resultLimitReached"`
-	Canceled bool `json:"canceled"`
+	Encoding           string  `json:"encoding"`
+	FileSizeBytes      int64   `json:"fileSizeBytes"`
+	BytesScanned       int64   `json:"bytesScanned"`
+	ScannedLines       int64   `json:"scannedLines"`
+	Matches            []Match `json:"matches"`
+	ResultLimitReached bool    `json:"resultLimitReached"`
+	Canceled           bool    `json:"canceled"`
 }
 
 // SearchFile 保留简单调用入口。
@@ -325,7 +332,8 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("打开日志文件失败：%w", err)
 	}
-	defer file.Close()
+	// 只读打开，关闭失败无需上抛。
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		return SearchResponse{}, fmt.Errorf("读取日志文件信息失败：%w", err)
@@ -357,10 +365,10 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 	}
 	reader := bufio.NewReaderSize(scanInput, readerBufferSize)
 	response := SearchResponse{
-		FilePath: path,
-		Encoding: encodingName,
+		FilePath:      path,
+		Encoding:      encodingName,
 		FileSizeBytes: info.Size(),
-		Matches: make([]Match, 0, min(maxResults, 128)),
+		Matches:       make([]Match, 0, min(maxResults, 128)),
 	}
 	if options.MultiLineJSON {
 		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, onProgress)
@@ -402,11 +410,11 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		}
 		reportedMatchCount = len(response.Matches)
 		onProgress(Progress{
-			BytesScanned: bytesScanned,
+			BytesScanned:  bytesScanned,
 			FileSizeBytes: info.Size(),
-			ScannedLines: response.ScannedLines,
-			MatchesFound: len(response.Matches),
-			Matches: matchUpdates,
+			ScannedLines:  response.ScannedLines,
+			MatchesFound:  len(response.Matches),
+			Matches:       matchUpdates,
 		})
 	}
 
@@ -506,11 +514,11 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		if lineMatched {
 			before := append([]LineContext{}, history...)
 			response.Matches = append(response.Matches, Match{
-				LineNumber: lineNumber,
-				Content: content,
+				LineNumber:     lineNumber,
+				Content:        content,
 				ContentClipped: clipped,
-				ContextBefore: before,
-				ContextAfter: []LineContext{},
+				ContextBefore:  before,
+				ContextAfter:   []LineContext{},
 			})
 			if contextLines > 0 {
 				pendingContext = append(pendingContext, len(response.Matches)-1)
@@ -567,7 +575,7 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 
 		// 兼容 CRLF 跨读取缓冲区边界的情况。
 		if pendingCR {
-			if !(hasNewline && len(part) == 0) {
+			if !hasNewline || len(part) > 0 {
 				if err := appendContent([]byte{'\r'}); err != nil {
 					return SearchResponse{}, err
 				}

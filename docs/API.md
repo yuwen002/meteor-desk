@@ -37,8 +37,15 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `StopProcesses(ids)` | 服务 ID 数组 | `ProcessBatchResult[]` | 按反向依赖顺序逐项停止。 |
 | `GetProcessLogs(id, after)` | 服务 ID、上次输出序号 | `ProcessOutput[]` | 仅返回序号大于 `after` 的输出行。 |
 | `GetResourceHistory(id)` | 服务 ID | `ResourceSample[]` | 返回最近 5 分钟资源采样点（最多 150 个，按时间升序）；停止后仍保留本次运行的最后一段。 |
-| `GetPortDiagnostics(id)` | 服务 ID | `PortReport` | 扫描本机监听端口，返回配置端口的占用情况与本服务实际监听的端口；扫描失败时 `scanError` 说明原因。 |
-| `GetProcessTimeline(id)` | 服务 ID | `ProcessEvent[]` | 返回最近的生命周期事件（启动、就绪、自动重启、退出），按发生顺序排列，内存中每个服务保留最近 40 条；`ready` 的 `durationMs` 为启动耗时，`exit` 的为本次运行时长。 |
+| `GetPortDiagnostics(id)` | 服务 ID | `PortReport` | 扫描本机监听端口，返回配置端口的占用情况与本服务实际监听的端口；扫描失败时 `scanError` 说明原因。当占用端口的进程是本工作台托管的另一个服务时，该端口项带 `ownerSpecId`/`ownerName`，前端可据此提供停止入口；外部进程不填充这两个字段。 |
+| `GetProcessTimeline(id)` | 服务 ID | `ProcessEvent[]` | 返回最近的生命周期事件（启动、就绪、自动重启、退出），按发生顺序排列；每个服务保留最近 200 条并持久化到 `process-events.json`，应用重启后仍可回看。`ready` 的 `durationMs` 为启动耗时，`exit` 的为本次运行时长。 |
+| `GetProcessRunHistory(id)` | 服务 ID | `RunRecord[]` | 返回服务按时间升序的运行历史，每次运行一行（起止时间、退出原因与退出码、自动重启次数、峰值 CPU 与内存）；本机保留最近 100 次并持久化到 `run-history.json`。 |
+| `ListProcessGroups()` | 无 | `Group[]` | 返回按名称排序的服务分组（场景）副本，分组只按 ID 引用已有服务。 |
+| `SaveProcessGroup(group)` | `Group` | `Group` | 新建或更新分组；新建时分配 `id`，成员必须都是已配置的服务，返回规范化后的分组。 |
+| `DeleteProcessGroup(id)` | 分组 ID | 无 | 只删除分组引用关系，不影响成员服务本身。 |
+| `StartProcessGroup(id)` | 分组 ID | `ProcessBatchResult[]` | 按依赖拓扑顺序整组启动分组内服务及其尚未运行的上游依赖，逐项返回结果；已删除的成员被跳过。 |
+| `StopProcessGroup(id)` | 分组 ID | `ProcessBatchResult[]` | 按反向依赖顺序整组停止分组内服务及依赖它们的成员。 |
+| `FindServiceByLogPath(path)` | 落盘日志文件绝对路径 | `ProcessStatus` | 按落盘文件路径反查所属服务，供日志分析跳回进程详情；未匹配时返回字段为空的服务快照（`id` 为空字符串），前端据此判断是否命中。 |
 | `ExportProcessConfigs(redactSensitive)` | 是否脱敏 | `string` | 通过系统对话框写入 JSON 文件并返回提示文本。 |
 | `ImportProcessConfigs()` | 无 | `ProcessView[]` | 通过系统文件选择器导入 JSON 配置。 |
 
@@ -89,7 +96,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### ProcessSpec
 
-配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart`、`dependsOn`（服务 ID 数组）、可选的 `readyTimeoutSeconds`（0–600，0 表示不等待）、可选的 `ports`（监听端口，1–65535，最多 20 个，自动去重升序），以及可选的 `restart` 和 `health`。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。
+配置字段包括 `id`、`name`、`executable`、`args`（字符串数组）、`workingDir`、`env`（字符串键值对象）、`autoStart`、`dependsOn`（服务 ID 数组）、可选的 `readyTimeoutSeconds`（0–600，0 表示不等待）、可选的 `ports`（监听端口，1–65535，最多 20 个，自动去重升序）、可选的 `logToDisk`（输出落盘开关），以及可选的 `restart` 和 `health`。程序通过可执行文件与参数数组启动，不默认拼接或解释 Shell 命令。`logToDisk` 为 `true` 时，本次运行的标准输出与标准错误按行追加写入配置目录 `logs/<服务名>.log`，单文件超过 64 MiB 后轮转并最多保留 3 份（详见「内部持久化文件与保留上限」）。
 
 ### RestartPolicy / HealthCheck
 
@@ -99,11 +106,28 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 ### ProcessStatus
 
-运行快照字段包括 `state`、`pid`、`startedAt`、`finishedAt`、`durationMs`、`exitCode`、`exitReason` 和 `error`。退出原因枚举为 `normal`、`nonzero`、`signal`、`manual-stop`、`start-error`。启用健康检查时还包含 `health`（`checking` / `healthy` / `unhealthy`）、`healthMessage`（最近一次失败原因）和 `healthCheckedAt`（RFC3339Nano）；启用自动重启时包含 `restarts`（当前累计重启次数）和 `nextRestartAt`（等待重启的预计时间，无待执行重启时为空）。手动启动、手动停止或修改配置会把 `restarts` 归零。进程运行时还包含 `cpuPercent`（两次采样之间的单核百分比）、`memoryBytes`（常驻内存字节数）和 `metricsAt`（最近一次采样时间，RFC3339Nano）；进程退出后三个字段清空。
+运行快照字段包括 `state`、`pid`、`startedAt`、`finishedAt`、`durationMs`、`exitCode`、`exitReason` 和 `error`。退出原因枚举为 `normal`、`nonzero`、`signal`、`manual-stop`、`start-error`。启用健康检查时还包含 `health`（`checking` / `healthy` / `unhealthy`）、`healthMessage`（最近一次失败原因）和 `healthCheckedAt`（RFC3339Nano）；启用自动重启时包含 `restarts`（当前累计重启次数）和 `nextRestartAt`（等待重启的预计时间，无待执行重启时为空）。手动启动、手动停止或修改配置会把 `restarts` 归零。进程运行时还包含 `cpuPercent`（两次采样之间的单核百分比）、`memoryBytes`（常驻内存字节数）和 `metricsAt`（最近一次采样时间，RFC3339Nano）；进程退出后三个字段清空。开启落盘时还包含 `logFilePath`（本次运行输出文件的绝对路径）；服务停止后仍保留最后一次的落盘路径，供详情面板展示与日志分析跳转，未开启落盘时为空。
 
 ### ProcessOutput
 
 输出行包括单调递增的服务内 `sequence`、本地时间、输出流类型（`stdout` / `stderr` / `system`）和文本内容。
+
+### RunRecord
+
+一次运行的汇总记录，在进程退出时写入，字段包括 `serviceId`、可选的 `serviceName`、`startedAt`、`finishedAt`、`durationMs`（本次运行时长）、`exitReason`（同 `ProcessStatus` 的退出原因枚举）、`exitCode`（为空表示未取到退出码，如启动前就失败）、`restarts`（本次运行周期内的自动重启次数），以及资源采样峰值 `peakCpuPercent` 与 `peakMemoryBytes`（未采样到时为零）。不含逐行输出与采样曲线。
+
+### Group
+
+服务分组（场景），只按 ID 引用已有服务，不复制服务配置。字段包括 `id`、`name`、可选的 `description` 和 `memberIds`（服务 ID 数组）。整组启停时按依赖顺序复用批量启停逻辑；已删除的成员在启停时被跳过，删除分组不影响服务本身。
+
+### 内部持久化文件与保留上限
+
+与 `processes.json` 同目录（应用配置目录）维护以下本机文件，写入都通过临时文件加重命名的原子方式（`writeJSONAtomic`）串行完成，避免并发追写出半行或乱序；删除服务时一并清理其时间线、运行历史与落盘文件：
+
+- `process-events.json`：按服务保留最近 200 条生命周期事件，应用启动时载入，退出时同步落盘。
+- `run-history.json`：按服务保留最近 100 次运行记录，进程退出时追加，启动时载入。
+- `groups.json`：服务分组定义，与进程配置同目录。
+- `logs/<服务名>.log`：开启 `logToDisk` 的服务输出，单文件上限 64 MiB，超出后按命名位移轮转（`name.log` → `name.log.1` → `name.log.2`），连同当前文件最多保留 3 份；服务名会被清理为安全文件名（去路径分隔符与非法字符，空名回退为 `service`）。
 
 ### RuntimeInfo
 
@@ -180,12 +204,17 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `Manager.List()`、`Save(Spec)`、`Delete(id)`：查看与管理配置。
 - `Start(id)`、`Stop(id)`、`Restart(id)`、`StartBatch(ids)`、`StopBatch(ids)`、`StopAll()`：控制进程生命周期。
 - `Manager.Logs(id, afterSequence)`：按游标读取输出。
+- `Timeline(id)` / `RunHistory(id)`：返回按服务保留的最近生命周期事件与运行历史；`FlushEvents()` / `FlushRunHistory()` 同步排空待落盘变更，供退出收尾与测试使用（`StopAll()` 退出时会自动调用）。
+- `ListGroups()` / `SaveGroup(Group)` / `DeleteGroup(id)` / `StartGroup(id)` / `StopGroup(id)`：服务分组（场景）的增删改查与整组启停，分组只存 ID 引用，启停复用 `StartBatch`/`StopBatch` 并过滤已删除成员。
+- `FindServiceByLogPath(path)`：按落盘文件绝对路径反查所属服务，未命中返回 `ok=false`（`App.FindServiceByLogPath` 把它包装为单返回值快照，未命中时 `id` 为空）。
 - `ExportConfig(redactSensitive)` / `ImportConfig(data)`：在 Go 层处理配置迁移；文件选择和写入由 Wails 的 `App` 方法处理。
 - 自动重启：`Spec.Restart` 为 `on-failure` 且进程以非零码退出或收到信号时，按指数退避（1 秒起步、翻倍、上限 30 秒）调度重启，次数受 `MaxAttempts` 限制；定时器保存在管理器内部，手动停止、修改配置、删除服务、`Restart` 或再次启动都会取消待执行的重启。正常退出与启动失败（可执行文件创建失败）不触发重启。
 - 健康检查：`health.go` 中的 `startHealthProbe` 在进程启动成功后起一个探测协程，按间隔执行 `probeHealth`（TCP `DialTimeout` 或 HTTP `Client.Get`，只读取 32 KiB 正文后丢弃）；探测结果写回快照，仅在健康状态变化时追加一条 `system` 输出。探测失败只标记状态，不触发重启；进程退出或实例被替换时通过 `probeStop` 结束协程。
 - 依赖就绪：`readiness.go` 的 `waitReady` 在批量启动中等待上游健康。只有本次启动顺序里被下游依赖、且 `Health != nil`、`ReadyTimeoutSeconds > 0` 的服务才等待；每 50 ms 读取一次快照，`healthy` 后继续启动下游，`unhealthy`、实例被替换、进程停止或超时会阻断下游并把原因写入运行输出。
 - 资源采样：`metrics.go` 在每次运行启动一个采样协程，每 2 秒调用平台实现 `sampleProcess`（Windows `GetProcessTimes` / `GetProcessMemoryInfo`，Linux `/proc/<pid>/stat`，macOS `ps -o time=,rss=`），按两次采样的差值计算单核 CPU 百分比并写入快照；停止或退出时通过 `stopSamplers` 关闭协程，采样失败只跳过本次写入。每次采样同时追加到实例内的历史窗口（`ResourceSample`，上限 150 个点）供 `ResourceHistory` 读取。
-- 端口诊断：`ports.go` 在锁外调用系统命令并解析监听端口（Windows `netstat -ano -p TCP`，macOS `lsof -nP -iTCP -sTCP:LISTEN` 优先、`netstat` 回退，Linux `ss -ltnp` 优先、`lsof` 与 `netstat` 回退），单次命令 5 秒超时。`PortDiagnostics` 把配置端口标记为 `free`、`owned`、`occupied` 或 `unknown`，并单独返回本服务 PID 实际监听的端口；启动后若配置端口被其他进程占用，会在运行输出写入提示（含 PID 与进程名），不会阻止启动。
+- 端口诊断：`ports.go` 在锁外调用系统命令并解析监听端口（Windows `netstat -ano -p TCP`，macOS `lsof -nP -iTCP -sTCP:LISTEN` 优先、`netstat` 回退，Linux `ss -ltnp` 优先、`lsof` 与 `netstat` 回退），单次命令 5 秒超时。`PortDiagnostics` 把配置端口标记为 `free`、`owned`、`occupied` 或 `unknown`，并单独返回本服务 PID 实际监听的端口；启动后若配置端口被其他进程占用，会在运行输出写入提示（含 PID 与进程名），不会阻止启动。当占用者是另一个本工作台托管的服务（非查询服务自身）时，`PortStatus` 会填充 `OwnerSpecID`/`OwnerName`，供前端提供停止入口；外部进程不填充。
+- 输出落盘：`disklog.go` 的 `diskRotator` 把单个服务的输出按行追加到 `logs/<服务名>.log`，首次写入时才创建目录与文件（把权限/磁盘错误推迟到服务真正产生输出时）；内嵌换行用行分隔符替换以保证按行读取。单文件超过 64 MiB 后按命名位移轮转并最多保留 3 份，当前活动文件路径通过 `Snapshot.LogFilePath` 暴露。服务启动时创建写入器、退出时关闭，删除服务时清理当前及历史文件（共用同一文件名的其他配置不会被误删）。
+- 时间线与运行历史持久化：`events.go`（`process-events.json`，每服务上限 200 条）与 `runhistory.go`（`run-history.json`，每服务上限 100 次）在 `NewManagerAt` 时载入历史、运行中累加，并通过 `writeJSONAtomic` 串行原子写回；应用退出前由 `FlushEvents`/`FlushRunHistory` 同步落盘。
 
 ### `internal/config`
 

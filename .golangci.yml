@@ -1,0 +1,34 @@
+version: "2"
+
+# 说明：golangci-lint v2 起 linters 与 formatters 分开配置。
+# default: standard 即 errcheck / govet / ineffassign / staticcheck / unused 这一组官方推荐检查。
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # 与 Go 官方保持一致：只报告未处理的返回值，不额外要求断言类型错误。
+      check-type-assertions: false
+      check-blank: false
+    staticcheck:
+      checks:
+        - all
+  exclusions:
+    generated: lax
+    paths:
+      - frontend
+      - build
+      - vendor
+
+issues:
+  # 默认会把同类问题折叠成 3 条，本地排查时看不到完整清单；这里放开上限，
+  # 由 CI 统一作为准入门禁（存量问题已一次性修复，不再放宽）。
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      # 简化代码表达式（等价于 gofmt -s），CI 与本地保持一致。
+      simplify: true

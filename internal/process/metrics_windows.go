@@ -38,7 +38,8 @@ func sampleProcess(pid int) (time.Duration, uint64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer syscall.CloseHandle(handle)
+	// 进程句柄由本函数专用，释放失败不会改变采样结果。
+	defer func() { _ = syscall.CloseHandle(handle) }()
 
 	var creation, exit, kernel, user syscall.Filetime
 	ok, _, callErr := procGetProcessTimes.Call(

@@ -14,28 +14,28 @@ const maxRecentFiles = 12
 const maxSearchHistory = 30
 
 type SearchRecord struct {
-	Query string `json:"query"`
-	Path string `json:"path"`
-	UseRegex bool `json:"useRegex"`
-	ContextLines int `json:"contextLines"`
-	Encoding string `json:"encoding,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	Query        string    `json:"query"`
+	Path         string    `json:"path"`
+	UseRegex     bool      `json:"useRegex"`
+	ContextLines int       `json:"contextLines"`
+	Encoding     string    `json:"encoding,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 type Settings struct {
-	RecentFiles []string `json:"recentFiles"`
+	RecentFiles   []string       `json:"recentFiles"`
 	SearchHistory []SearchRecord `json:"searchHistory"`
-	ContextLines int `json:"contextLines"`
-	ResultLimit int `json:"resultLimit"`
+	ContextLines  int            `json:"contextLines"`
+	ResultLimit   int            `json:"resultLimit"`
 }
 
 // DefaultSettings 返回适合首次启动的默认偏好值。
 func DefaultSettings() Settings {
 	return Settings{
-		RecentFiles: []string{},
+		RecentFiles:   []string{},
 		SearchHistory: []SearchRecord{},
-		ContextLines: 2,
-		ResultLimit: 500,
+		ContextLines:  2,
+		ResultLimit:   500,
 	}
 }
 
@@ -99,7 +99,8 @@ func saveSettingsTo(path string, settings Settings) error {
 		return err
 	}
 	tmp := tmpFile.Name()
-	defer os.Remove(tmp)
+	// 重命名成功后 tmp 已不存在，删除失败可以忽略。
+	defer func() { _ = os.Remove(tmp) }()
 
 	if err := tmpFile.Chmod(0600); err != nil {
 		_ = tmpFile.Close()
@@ -204,9 +205,10 @@ func dedupe(values []string, limit int) []string {
 	return result
 }
 
- 
 // NormalizeSettings 对从界面或配置文件接收的设置进行边界校验。
 func NormalizeSettings(settings *Settings) {
-	if settings == nil { return }
+	if settings == nil {
+		return
+	}
 	normalize(settings)
 }

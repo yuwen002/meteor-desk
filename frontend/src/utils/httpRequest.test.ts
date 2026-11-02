@@ -13,8 +13,16 @@ describe('parseRequestHeaders', () => {
     expect(parseRequestHeaders('   ')).toEqual({})
   })
 
-  it('rejects malformed JSON with a readable message', () => {
+  it('rejects malformed JSON with a readable message and keeps the parser error as cause', () => {
     expect(() => parseRequestHeaders('{')).toThrow('请求头 JSON 无效')
+    let cause: unknown
+    try {
+      parseRequestHeaders('{')
+    } catch (error) {
+      cause = (error as { cause?: unknown }).cause
+    }
+    // cause 里是 JSON.parse 抛出的原始异常，便于在控制台定位具体出错位置。
+    expect(cause).toBeInstanceOf(Error)
   })
 
   it('rejects arrays, primitives and non-string values', () => {

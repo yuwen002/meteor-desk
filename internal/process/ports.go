@@ -29,11 +29,16 @@ const portsScanTimeout = 5 * time.Second
 const maxDeclaredPorts = 20
 
 // PortStatus 描述一个端口的监听情况；只有有人监听时才填充 PID 与进程名。
+// 当占用者是本工作台启动的另一个服务时，OwnerSpecID/OwnerName 会指向该服务，
+// 前端据此提供“停止该服务”的入口；外部进程占用时二者为空，仅做提示。
 type PortStatus struct {
 	Port    int    `json:"port"`
 	State   string `json:"state"`
 	PID     int    `json:"pid,omitempty"`
 	Process string `json:"process,omitempty"`
+	// OwnerSpecID 非空表示占用者为本工作台已托管的服务，可按该 ID 执行停止。
+	OwnerSpecID string `json:"ownerSpecId,omitempty"`
+	OwnerName   string `json:"ownerName,omitempty"`
 }
 
 // PortReport 是端口诊断结果。Ports 对应配置中声明的端口，
@@ -75,6 +80,17 @@ func (m *Manager) PortDiagnostics(id string) (PortReport, error) {
 	if instance := m.instances[id]; instance != nil {
 		pid = instance.snapshot.PID
 	}
+	// 建立本工作台活动实例的 PID→服务映射，用于判断端口占用者是否可被本工作台停止。
+	managedByPID := make(map[int]managedOwner, len(m.instances))
+	for instanceID, instance := range m.instances {
+		if instance == nil || !isActive(instance.snapshot.State) || instance.snapshot.PID <= 0 {
+			continue
+		}
+		// 同一 PID 理论上唯一；若出现异常重复，保留先出现者，行为保持确定。
+		if _, exists := managedByPID[instance.snapshot.PID]; !exists {
+			managedByPID[instance.snapshot.PID] = managedOwner{specID: instanceID, name: instance.snapshot.Name}
+		}
+	}
 	m.mu.RUnlock()
 
 	report := PortReport{
@@ -91,7 +107,7 @@ func (m *Manager) PortDiagnostics(id string) (PortReport, error) {
 	}
 	byPort := firstOwnerByPort(listeners)
 	for _, port := range declared {
-		report.Ports = append(report.Ports, portStatus(port, byPort[port], pid))
+		report.Ports = append(report.Ports, portStatusFor(port, byPort[port], pid, managedByPID))
 	}
 	if pid > 0 {
 		for _, listener := range listeners {
@@ -199,6 +215,26 @@ func portStatus(port int, owner listenOwner, ownPID int) PortStatus {
 		state = PortOwned
 	}
 	return PortStatus{Port: port, State: state, PID: owner.PID, Process: owner.Process}
+}
+
+// managedOwner 标识一个本工作台已托管的活动服务，用于把端口占用者回推到可操作的服务。
+type managedOwner struct {
+	specID string
+	name   string
+}
+
+// portStatusFor 在 portStatus 基础上补充“占用者是否为本工作台服务”的归属信息。
+// 仅当占用端口的是另一个本工作台服务（非本查询服务自身）时才填充 OwnerSpecID/OwnerName。
+func portStatusFor(port int, owner listenOwner, ownPID int, managedByPID map[int]managedOwner) PortStatus {
+	status := portStatus(port, owner, ownPID)
+	if status.State != PortOccupied || owner.PID <= 0 {
+		return status
+	}
+	if managed, exists := managedByPID[owner.PID]; exists && managed.specID != "" {
+		status.OwnerSpecID = managed.specID
+		status.OwnerName = managed.name
+	}
+	return status
 }
 
 // parseNetstatListeners 解析 netstat 的 LISTENING/LISTEN 行。

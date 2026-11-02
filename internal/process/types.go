@@ -19,6 +19,9 @@ type Spec struct {
 	// Ports 是服务期望监听的 TCP 端口，用于启动时的占用提示与详情面板诊断；
 	// 为空表示不参与端口诊断。端口由服务自己决定，这里只做检查，不会修改启动参数。
 	Ports []int `json:"ports,omitempty"`
+	// LogToDisk 为 true 时，本次运行的 stdout/stderr 会按行追加写入配置目录 logs/ 下的文件，
+	// 单文件超过大小上限后轮转并只保留最近几份；关闭应用后仍可回看与检索。
+	LogToDisk bool `json:"logToDisk,omitempty"`
 }
 
 // RestartPolicy 控制服务异常退出后的自动重启。
@@ -100,6 +103,9 @@ type Snapshot struct {
 	CPUPercent  float64 `json:"cpuPercent,omitempty"`
 	MemoryBytes uint64  `json:"memoryBytes,omitempty"`
 	MetricsAt   string  `json:"metricsAt,omitempty"`
+	// LogFilePath 是本次运行输出落盘的文件绝对路径；未开启落盘时为空。
+	// 服务停止后仍保留最后一次的落盘路径，供详情面板与日志分析跳转使用。
+	LogFilePath string `json:"logFilePath,omitempty"`
 }
 
 // ResourceSample 是一次资源采样点，按时间顺序保存在内存中供前端绘制短期曲线。
@@ -129,11 +135,37 @@ type ProcessEvent struct {
 	DurationMs *int64    `json:"durationMs,omitempty"`
 }
 
+// RunRecord 是一次服务运行的汇总记录，在进程退出时写入，落盘到 run-history.json。
+// 它只保留每次运行的关键指标（起止、退出、重启次数与资源峰值），不含逐行输出与采样曲线。
+// DurationMs 为本次运行时长；ExitCode 为 nil 表示未取到退出码（如启动前就失败）。
+type RunRecord struct {
+	ServiceID   string     `json:"serviceId"`
+	ServiceName string     `json:"serviceName,omitempty"`
+	StartedAt   string     `json:"startedAt,omitempty"`
+	FinishedAt  string     `json:"finishedAt,omitempty"`
+	DurationMs  *int64     `json:"durationMs,omitempty"`
+	ExitReason  ExitReason `json:"exitReason,omitempty"`
+	ExitCode    *int       `json:"exitCode,omitempty"`
+	Restarts    int        `json:"restarts,omitempty"`
+	// PeakCPUPercent 与 PeakMemoryBytes 是本次运行期间资源采样的最大值；未采样到时为零。
+	PeakCPUPercent  float64 `json:"peakCpuPercent,omitempty"`
+	PeakMemoryBytes uint64  `json:"peakMemoryBytes,omitempty"`
+}
+
+// Group 是一组命名服务引用的集合（一种“场景”），只按 ID 引用已有服务，
+// 不复制服务配置；整组启停时按依赖顺序复用批量启停逻辑，落盘到 groups.json。
+type Group struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	MemberIDs   []string `json:"memberIds"`
+}
+
 // BatchResult 描述批量操作中单个服务的执行结果。
 type BatchResult struct {
-	ID string `json:"id"`
-	Name string `json:"name"`
-	Action string `json:"action"`
-	Success bool `json:"success"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Action  string `json:"action"`
+	Success bool   `json:"success"`
 	Message string `json:"message"`
 }

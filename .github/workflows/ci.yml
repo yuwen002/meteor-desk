@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   validate:
-    name: Go 测试、1 GiB 日志基准与前端构建
+    name: Go 静态检查、测试、1 GiB 日志基准与前端构建
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: 检出源码
         uses: actions/checkout@v4
@@ -34,11 +34,44 @@ jobs:
           go mod download
           go mod verify
 
+      - name: Go 代码格式化检查（gofmt -s）
+        shell: bash
+        run: |
+          # 仓库只用 .gitattributes 把 *.sh 固定为 LF，Go 文件沿用既有行尾策略；Linux Runner 检出为 LF，因此这里不会因行尾差异误报。
+          files=$(find . -type f -name '*.go' -not -path './frontend/*' -not -path './build/*' -not -path './node_modules/*')
+          unformatted=$(gofmt -l -s $files)
+          if [ -n "$unformatted" ]; then
+            echo "::error::以下文件不符合 gofmt -s 规范，请本地执行 gofmt -w -s 后重新提交："
+            echo "$unformatted"
+            for file in $unformatted; do
+              echo "--- $file ---"
+              gofmt -d -s "$file"
+            done
+            exit 1
+          fi
+          echo "gofmt 检查通过（$(echo "$files" | wc -l) 个 Go 文件）"
+
       - name: Go 静态检查
         run: go vet ./...
 
-      - name: 运行完整 Go 单元测试
-        run: go test ./...
+      - name: golangci-lint 静态分析（errcheck / staticcheck / unused 等）
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # 与根目录 .golangci.yml（v2 配置格式）配套；二进制由 action 直接下载，不要求 Runner 升级到 Go 1.26。
+          version: v2.15
+          args: --timeout=5m
+
+      - name: 运行完整 Go 单元测试（同时采集覆盖率）
+        # 覆盖率采集不单独再跑一轮测试：复用本次完整用例运行的 profile。
+        run: go test ./... -covermode=atomic -coverprofile=coverage.out
+
+      - name: Go 覆盖率汇总与下限门槛
+        shell: bash
+        env:
+          # 当前总覆盖率约 74.6%，预留约 4 个百分点余量；调高前先补齐测试。
+          COVERAGE_FLOOR: "70"
+          COVERAGE_DROP_TOLERANCE: "2"
+        run: bash scripts/coverage-check.sh coverage.out
 
       - name: 日志事件聚合回归测试
         run: go test ./internal/logx -run '^TestEventAggregation|^TestSearchFileEventContext'
@@ -92,6 +125,12 @@ jobs:
       - name: 运行前端单元与交互测试
         working-directory: frontend
         run: npm test
+
+      - name: 前端 ESLint 检查
+        working-directory: frontend
+        # 存量已清零（4 条错误已修复），因此直接作为阻断门禁，避免新代码重新积累同类问题。
+        # --format github 会把命中项输出为 PR 行内注释。
+        run: npm run lint -- --format=github
 
       - name: 检查类型并构建前端
         working-directory: frontend

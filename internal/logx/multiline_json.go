@@ -48,11 +48,11 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 		updates := append([]Match(nil), response.Matches[reportedMatches:]...)
 		reportedMatches = len(response.Matches)
 		onProgress(Progress{
-			BytesScanned: min(bytesScanned, response.FileSizeBytes),
+			BytesScanned:  min(bytesScanned, response.FileSizeBytes),
 			FileSizeBytes: response.FileSizeBytes,
-			ScannedLines: response.ScannedLines,
-			MatchesFound: len(response.Matches),
-			Matches: updates,
+			ScannedLines:  response.ScannedLines,
+			MatchesFound:  len(response.Matches),
+			Matches:       updates,
 		})
 	}
 
@@ -71,11 +71,11 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 				preview = preview[:maxPreviewBytes]
 			}
 			match := Match{
-				LineNumber: start,
-				Content: strings.ToValidUTF8(string(preview), "�"),
+				LineNumber:     start,
+				Content:        strings.ToValidUTF8(string(preview), "�"),
 				ContentClipped: clipped,
-				ContextBefore: []LineContext{},
-				ContextAfter: []LineContext{},
+				ContextBefore:  []LineContext{},
+				ContextAfter:   []LineContext{},
 			}
 			if documentMatch {
 				match.Event = newEventContext(start, end, strings.ToValidUTF8(string(text), "�"), &budget)

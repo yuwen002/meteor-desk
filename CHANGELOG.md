@@ -1,5 +1,29 @@
 # 变更记录
 
+## v0.5.34 — 2026-11-01
+
+阶段 5「模块协同与运行数据持久化」落地：
+
+- 服务输出落盘：服务配置新增「输出落盘」开关（`logToDisk`），开启后把本次运行的 stdout/stderr/系统行按行追加写入配置目录 `logs/<服务名>.log`；单文件上限 64 MiB，超出后按命名位移轮转并最多保留 3 份。服务启动时创建写入器、退出时关闭，详情面板展示当前落盘路径（`logFilePath`），停止后仍保留最后一次路径；删除服务时清理当前及历史文件，共用同一安全文件名的其他配置不会被误删。
+- 落盘输出接入实时跟踪与跨模块双向跳转：进程详情可「在日志分析中打开」把落盘文件载入并自动开始 tail（复用 `ReadLogTail` 偏移增量，无需新增后端接口）；日志分析打开某文件时按路径反查它属于哪个已配置服务（新增 `FindServiceByLogPath`），在跟踪面板显示归属提示并可一键跳回进程详情。`FindServiceByLogPath` 桥接层用单返回值快照（未命中 `id` 为空）规避 wails 对多返回值生成歧义联合类型的问题。
+- 生命周期时间线持久化：时间线由「内存 40 条、退出即清空」升级为每服务保留最近 200 条并落盘到 `process-events.json`，应用启动时载入、退出时同步落盘，重启后仍可回看；删除服务一并清理对应记录。
+- 运行历史：进程退出时汇总每次运行的起止时间、退出原因与码、自动重启次数与峰值 CPU/内存为 `RunRecord`，按服务保留最近 100 次落盘到 `run-history.json`，新增 `GetProcessRunHistory` 桥接方法与详情面板展示。
+- 服务分组（场景）：新增 `Group` 数据模型与 `ListProcessGroups`/`SaveProcessGroup`/`DeleteProcessGroup`/`StartProcessGroup`/`StopProcessGroup` 桥接方法，可把若干命名服务整组按依赖顺序启停（复用批量启停逻辑、跳过已删除成员），分组只引用服务 ID、配置持久化到 `groups.json`，删除分组不影响服务本身。
+- 端口占用可操作：当占用配置端口的进程是本工作台托管的另一个服务时，`PortStatus` 填充 `ownerSpecId`/`ownerName`，详情面板提供「停止该服务」按依赖关系停止入口；外部进程只提示不终止。
+- 并发与收尾：落盘、时间线与运行历史的写入统一走 `writeJSONAtomic` 串行原子落盘并在应用退出时同步 flush，避免并发追加产生半行或乱序；补齐落盘轮转/跨重启累积/并发写、时间线与运行历史持久化、分组启停、端口归属与跨模块反查的后端回归测试。
+- 前端：详情面板新增落盘、运行历史与服务分组区块，进程页支持整组启停与端口占用停止；跨模块跳转逻辑下沉到 `utils/runHistory.ts` 与 `utils/processGroups.ts` 纯函数；新增落盘/运行历史/分组/双向跳转/focusId 反选的组件与单元测试（前端测试共 182 例通过）。
+- 文档：API 补齐 7 个新桥接方法、`RunRecord`/`Group` 数据结构、`logToDisk`/`logFilePath`/端口归属字段与「内部持久化文件与保留上限」；架构说明新增运行历史、输出落盘、服务分组与跨模块跳转章节；使用手册补充落盘、运行历史、分组与端口停止的操作说明；路线图阶段 5 全部勾选。
+
+## v0.5.33 — 2026-11-01
+
+- macOS 安装包补齐 Intel（darwin/amd64）版本，与 Apple Silicon 包并列产出；资产命名与 `SHA256SUMS.txt` 明确区分架构，Release 说明标注各包的适用架构与系统前提（Windows 需 WebView2、Linux 需 webkit2gtk 4.0），并说明 Intel 包为交叉编译产出、未在真机验证。
+- 内部结构治理（不改变对外行为）：`internal/process/manager.go` 按职责拆为 `spec.go`、`transfer.go`、`instance.go`、`lifecycle.go`、`batch.go`、`restart.go`、`output.go`、`events.go`，锁纪律与既有测试保持不变；`DeveloperToolkit.vue` 拆为 9 个独立面板组件（样式集中到 `styles/toolkit.css`）；`App.vue` 的日志检索轮询、事件订阅与视图状态抽到 `composables/`，只依赖 `utils/bridge.ts` 的桥接入口，可用假桥接对象直接单测。
+- CI 新增 `gofmt -l -s` 与 golangci-lint（`default: standard`，含 errcheck、govet、ineffassign、staticcheck、unused）两道阻断检查，存量问题一次性修净：未检查的 `Close`/`Remove` 返回值改为显式忽略并注释原因、修正导出注释大小写与布尔化简；规则配置集中在仓库根目录的 `.golangci.yml`，本地与 CI 共用。
+- CI 新增 Go 覆盖率汇总与下限门槛：`scripts/coverage-check.sh` 按包聚合 `-coverprofile` 输出并与 `.github/coverage-baseline.txt` 对比，总覆盖率低于 70% 阻断（当前约 74.6%），单包明显下降只告警，避开进程相关测试在不同 Runner 上的波动。
+- 前端引入 ESLint 10（flat config + Vue/TypeScript 推荐规则）与 `npm run lint`；接入前存量问题已一次性清零，因此直接以阻断方式进入 CI，并使用 `--format=github` 在 PR 上产生行内注释。
+- `parseRequestHeaders` 的 JSON 解析错误保留原始异常作为 `cause`，便于在控制台定位具体语法错误位置；界面提示文案不变。
+- 文档收敛与补齐：README「本轮迭代」只保留最近一个版本段落、历史条目指向 CHANGELOG；补写此前只存在于代码里的开发工具箱面板（Cron 解析、文本差异、日志脱敏）的 README 与使用手册说明，含各自的格式限制与不保证项；架构说明新增「工程门禁」章节与前后端结构拆分描述；路线图阶段 4 补齐三项已落地面板、阶段 7 同步完成状态。
+
 ## v0.5.32 — 2026-10-31
 
 - HTTP 调试器支持 cURL 导入：粘贴 `curl` 命令即可回填请求方法、URL、请求头与正文，支持 `-X`/`-H`/`-d`/`--url`、`\` 与 `^` 续行、单双引号与紧凑写法（`-XPOST`、`--data-raw=...`）；`-A`、`-b`、`-e` 分别转为 `User-Agent`、`Cookie`、`Referer`。

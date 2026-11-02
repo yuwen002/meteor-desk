@@ -82,15 +82,15 @@ LISTEN 0      4096                 *:9090                 *:*
 
 func TestPortFromAddress(t *testing.T) {
 	cases := map[string]int{
-		"0.0.0.0:8080":     8080,
-		"[::]:135":         135,
-		"*:3000":           3000,
-		"127.0.0.1.5432":   5432,
-		"127.0.0.1:65535":  65535,
-		"127.0.0.1:70000":  0,
-		"[::]":             0,
-		"":                 0,
-		"127.0.0.1":        0,
+		"0.0.0.0:8080":    8080,
+		"[::]:135":        135,
+		"*:3000":          3000,
+		"127.0.0.1.5432":  5432,
+		"127.0.0.1:65535": 65535,
+		"127.0.0.1:70000": 0,
+		"[::]":            0,
+		"":                0,
+		"127.0.0.1":       0,
 	}
 	for address, want := range cases {
 		if got := portFromAddress(address); got != want {
@@ -135,7 +135,7 @@ func TestManagerPortDiagnosticsReportsOccupiedPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	manager, err := NewManagerAt(filepath.Join(t.TempDir(), "processes.json"))
@@ -165,6 +165,10 @@ func TestManagerPortDiagnosticsReportsOccupiedPort(t *testing.T) {
 	if status.PID != os.Getpid() {
 		t.Fatalf("占用进程应是测试进程 %d：%+v", os.Getpid(), status)
 	}
+	// 占用者是测试进程自身（非本工作台托管服务），不应给出可停止的服务归属。
+	if status.OwnerSpecID != "" || status.OwnerName != "" {
+		t.Fatalf("外部进程占用不应标记为可操作服务：%+v", status)
+	}
 	if len(report.Listening) != 0 {
 		t.Fatalf("服务未运行时不应报告自身监听端口：%+v", report.Listening)
 	}
@@ -189,5 +193,30 @@ func TestLeadingInt(t *testing.T) {
 	}
 	if got := leadingInt("007"); got != 7 {
 		t.Fatalf("前导零应解析为 7：%d", got)
+	}
+}
+
+// TestPortStatusForAttribution 验证端口占用者归属：仅当占用者是另一个本工作台服务时填充可操作归属。
+func TestPortStatusForAttribution(t *testing.T) {
+	managed := map[int]managedOwner{
+		200: {specID: "other-svc", name: "另一个服务"},
+	}
+
+	// 空闲端口：无归属。
+	if got := portStatusFor(8080, listenOwner{}, 100, managed); got.State != PortFree || got.OwnerSpecID != "" {
+		t.Fatalf("空闲端口状态异常：%+v", got)
+	}
+	// 本服务自己监听：owned，不标记为可停止归属。
+	if got := portStatusFor(8080, listenOwner{Port: 8080, PID: 100}, 100, managed); got.State != PortOwned || got.OwnerSpecID != "" {
+		t.Fatalf("本服务监听应为 owned 且无归属：%+v", got)
+	}
+	// 被外部进程占用：occupied，无可操作归属。
+	if got := portStatusFor(8080, listenOwner{Port: 8080, PID: 999}, 100, managed); got.State != PortOccupied || got.OwnerSpecID != "" {
+		t.Fatalf("外部占用不应有可操作归属：%+v", got)
+	}
+	// 被另一个本工作台服务占用：occupied 且带可停止归属。
+	got := portStatusFor(8080, listenOwner{Port: 8080, PID: 200, Process: "node"}, 100, managed)
+	if got.State != PortOccupied || got.OwnerSpecID != "other-svc" || got.OwnerName != "另一个服务" {
+		t.Fatalf("托管服务占用应标记为可操作：%+v", got)
 	}
 }

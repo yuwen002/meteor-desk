@@ -28,11 +28,23 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
+            arch: amd64
+            platform: linux/amd64
             artifact: meteordesk-linux-amd64
           - os: windows-latest
+            arch: amd64
+            platform: windows/amd64
             artifact: meteordesk-windows-amd64
           - os: macos-latest
+            arch: arm64
+            platform: darwin/arm64
             artifact: meteordesk-macos-arm64
+          # GitHub 已下线 Intel macOS 云 Runner（macos-13 于 2025-12 退役），
+          # Intel 安装包改为在 Apple Silicon Runner 上交叉编译 darwin/amd64，产物仍区分架构。
+          - os: macos-latest
+            arch: amd64
+            platform: darwin/amd64
+            artifact: meteordesk-macos-amd64
     steps:
       - name: 检出源码
         uses: actions/checkout@v4
@@ -89,27 +101,39 @@ jobs:
       - name: 构建桌面应用
         shell: bash
         # 版本只在 frontend/package.json 维护，构建时注入后端，避免界面与二进制版本不一致。
-        run: go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build -clean -ldflags "-s -w -X main.appVersion=$APP_VERSION"
+        # 目标架构由矩阵显式给出，交叉编译失败时能在对应 job 里直接看出是哪一档。
+        run: >-
+          go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build -clean
+          -platform ${{ matrix.platform }}
+          -ldflags "-s -w -X main.appVersion=$APP_VERSION"
 
       - name: 打包 Windows 产物
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
         run: |
-          $name = "MeteorDesk-${{ env.VERSION_TAG }}-windows-amd64.zip"
+          $name = "MeteorDesk-${{ env.VERSION_TAG }}-windows-${{ matrix.arch }}.zip"
           Compress-Archive -Path "build/bin/MeteorDesk.exe" -DestinationPath $name
           "ASSET=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: 打包 macOS 产物
         if: ${{ runner.os == 'macOS' }}
         run: |
-          name="MeteorDesk-${{ env.VERSION_TAG }}-macos-arm64.zip"
-          ditto -c -k --sequesterRsrc --keepParent build/bin/MeteorDesk.app "$name"
+          # 交叉编译时 Wails 可能把非本机架构写进带后缀的目录，这里按 .app 查找而不是硬编码路径。
+          app=$(find build/bin -maxdepth 2 -name '*.app' -type d | head -n 1)
+          if [ -z "$app" ]; then
+            echo "::error::未找到 macOS .app 产物"
+            ls -R build/bin
+            exit 1
+          fi
+          echo "打包 $app，可执行文件架构：$(lipo -archs "$app/Contents/MacOS/"* 2>/dev/null || echo 未知)"
+          name="MeteorDesk-${{ env.VERSION_TAG }}-macos-${{ matrix.arch }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$name"
           echo "ASSET=$name" >> "$GITHUB_ENV"
 
       - name: 打包 Linux 产物
         if: ${{ runner.os == 'Linux' }}
         run: |
-          name="MeteorDesk-${{ env.VERSION_TAG }}-linux-amd64.tar.gz"
+          name="MeteorDesk-${{ env.VERSION_TAG }}-linux-${{ matrix.arch }}.tar.gz"
           tar -czf "$name" -C build/bin MeteorDesk
           echo "ASSET=$name" >> "$GITHUB_ENV"
 
@@ -156,6 +180,24 @@ jobs:
           if [ ! -s release-notes.md ]; then
             printf 'MeteorDesk %s\n' "$VERSION_TAG" > release-notes.md
           fi
+          # 安装包按架构分档，下载前需要知道选哪一个、以及各自的系统前提。
+          cat >> release-notes.md <<'NOTES'
+
+          ## 安装包与系统前提
+
+          | 安装包 | 适用架构 | 系统前提 |
+          | --- | --- | --- |
+          | `*-windows-amd64.zip` | Windows 10/11 x86_64 | 需要 Microsoft Edge WebView2 Runtime（Win11 自带，Win10 需已安装） |
+          | `*-macos-arm64.zip` | Apple Silicon（M1 及以后） | macOS 11 及以上 |
+          | `*-macos-amd64.zip` | Intel Mac | macOS 11 及以上 |
+          | `*-linux-amd64.tar.gz` | Linux x86_64 | 需要 webkit2gtk 4.0（Debian/Ubuntu：`libwebkit2gtk-4.0-dev`；Fedora：`webkit2gtk4.0`；Arch：`webkit2gtk`） |
+
+          macOS 两个包由同一台 Apple Silicon Runner 分别以 `darwin/arm64` 与 `darwin/amd64` 构建，请按机器架构选择。
+
+          完整性校验：`sha256sum -c SHA256SUMS.txt`；PowerShell 用 `Get-FileHash -Algorithm SHA256 <安装包>` 后与清单比对。
+
+          macOS 安装包未做代码签名与公证，首次打开请在「系统设置 → 隐私与安全性」允许运行，或执行 `xattr -dr com.apple.quarantine MeteorDesk.app` 去除隔离属性。
+          NOTES
           cat release-notes.md
 
       - name: 发布 Release

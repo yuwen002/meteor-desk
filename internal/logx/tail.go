@@ -72,7 +72,8 @@ func TailFile(path string, options TailOptions) (TailResult, error) {
 	if err != nil {
 		return TailResult{}, fmt.Errorf("打开日志文件失败：%w", err)
 	}
-	defer file.Close()
+	// 只读打开，关闭失败无需上抛。
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		return TailResult{}, fmt.Errorf("读取日志文件信息失败：%w", err)

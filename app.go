@@ -100,6 +100,13 @@ func (a *App) shutdown(ctx context.Context) {
 		if err := a.processes.StopAll(); err != nil {
 			runtime.LogError(ctx, "退出时停止服务失败："+err.Error())
 		}
+		// StopAll 会在退出收尾时同步落盘时间线与运行历史，这里兜底捕获尚未落盘的变更。
+		if err := a.processes.FlushEvents(); err != nil {
+			runtime.LogError(ctx, "退出时保存时间线失败："+err.Error())
+		}
+		if err := a.processes.FlushRunHistory(); err != nil {
+			runtime.LogError(ctx, "退出时保存运行历史失败："+err.Error())
+		}
 	}
 }
 
@@ -259,8 +266,22 @@ func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){
 func (a *App) GetResourceHistory(id string)([]process.ResourceSample,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.ResourceHistory(id),nil}
 // GetPortDiagnostics 扫描本机监听端口，返回服务声明端口的占用情况与本服务实际监听的端口。
 func (a *App) GetPortDiagnostics(id string)(process.PortReport,error){if a.startupErr!=nil{return process.PortReport{},a.startupErr};if a.processes==nil{return process.PortReport{},errors.New("进程管理器尚未初始化")};return a.processes.PortDiagnostics(id)}
-// GetProcessTimeline 返回服务最近的生命周期事件（启动、就绪、自动重启、退出），只在内存保留最近 40 条。
+// GetProcessTimeline 返回服务最近的生命周期事件（启动、就绪、自动重启、退出）；内存保留最近 200 条并持久化，重启后仍可回看。
 func (a *App) GetProcessTimeline(id string)([]process.ProcessEvent,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Timeline(id),nil}
+// GetProcessRunHistory 返回服务最近的运行历史（每次起止时间、退出码、自动重启次数、峰值 CPU 与内存），最多保留最近 100 次。
+func (a *App) GetProcessRunHistory(id string)([]process.RunRecord,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.RunHistory(id),nil}
+// ListProcessGroups 返回按名称排序的服务分组（场景）副本，仅含引用关系的成员 ID。
+func (a *App) ListProcessGroups()([]process.Group,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.ListGroups(),nil}
+// SaveProcessGroup 新建或更新一个服务分组；新建时分配 ID，成员必须都是已配置的服务。
+func (a *App) SaveProcessGroup(group process.Group)(process.Group,error){if a.startupErr!=nil{return process.Group{},a.startupErr};if a.processes==nil{return process.Group{},errors.New("进程管理器尚未初始化")};return a.processes.SaveGroup(group)}
+// DeleteProcessGroup 删除一个服务分组，只移除引用关系，不影响成员服务本身。
+func (a *App) DeleteProcessGroup(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.DeleteGroup(id)}
+// StartProcessGroup 按依赖顺序整组启动分组内的服务及其上游依赖，并逐项返回执行结果。
+func (a *App) StartProcessGroup(id string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StartGroup(id)}
+// StopProcessGroup 按逆依赖顺序整组停止分组内的服务及其依赖方。
+func (a *App) StopProcessGroup(id string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StopGroup(id)}
+// FindServiceByLogPath 按落盘日志文件路径反查所属服务，供日志分析跳转回进程详情；未匹配时返回字段为空的服务快照（id 为空）。
+func (a *App) FindServiceByLogPath(path string)process.Snapshot{if a.processes==nil{return process.Snapshot{}};snapshot,_:=a.processes.FindServiceByLogPath(path);return snapshot}
 // ReadLogTail 返回日志文件在 offset 之后新增的完整行；offset 为负时从文件末尾开始跟踪。
 func (a *App) ReadLogTail(path string, offset int64, encoding string) (logx.TailResult, error) {
 	return logx.TailFile(path, logx.TailOptions{Offset: offset, Encoding: encoding})

@@ -8,7 +8,7 @@ Vue 3 / TypeScript (frontend/src)
         ▼
 App (app.go)
   ├── logx     流式日志读取、编码解码、匹配、上下文与增量回调
-  ├── process  本地进程生命周期、依赖排序与输出缓存
+  ├── process  本地进程生命周期、依赖排序、输出缓存与落盘、时间线/运行历史/分组持久化
   ├── httpx    受限的本机 HTTP 请求（开发工具箱）
   └── config   本地偏好、最近文件与搜索历史
         │
@@ -20,10 +20,16 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 
 ## 前端组件划分
 
-- `App.vue` 负责页面导航、日志检索状态与结果列表；结果过滤、排序、收藏、聚合统计等纯数据变换放在 `utils/`，可直接单测。
-- `components/ProcessManagement.vue` 与 `components/DeveloperToolkit.vue` 各自管理模块状态，由 `App.vue` 通过 `active` / `v-if` 控制切换。
+- `App.vue` 负责页面导航与模板渲染。日志检索的轮询、事件订阅与视图状态已抽到 `composables/`（`useLogSearch`、`useResultView`、`useJsonDetail`、`useBookmarks`、`useLogTail`），它们只依赖 `utils/bridge.ts` 提供的桥接入口，可以用假桥接对象直接单测；结果过滤、排序、收藏、聚合统计等纯数据变换仍放在 `utils/`。
+- `components/ProcessManagement.vue` 管理进程模块状态（含配置表单、运行详情、资源曲线、时间线、运行历史、端口诊断与服务分组）；跨模块交互靠父子约定：子组件 `emit('open-log', path)` 把落盘文件交给 `App.vue` 打开并跟踪，`App.vue` 通过 `focusId` prop 请求选中某服务、子组件处理完 `emit('focus-handled')`。落盘/运行历史/分组的纯逻辑抽到 `utils/runHistory.ts` 与 `utils/processGroups.ts` 以便单测。`components/DeveloperToolkit.vue` 只做工具箱的标签页调度与共享输入，具体面板拆分为 `components/toolkit/Toolkit*.vue`（时间戳、JSON、脱敏、Cron、差异、HTTP、Base64、JWT、URL），面板样式集中在 `frontend/src/styles/toolkit.css`。
 - `components/AboutDialog.vue` 与 `components/ShortcutsDialog.vue` 是自包含对话框：前者挂载时读取运行信息，后者持有快捷键草稿并在校验通过后写入本地存储，通过 `close` / `change` 事件回传给 `App.vue`。
 - 单元测试与组件测试与源码同目录（`*.test.ts`），用 `@vue/test-utils` 挂载组件并 mock `window.go.main.App` 桥接。
+
+## 工程门禁
+
+- Go 侧以 `gofmt -s` 与 golangci-lint（`default: standard`，含 errcheck、govet、ineffassign、staticcheck、unused）作为阻断检查，配置集中在仓库根目录的 `.golangci.yml`，本地与 CI 共用。
+- 覆盖率由 `scripts/coverage-check.sh` 汇总：总覆盖率低于下限阻断，单包相对 `.github/coverage-baseline.txt` 明显下降只告警（进程相关测试在不同 Runner 上波动较大）。
+- 前端以 `npm run lint`（ESLint 10 flat config，`eslint.config.js`）阻断；存量问题已在接入时清零，与现有紧凑模板写法冲突的排版类规则直接关闭，以免噪声淹没问题。具体本地命令见 [贡献指南](../CONTRIBUTING.md)。
 
 ## 日志检索数据流
 
@@ -55,6 +61,7 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 程序使用可执行文件与参数数组创建子进程，不默认将用户输入拼为 Shell 命令。
 - stdout、stderr 和系统生命周期消息分别采集，并限制单行长度与每个服务的输出缓存上限。
 - 进程管理器保留状态/退出原因，应用关闭时会尝试停止由工作台启动的服务。
+- `internal/process` 按职责分文件而不是一体实现：`manager.go` 只保留管理器状态、配置加载与持久化、快照查询与配置增删；`spec.go`、`transfer.go`、`instance.go`、`lifecycle.go`、`batch.go`、`restart.go`、`output.go`、`events.go`、`runhistory.go`、`groups.go`、`disklog.go` 分别负责定义校验、导入导出、单次运行实例、启停、批量与拓扑、自动重启、输出缓存、时间线持久化、运行历史持久化、服务分组与输出落盘，健康探测/就绪/指标/端口沿用 `health.go`、`readiness.go`、`metrics.go`、`ports.go`。拆文件不改变锁纪律：所有状态仍只在 `Manager` 的 `m.mu` 保护下读写。
 
 ## 自动重启与健康检查
 
@@ -83,9 +90,27 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 
 ## 进程生命周期事件
 
-- `Manager.events` 按服务 ID 保存 `ProcessEvent`（`start`/`ready`/`restart`/`exit`），在 `m.mu` 内追加并只保留最近 `maxProcessEvents`（40）条；与配置、输出缓存一致，只在内存中保存，应用退出即清空。
+- `Manager.events` 按服务 ID 保存 `ProcessEvent`（`start`/`ready`/`restart`/`exit`），在 `m.mu` 内追加并只保留最近 `maxProcessEvents`（200）条；与配置同目录的 `process-events.json` 持久化，`NewManagerAt` 时载入、运行中累加，退出前由 `FlushEvents` 同步落盘，因此应用重启后仍可回看。写入都走 `writeJSONAtomic`（临时文件加重命名）串行完成，避免并发追写出半行或乱序。
 - 启动成功入 `start`（自动重启会标明第几次），`cmd.Start` 失败入一条 `exit` 说明启动失败原因；进程退出时在同一把锁内先写 `exit`（含退出码与运行时长）再写 `restart`（待重启或次数用尽），保证时间线顺序与状态快照一致。
-- 启动耗时来自就绪事件：本次运行的第一行 stdout/stderr 或首次健康通过先到即写 `ready`，`durationMs` 为距离启动成功的毫秒数；`readyDone` 与实例绑定，重启后重新计时；启动失败的实例没有启动时间，写入 stderr 不会产生就绪事件。
+- 启动耗时来自就绪事件：本次运行的第一行 stdout/stderr 或首次健康通过先到即写 `ready`，`durationMs` 为距离启动成功的毫秒数；`readyDone` 与实例绑定，重启后重新计时；启动失败的实例没有启动时间，写入 stderr 不会产生就绪事件。删除服务会一并清理其时间线记录。
+
+## 运行历史与输出落盘
+
+- 运行历史：`runhistory.go` 在进程退出时把一次运行的 `RunRecord`（起止、退出原因与码、重启次数、峰值 CPU/内存）追加到按服务保留的列表，上限 `maxRunHistory`（100）次，落盘到同目录 `run-history.json`，启动时载入；峰值取自本次运行的资源采样最大值，未采样到时为零。`FlushRunHistory` 供退出收尾与测试排空。
+- 输出落盘：`disklog.go` 的 `diskRotator` 把开启 `LogToDisk` 的服务输出按行追加到配置目录 `logs/<服务名>.log`，首次写入时才 `MkdirAll` 并以追加方式打开，把权限/磁盘错误推迟到服务真正产生输出时；内嵌换行用行分隔符替换以保证按行读取。单文件超过 64 MiB 后按命名位移轮转（`name.log` → `name.log.1` → `name.log.2`），连同当前文件最多保留 3 份，超过保留窗口的最旧备份被删除。跨流并发写由 `diskRotator` 内部互斥锁保护，同一文件不会交错出半行。
+- 生命周期接入：`startOne` 时按配置创建写入器并把路径写入快照的 `LogFilePath`，`waitForExit` 时关闭句柄（每次 `Write` 直接落盘，无需额外 flush）；服务停止后快照仍保留最后一次的落盘路径。删除服务时清理当前及历史文件，但共用同一安全文件名的其他配置不会被误删。
+- 实时跟踪复用：落盘文件就是普通本地文件，日志分析侧的 `logx.TailFile` 可直接按偏移增量读取，因此“落盘输出接入实时跟踪”不需要新增后端接口，只需前端把路径交给持有 `filePath` 与跟踪状态的 `App.vue`。
+
+## 服务分组（场景）
+
+- `groups.go` 维护 `Group`（`id`/`name`/`description`/`memberIds`），只按 ID 引用已有服务而不复制配置，落盘到同目录 `groups.json`。
+- 整组启停 `StartGroup`/`StopGroup` 复用 `StartBatch`/`StopBatch` 的拓扑与反向依赖逻辑，只过滤掉已被删除的成员；因此分组启停与单服务批量启停共用同一套依赖编排与就绪等待。
+- `SaveGroup` 校验成员都是已配置的服务、新建时分配 ID；`DeleteGroup` 只移除引用关系，不影响服务本身。前端 `utils/processGroups.ts` 提供成员开关、去重规范化与校验的纯函数，可脱离模板单测。
+
+## 跨模块跳转
+
+- 进程 → 日志分析：`ProcessManagement.vue` 通过 `emit('open-log', path)` 把落盘路径交给 `App.vue`，后者持有 `filePath` 与实时跟踪状态，切到日志分析页、载入该文件并在 `nextTick` 里自动 `startTail`。
+- 日志分析 → 进程：`App.vue` 在 `filePath` 变化时调 `FindServiceByLogPath` 反查归属；该方法在 Go 侧返回 `(Snapshot, bool)`，桥接层 `App.FindServiceByLogPath` 把它包装成单返回值快照（未命中时 `id` 为空），避免 wails 为多返回值生成 `Promise<Snapshot|boolean>` 歧义联合类型。命中后在跟踪面板展示归属提示，点击后经 `focusId` prop 请求 `ProcessManagement` 选中对应服务，处理完 `emit('focus-handled')` 让父组件清空 `focusId` 以便重复触发。
 
 ## 端口诊断
 
@@ -93,6 +118,7 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 解析与地址处理都是纯函数（`parseNetstatListeners`、`parseLsofListeners`、`parseSSListeners`、`portFromAddress`），可用固定输出单元测试，不依赖真实端口占用。
 - `PortDiagnostics` 在锁内复制配置端口与实例 PID，随后在锁外扫描，避免系统命令阻塞启停；每个端口标记为 `free`、`owned`、`occupied` 或 `unknown`（扫描失败），并单独返回本服务 PID 实际监听的端口。
 - 启动后若声明端口被其他进程占用，会在运行输出写入一条提示（含 PID 与进程名），但不会阻止启动；端口声明只用于提示，不会修改启动命令。
+- 仅当占用端口的是另一个本工作台托管的服务（非查询服务自身）时，`PortStatus` 才填充 `OwnerSpecID`/`OwnerName`，供前端展示“被本工作台服务占用”并提供按依赖关系停止入口；外部进程只展示 PID/进程名，不提供终止。
 
 ## 进程依赖图
 
@@ -136,7 +162,7 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 ## 状态与数据保留
 
 - 用户偏好和检索历史位于当前用户配置目录下的 `MeteorDesk/settings.json`。
-- 服务配置位于同目录下的 `processes.json`。
+- 服务配置位于同目录下的 `processes.json`；时间线、运行历史与分组分别持久化为同目录的 `process-events.json`（每服务 200 条）、`run-history.json`（每服务 100 次）与 `groups.json`；开启落盘的服务输出写入同目录 `logs/<服务名>.log`（单文件 64 MiB、最多保留 3 份）。这些文件都走 `writeJSONAtomic`（除日志文件本身为追加写）串行原子写入，删除服务时一并清理其时间线/运行历史/落盘文件。
 - 搜索结果只保留在当前应用任务中；任务清理策略限制历史搜索状态的积累。
 - 结果收藏保存在前端 localStorage 的 `meteordesk.bookmarks.v1`，按文件路径与行号去重、上限 500 条；不属于后端配置，也不参与导入导出。
 - 项目没有默认遥测，也不会将日志内容上传到外部服务。
@@ -154,6 +180,7 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 就绪等待依赖后台探测节奏：等待时间应大于探测间隔，否则可能在首次探测前超时；被依赖服务未配置健康检查时不会等待。
 - 就绪等待是同步阻塞调用：最长 600 秒，期间批量启动无法取消；需要提前结束时可先停止上游服务，等待会因实例结束而立即返回。
 - 资源数据每 2 秒更新且只覆盖主进程，不包含子进程；数值受采样间隔影响，不能替代系统级监控工具。macOS 采样依赖系统 `ps` 命令。依赖图只反映配置中的 `dependsOn`，不探测网络或端口连通性。
+- 输出落盘只面向本次运行的 stdout/stderr/系统行，单文件 64 MiB、最多保留 3 份（含当前文件），不提供落盘文件的自动清理以外的生命周期管理；时间线与运行历史按服务分别上限 200 条与 100 次，超出后丢弃最早的记录。分组启停不复制服务配置，成员被删除时只跳过、不报错。
 - HTTP 调试器默认超时 30 秒、上限 120 秒，最多跟随 10 次重定向，请求/响应正文各 2 MiB；响应超限时只保留前 2 MiB 并标记截断，二进制正文额外标记。
 - cURL 互转在 `frontend/src/utils/curl.ts` 完成：先按引号与续行切分词元，再识别选项与取值；解析失败只回填提示，不修改表单，导入成功会清空上一次响应。生成命令时只保留非空请求头，取值用单引号包裹并按 `'\''` 转义，因此命令可直接在 shell 中执行，不经过后端，也不写入本地历史。
 - 合成大文件基准不能替代真实线上日志的编码、多行长度、磁盘吞吐和内存画像。

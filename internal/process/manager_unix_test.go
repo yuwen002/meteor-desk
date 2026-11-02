@@ -15,9 +15,9 @@ func TestManagerRecordsSignalTermination(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := manager.Save(Spec{
-		Name: "信号终止测试",
+		Name:       "信号终止测试",
 		Executable: "/bin/sh",
-		Args: []string{"-c", "kill -TERM $$"},
+		Args:       []string{"-c", "kill -TERM $$"},
 	})
 	if err != nil {
 		t.Fatal(err)

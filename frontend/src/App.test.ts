@@ -48,6 +48,13 @@ function createBridge() {
       reset: true,
       truncated: false,
     }),
+    FindServiceByLogPath: vi.fn().mockResolvedValue({ id: '', name: '' }),
+    // ProcessManagement 子组件挂载后会调用这些接口；日志分析页面的用例不依赖其返回值。
+    GetResourceHistory: vi.fn().mockResolvedValue([]),
+    GetProcessTimeline: vi.fn().mockResolvedValue([]),
+    GetProcessRunHistory: vi.fn().mockResolvedValue([]),
+    GetPortDiagnostics: vi.fn().mockResolvedValue({ specId: '', declared: [], ports: [], listening: [], scannedAt: '' }),
+    ListProcessGroups: vi.fn().mockResolvedValue([]),
   }
 }
 
@@ -172,6 +179,26 @@ describe('log search options', () => {
     await new Promise(resolve => setTimeout(resolve, 1100))
     await flushPromises()
     expect(bridge.ReadLogTail.mock.calls.length).toBe(calls)
+    wrapper.unmount()
+  })
+
+  it('offers a jump back to the owning service when a log file belongs to one', async () => {
+    const bridge = createBridge()
+    bridge.FindServiceByLogPath.mockResolvedValue({ id: 'api', name: 'API', state: 'running' })
+    Object.defineProperty(window, 'go', { configurable: true, value: { main: { App: bridge } } })
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+    const chooseButton = wrapper.findAll('button').find(button => button.text().includes('选择日志'))
+    if (!chooseButton) throw new Error('选择日志按钮未渲染')
+    await chooseButton.trigger('click')
+    await flushPromises()
+
+    expect(bridge.FindServiceByLogPath).toHaveBeenCalledWith('C:/logs/app.log')
+    const hint = wrapper.get('.process-owner-hint')
+    expect(hint.text()).toContain('API')
+    await hint.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.breadcrumbs').text()).toContain('进程管理')
     wrapper.unmount()
   })
 

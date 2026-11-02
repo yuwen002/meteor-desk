@@ -14,6 +14,8 @@ export interface SearchExportMeta {
 }
 
 const CSV_BOM = '\uFEFF'
+// 导出文件名会直接交给操作系统写入，控制字符（\0-\x1f）必须洗掉，这里命中控制字符正是目的。
+// eslint-disable-next-line no-control-regex -- 有意匹配控制字符以剔除它们
 const ILLEGAL_FILE_CHARS = /[\\/:*?"<>|\u0000-\u001f]/g
 
 function csvCell(value: string | number | boolean | undefined): string {
