@@ -24,39 +24,39 @@ var appVersion = "dev"
 // RuntimeInfo 是「关于」面板展示的构建与运行环境信息。
 type RuntimeInfo struct {
 	AppVersion string `json:"appVersion"`
-	GoVersion string `json:"goVersion"`
-	Platform string `json:"platform"`
-	DataDir string `json:"dataDir"`
+	GoVersion  string `json:"goVersion"`
+	Platform   string `json:"platform"`
+	DataDir    string `json:"dataDir"`
 }
 
 // LogSearchProgress 是前端轮询使用的搜索任务状态 DTO。
 type LogSearchProgress struct {
-	SearchID string `json:"searchId"`
-	BytesScanned int64 `json:"bytesScanned"`
-	FileSizeBytes int64 `json:"fileSizeBytes"`
-	ScannedLines int64 `json:"scannedLines"`
-	MatchesFound int `json:"matchesFound"`
-	Percent int `json:"percent"`
-	Running bool `json:"running"`
-	Canceled bool `json:"canceled"`
-	Error string `json:"error,omitempty"`
+	SearchID      string `json:"searchId"`
+	BytesScanned  int64  `json:"bytesScanned"`
+	FileSizeBytes int64  `json:"fileSizeBytes"`
+	ScannedLines  int64  `json:"scannedLines"`
+	MatchesFound  int    `json:"matchesFound"`
+	Percent       int    `json:"percent"`
+	Running       bool   `json:"running"`
+	Canceled      bool   `json:"canceled"`
+	Error         string `json:"error,omitempty"`
 }
 type SearchMatchesEvent struct {
-	SearchID string `json:"searchId"`
+	SearchID string            `json:"searchId"`
 	Progress LogSearchProgress `json:"progress"`
-	Matches []logx.Match `json:"matches,omitempty"`
+	Matches  []logx.Match      `json:"matches,omitempty"`
 }
 
 type searchJob struct {
-	cancel context.CancelFunc
-	progress LogSearchProgress
-	matches []logx.Match
+	cancel      context.CancelFunc
+	progress    LogSearchProgress
+	matches     []logx.Match
 	completedAt time.Time
 }
 
 const (
-	searchJobRetention = 10 * time.Minute
-	maxRetainedSearchJobs = 32
+	searchJobRetention       = 10 * time.Minute
+	maxRetainedSearchJobs    = 32
 	targetRetainedSearchJobs = 24
 	// maxExportContentBytes 限制界面生成的导出文本，避免把整个检索缓存误写入文件。
 	maxExportContentBytes = 32 << 20
@@ -64,25 +64,35 @@ const (
 
 // App 是 Wails 暴露给前端的后端桥接对象；公开方法即本地桌面接口。
 type App struct {
-	ctx context.Context
-	eventsEnabled bool
-	mu sync.RWMutex
+	ctx            context.Context
+	eventsEnabled  bool
+	mu             sync.RWMutex
 	settingsSaveMu sync.Mutex
-	searches map[string]*searchJob
-	droppedFiles []string
-	processes *process.Manager
-	settings config.Settings
-	startupErr error
+	searches       map[string]*searchJob
+	droppedFiles   []string
+	processes      *process.Manager
+	settings       config.Settings
+	startupErr     error
 }
-func NewApp() *App { return &App{searches:map[string]*searchJob{},settings:config.DefaultSettings()} }
+
+func NewApp() *App {
+	return &App{searches: map[string]*searchJob{}, settings: config.DefaultSettings()}
+}
 func (a *App) startup(ctx context.Context) {
-	a.ctx=ctx
-	a.eventsEnabled=true
-	if settings,err:=config.LoadSettings();err==nil{a.settings=settings}
-	a.processes,a.startupErr=process.NewManager()
-	runtime.OnFileDrop(ctx,func(x,y int,paths []string){
-		a.mu.Lock();defer a.mu.Unlock()
-		for _,path:=range paths{if strings.TrimSpace(path)!=""{a.droppedFiles=append(a.droppedFiles,path)}}
+	a.ctx = ctx
+	a.eventsEnabled = true
+	if settings, err := config.LoadSettings(); err == nil {
+		a.settings = settings
+	}
+	a.processes, a.startupErr = process.NewManager()
+	runtime.OnFileDrop(ctx, func(x, y int, paths []string) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for _, path := range paths {
+			if strings.TrimSpace(path) != "" {
+				a.droppedFiles = append(a.droppedFiles, path)
+			}
+		}
 	})
 }
 
@@ -111,42 +121,63 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 // SelectLogFile 打开系统文件选择器，返回用户选中的日志路径。
-func (a *App) SelectLogFile()(string,error){
-	if a.ctx==nil{return "",errors.New("桌面运行环境尚未就绪")}
-	path,err:=runtime.OpenFileDialog(a.ctx,runtime.OpenDialogOptions{Title:"选择日志文件",Filters:[]runtime.FileFilter{
-		{DisplayName:"日志和文本文件",Pattern:"*.log;*.txt;*.out;*.json;*.ndjson"},
-		{DisplayName:"所有文件",Pattern:"*"},
+func (a *App) SelectLogFile() (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("桌面运行环境尚未就绪")
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{Title: "选择日志文件", Filters: []runtime.FileFilter{
+		{DisplayName: "日志和文本文件", Pattern: "*.log;*.txt;*.out;*.json;*.ndjson"},
+		{DisplayName: "所有文件", Pattern: "*"},
 	}})
-	return path,err
+	return path, err
 }
+
 // PollDroppedFiles 取出并清空桌面拖放事件中积累的文件路径。
-func (a *App) PollDroppedFiles()[]string{
-	a.mu.Lock();defer a.mu.Unlock();paths:=append([]string(nil),a.droppedFiles...);a.droppedFiles=a.droppedFiles[:0];return paths
+func (a *App) PollDroppedFiles() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	paths := append([]string(nil), a.droppedFiles...)
+	a.droppedFiles = a.droppedFiles[:0]
+	return paths
 }
+
 // SearchLogs 执行不带上下文行的日志搜索，保留旧版桥接调用入口。
-func (a *App) SearchLogs(searchID,path,query string,useRegex bool,maxResults int)(logx.SearchResponse,error){
-	return a.SearchLogsAdvanced(searchID,path,query,useRegex,maxResults,0,"auto",false,false,"","")
+func (a *App) SearchLogs(searchID, path, query string, useRegex bool, maxResults int) (logx.SearchResponse, error) {
+	return a.SearchLogsAdvanced(searchID, path, query, useRegex, maxResults, logx.SearchOptions{})
 }
+
 // SendHTTPRequest 在本机执行用户在 HTTP 调试器中明确发起的请求。
-func (a *App) SendHTTPRequest(request httpx.Request)(httpx.Response,error){return httpx.Send(request)}
+func (a *App) SendHTTPRequest(request httpx.Request) (httpx.Response, error) {
+	return httpx.Send(request)
+}
+
 // SearchLogsAdvanced 注册一个可取消的搜索任务；扫描期间通过进度和增量匹配接口读取状态。
-// eventBoundary 可选 timestamp（默认）、blank 或 custom；custom 时使用 eventBoundaryPattern 指定的正则。
-func (a *App) SearchLogsAdvanced(searchID,path,query string,useRegex bool,maxResults,contextLines int,encoding string,multiLineJSON,eventContext bool,eventBoundary,eventBoundaryPattern string)(logx.SearchResponse,error){
-	if a.ctx==nil{return logx.SearchResponse{},errors.New("桌面运行环境尚未就绪")}
-	if searchID==""{return logx.SearchResponse{},errors.New("缺少检索任务编号")}
-	a.mu.Lock();a.pruneSearchesLocked()
-	if _,exists:=a.searches[searchID];exists{a.mu.Unlock();return logx.SearchResponse{},errors.New("检索任务编号重复")}
-	searchCtx,cancel:=context.WithCancel(a.ctx)
-	a.searches[searchID]=&searchJob{cancel:cancel,progress:LogSearchProgress{SearchID:searchID,Running:true}}
+// options 集中承载上下文行数、编码、多行 JSON、事件边界与时间窗等全部检索参数；
+// 阶段 6 起改为结构体透传，避免每新增一个检索参数就要改动方法签名与生成的绑定。
+func (a *App) SearchLogsAdvanced(searchID, path, query string, useRegex bool, maxResults int, options logx.SearchOptions) (logx.SearchResponse, error) {
+	if a.ctx == nil {
+		return logx.SearchResponse{}, errors.New("桌面运行环境尚未就绪")
+	}
+	if searchID == "" {
+		return logx.SearchResponse{}, errors.New("缺少检索任务编号")
+	}
+	a.mu.Lock()
+	a.pruneSearchesLocked()
+	if _, exists := a.searches[searchID]; exists {
+		a.mu.Unlock()
+		return logx.SearchResponse{}, errors.New("检索任务编号重复")
+	}
+	searchCtx, cancel := context.WithCancel(a.ctx)
+	a.searches[searchID] = &searchJob{cancel: cancel, progress: LogSearchProgress{SearchID: searchID, Running: true}}
 	a.mu.Unlock()
-	response,err:=logx.SearchFileWithOptions(searchCtx,path,query,useRegex,maxResults,logx.SearchOptions{ContextLines:contextLines, Encoding:encoding, MultiLineJSON:multiLineJSON, EventContext:eventContext, EventBoundary:eventBoundary, EventBoundaryPattern:eventBoundaryPattern},func(p logx.Progress){a.updateSearchProgress(searchID,p)})
+	response, err := logx.SearchFileWithOptions(searchCtx, path, query, useRegex, maxResults, options, func(p logx.Progress) { a.updateSearchProgress(searchID, p) })
 	a.finishSearchJob(searchID, path, response, err)
 	cancel()
-	return response,err
+	return response, err
 }
-// GetLogSearchProgress 返回任务当前的字节数、行数、匹配数和运行状态。
+
 // GetLogSearchMatches 返回 afterIndex 之后新到达的匹配结果，避免重复传输完整结果集。
-func (a *App) GetLogSearchMatches(id string, afterIndex int)([]logx.Match,error) {
+func (a *App) GetLogSearchMatches(id string, afterIndex int) ([]logx.Match, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	job, ok := a.searches[id]
@@ -169,15 +200,33 @@ func (a *App) GetLogSearchMatches(id string, afterIndex int)([]logx.Match,error)
 }
 
 // GetLogSearchProgress 返回任务当前的字节数、行数、匹配数和运行状态。
-func (a *App) GetLogSearchProgress(id string)(LogSearchProgress,error){
-	a.mu.RLock();defer a.mu.RUnlock();job,ok:=a.searches[id];if !ok{return LogSearchProgress{},errors.New("未找到该检索任务")};return job.progress,nil
+func (a *App) GetLogSearchProgress(id string) (LogSearchProgress, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	job, ok := a.searches[id]
+	if !ok {
+		return LogSearchProgress{}, errors.New("未找到该检索任务")
+	}
+	return job.progress, nil
 }
+
 // CancelLogSearch 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。
-func (a *App) CancelLogSearch(id string)bool{
-	a.mu.RLock();job,ok:=a.searches[id];if !ok||!job.progress.Running||job.cancel==nil{a.mu.RUnlock();return false};cancel:=job.cancel;a.mu.RUnlock();cancel();return true
+func (a *App) CancelLogSearch(id string) bool {
+	a.mu.RLock()
+	job, ok := a.searches[id]
+	if !ok || !job.progress.Running || job.cancel == nil {
+		a.mu.RUnlock()
+		return false
+	}
+	cancel := job.cancel
+	a.mu.RUnlock()
+	cancel()
+	return true
 }
+
 // GetAppSettings 返回当前本地设置的副本。
-func (a *App) GetAppSettings()config.Settings{a.mu.RLock();defer a.mu.RUnlock();return a.settings}
+func (a *App) GetAppSettings() config.Settings { a.mu.RLock(); defer a.mu.RUnlock(); return a.settings }
+
 // SaveAppSettings 规范化并串行持久化界面偏好和搜索历史。
 func (a *App) SaveAppSettings(settings config.Settings) error {
 	config.NormalizeSettings(&settings)
@@ -207,105 +256,300 @@ func (a *App) persistCurrentSettings() error {
 	a.mu.RUnlock()
 	return config.SaveSettings(settings)
 }
+
 // GetProcesses 返回所有已配置服务及其运行快照。
-func (a *App) GetProcesses()([]process.View,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.List(),nil}
+func (a *App) GetProcesses() ([]process.View, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.List(), nil
+}
+
 // SaveProcess 新建或更新服务配置；配置保存本身不会执行命令。
-func (a *App) SaveProcess(spec process.Spec)(process.View,error){if a.startupErr!=nil{return process.View{},a.startupErr};if a.processes==nil{return process.View{},errors.New("进程管理器尚未初始化")};return a.processes.Save(spec)}
+func (a *App) SaveProcess(spec process.Spec) (process.View, error) {
+	if a.startupErr != nil {
+		return process.View{}, a.startupErr
+	}
+	if a.processes == nil {
+		return process.View{}, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.Save(spec)
+}
+
 // DeleteProcess 删除已停止且未被其他服务引用的配置。
-func (a *App) DeleteProcess(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.Delete(id)}
+func (a *App) DeleteProcess(id string) error {
+	if a.startupErr != nil {
+		return a.startupErr
+	}
+	if a.processes == nil {
+		return errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.Delete(id)
+}
+
 // StartProcess 启动单个服务及其尚未运行的上游依赖。
-func (a *App) StartProcess(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.Start(id)}
+func (a *App) StartProcess(id string) error {
+	if a.startupErr != nil {
+		return a.startupErr
+	}
+	if a.processes == nil {
+		return errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.Start(id)
+}
+
 // StopProcess 停止目标服务，并按依赖关系先停止依赖它的服务。
-func (a *App) StopProcess(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.Stop(id)}
+func (a *App) StopProcess(id string) error {
+	if a.startupErr != nil {
+		return a.startupErr
+	}
+	if a.processes == nil {
+		return errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.Stop(id)
+}
+
 // RestartProcess 在旧实例退出后重新启动服务。
-func (a *App) RestartProcess(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.Restart(id)}
+func (a *App) RestartProcess(id string) error {
+	if a.startupErr != nil {
+		return a.startupErr
+	}
+	if a.processes == nil {
+		return errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.Restart(id)
+}
+
 // StartProcesses 按拓扑顺序批量启动所选服务及其依赖，并逐项返回执行结果。
-func (a *App) StartProcesses(ids []string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StartBatch(ids)}
+func (a *App) StartProcesses(ids []string) ([]process.BatchResult, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.StartBatch(ids)
+}
+
 // StopProcesses 按逆依赖顺序批量停止所选服务和依赖方。
-func (a *App) StopProcesses(ids []string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StopBatch(ids)}
+func (a *App) StopProcesses(ids []string) ([]process.BatchResult, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.StopBatch(ids)
+}
 
 // ExportProcessConfigs 通过系统保存对话框导出服务定义；可选择脱敏环境变量值。
 func (a *App) ExportProcessConfigs(redactSensitive bool) (string, error) {
-	if a.ctx == nil { return "", errors.New("桌面运行环境尚未就绪") }
-	if a.startupErr != nil { return "", a.startupErr }
-	if a.processes == nil { return "", errors.New("进程管理器尚未初始化") }
+	if a.ctx == nil {
+		return "", errors.New("桌面运行环境尚未就绪")
+	}
+	if a.startupErr != nil {
+		return "", a.startupErr
+	}
+	if a.processes == nil {
+		return "", errors.New("进程管理器尚未初始化")
+	}
 	data, err := a.processes.ExportConfig(redactSensitive)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title: "导出服务配置", DefaultFilename: "meteordesk-processes.json",
 		Filters: []runtime.FileFilter{{DisplayName: "JSON 配置", Pattern: "*.json"}},
 	})
-	if err != nil || path == "" { return "", err }
-	if err := os.WriteFile(path, data, 0600); err != nil { return "", err }
+	if err != nil || path == "" {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return "", err
+	}
 	_ = os.Chmod(path, 0600)
-	if redactSensitive { return "已导出脱敏服务配置；敏感环境变量值为空，请导入后检查并补齐。", nil }
+	if redactSensitive {
+		return "已导出脱敏服务配置；敏感环境变量值为空，请导入后检查并补齐。", nil
+	}
 	return "已导出完整配置，文件包含真实环境变量值，请妥善保管。", nil
 }
 
 // ImportProcessConfigs 通过系统文件选择器导入 JSON 服务配置，不会自动启动导入项。
 func (a *App) ImportProcessConfigs() ([]process.View, error) {
-	if a.ctx == nil { return nil, errors.New("桌面运行环境尚未就绪") }
-	if a.startupErr != nil { return nil, a.startupErr }
-	if a.processes == nil { return nil, errors.New("进程管理器尚未初始化") }
+	if a.ctx == nil {
+		return nil, errors.New("桌面运行环境尚未就绪")
+	}
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "导入服务配置",
+		Title:   "导入服务配置",
 		Filters: []runtime.FileFilter{{DisplayName: "JSON 配置", Pattern: "*.json"}},
 	})
-	if err != nil || path == "" { return []process.View{}, err }
+	if err != nil || path == "" {
+		return []process.View{}, err
+	}
 	info, err := os.Stat(path)
-	if err != nil { return nil, err }
-	if info.Size() > 1<<20 { return nil, errors.New("导入文件过大，最大支持 1024 KiB") }
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > 1<<20 {
+		return nil, errors.New("导入文件过大，最大支持 1024 KiB")
+	}
 	data, err := os.ReadFile(path)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return a.processes.ImportConfig(data)
 }
 
 // GetProcessLogs 返回序号大于 after 的新输出行，用于前端增量轮询日志。
-func (a *App) GetProcessLogs(id string,after int64)([]process.OutputLine,error){if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Logs(id,after),nil}
+func (a *App) GetProcessLogs(id string, after int64) ([]process.OutputLine, error) {
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.Logs(id, after), nil
+}
+
 // GetResourceHistory 返回服务最近 5 分钟的资源采样点，用于绘制短期曲线。
-func (a *App) GetResourceHistory(id string)([]process.ResourceSample,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.ResourceHistory(id),nil}
+func (a *App) GetResourceHistory(id string) ([]process.ResourceSample, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.ResourceHistory(id), nil
+}
+
 // GetPortDiagnostics 扫描本机监听端口，返回服务声明端口的占用情况与本服务实际监听的端口。
-func (a *App) GetPortDiagnostics(id string)(process.PortReport,error){if a.startupErr!=nil{return process.PortReport{},a.startupErr};if a.processes==nil{return process.PortReport{},errors.New("进程管理器尚未初始化")};return a.processes.PortDiagnostics(id)}
+func (a *App) GetPortDiagnostics(id string) (process.PortReport, error) {
+	if a.startupErr != nil {
+		return process.PortReport{}, a.startupErr
+	}
+	if a.processes == nil {
+		return process.PortReport{}, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.PortDiagnostics(id)
+}
+
 // GetProcessTimeline 返回服务最近的生命周期事件（启动、就绪、自动重启、退出）；内存保留最近 200 条并持久化，重启后仍可回看。
-func (a *App) GetProcessTimeline(id string)([]process.ProcessEvent,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.Timeline(id),nil}
+func (a *App) GetProcessTimeline(id string) ([]process.ProcessEvent, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.Timeline(id), nil
+}
+
 // GetProcessRunHistory 返回服务最近的运行历史（每次起止时间、退出码、自动重启次数、峰值 CPU 与内存），最多保留最近 100 次。
-func (a *App) GetProcessRunHistory(id string)([]process.RunRecord,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.RunHistory(id),nil}
+func (a *App) GetProcessRunHistory(id string) ([]process.RunRecord, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.RunHistory(id), nil
+}
+
 // ListProcessGroups 返回按名称排序的服务分组（场景）副本，仅含引用关系的成员 ID。
-func (a *App) ListProcessGroups()([]process.Group,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.ListGroups(),nil}
+func (a *App) ListProcessGroups() ([]process.Group, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.ListGroups(), nil
+}
+
 // SaveProcessGroup 新建或更新一个服务分组；新建时分配 ID，成员必须都是已配置的服务。
-func (a *App) SaveProcessGroup(group process.Group)(process.Group,error){if a.startupErr!=nil{return process.Group{},a.startupErr};if a.processes==nil{return process.Group{},errors.New("进程管理器尚未初始化")};return a.processes.SaveGroup(group)}
+func (a *App) SaveProcessGroup(group process.Group) (process.Group, error) {
+	if a.startupErr != nil {
+		return process.Group{}, a.startupErr
+	}
+	if a.processes == nil {
+		return process.Group{}, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.SaveGroup(group)
+}
+
 // DeleteProcessGroup 删除一个服务分组，只移除引用关系，不影响成员服务本身。
-func (a *App) DeleteProcessGroup(id string)error{if a.startupErr!=nil{return a.startupErr};if a.processes==nil{return errors.New("进程管理器尚未初始化")};return a.processes.DeleteGroup(id)}
+func (a *App) DeleteProcessGroup(id string) error {
+	if a.startupErr != nil {
+		return a.startupErr
+	}
+	if a.processes == nil {
+		return errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.DeleteGroup(id)
+}
+
 // StartProcessGroup 按依赖顺序整组启动分组内的服务及其上游依赖，并逐项返回执行结果。
-func (a *App) StartProcessGroup(id string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StartGroup(id)}
+func (a *App) StartProcessGroup(id string) ([]process.BatchResult, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.StartGroup(id)
+}
+
 // StopProcessGroup 按逆依赖顺序整组停止分组内的服务及其依赖方。
-func (a *App) StopProcessGroup(id string)([]process.BatchResult,error){if a.startupErr!=nil{return nil,a.startupErr};if a.processes==nil{return nil,errors.New("进程管理器尚未初始化")};return a.processes.StopGroup(id)}
+func (a *App) StopProcessGroup(id string) ([]process.BatchResult, error) {
+	if a.startupErr != nil {
+		return nil, a.startupErr
+	}
+	if a.processes == nil {
+		return nil, errors.New("进程管理器尚未初始化")
+	}
+	return a.processes.StopGroup(id)
+}
+
 // FindServiceByLogPath 按落盘日志文件路径反查所属服务，供日志分析跳转回进程详情；未匹配时返回字段为空的服务快照（id 为空）。
-func (a *App) FindServiceByLogPath(path string)process.Snapshot{if a.processes==nil{return process.Snapshot{}};snapshot,_:=a.processes.FindServiceByLogPath(path);return snapshot}
+func (a *App) FindServiceByLogPath(path string) process.Snapshot {
+	if a.processes == nil {
+		return process.Snapshot{}
+	}
+	snapshot, _ := a.processes.FindServiceByLogPath(path)
+	return snapshot
+}
+
 // ReadLogTail 返回日志文件在 offset 之后新增的完整行；offset 为负时从文件末尾开始跟踪。
 func (a *App) ReadLogTail(path string, offset int64, encoding string) (logx.TailResult, error) {
 	return logx.TailFile(path, logx.TailOptions{Offset: offset, Encoding: encoding})
 }
+
 // updateSearchProgress 在锁内更新进度快照，并按到达顺序缓存新发现的匹配项。
-func (a *App) updateSearchProgress(id string,p logx.Progress){
+func (a *App) updateSearchProgress(id string, p logx.Progress) {
 	a.mu.Lock()
-	job,ok:=a.searches[id]
+	job, ok := a.searches[id]
 	if !ok {
 		a.mu.Unlock()
 		return
 	}
-	job.progress.BytesScanned=p.BytesScanned
-	job.progress.FileSizeBytes=p.FileSizeBytes
-	job.progress.ScannedLines=p.ScannedLines
-	job.progress.MatchesFound=p.MatchesFound
+	job.progress.BytesScanned = p.BytesScanned
+	job.progress.FileSizeBytes = p.FileSizeBytes
+	job.progress.ScannedLines = p.ScannedLines
+	job.progress.MatchesFound = p.MatchesFound
 	if len(p.Matches) > 0 {
 		job.matches = append(job.matches, p.Matches...)
 	}
-	job.progress.Percent=calcPercent(p.BytesScanned,p.FileSizeBytes,job.progress.Running,false)
+	job.progress.Percent = calcPercent(p.BytesScanned, p.FileSizeBytes, job.progress.Running, false)
 	event := SearchMatchesEvent{
 		SearchID: id,
 		Progress: job.progress,
-		Matches: append([]logx.Match(nil), p.Matches...),
+		Matches:  append([]logx.Match(nil), p.Matches...),
 	}
 	ctx, enabled := a.ctx, a.eventsEnabled
 	a.mu.Unlock()
@@ -316,6 +560,7 @@ func (a *App) updateSearchProgress(id string,p logx.Progress){
 		runtime.EventsEmit(ctx, "log-search:update", event)
 	}
 }
+
 // finishSearchJob publishes the final snapshot and releases successful-search deltas.
 // Canceled jobs retain their bounded incremental results so a late poll can still
 // retrieve matches discovered before cancellation.
@@ -383,11 +628,34 @@ func (a *App) pruneSearchesLocked() {
 		delete(a.searches, oldestID)
 	}
 }
-func calcPercent(scanned,total int64,running,canceled bool)int{
-	if total<=0{if !running&&!canceled{return 100};return 0};percent:=int(float64(scanned)*100/float64(total));if percent>100{percent=100};if running&&percent>=100{return 99};return percent
+func calcPercent(scanned, total int64, running, canceled bool) int {
+	if total <= 0 {
+		if !running && !canceled {
+			return 100
+		}
+		return 0
+	}
+	percent := int(float64(scanned) * 100 / float64(total))
+	if percent > 100 {
+		percent = 100
+	}
+	if running && percent >= 100 {
+		return 99
+	}
+	return percent
 }
+
 // UserDataDirectory 返回应用本地配置目录，目录会在需要时创建。
-func (a *App) UserDataDirectory()string{base,err:=os.UserConfigDir();if err!=nil{return ""};path:=filepath.Join(base,"MeteorDesk");_ = os.MkdirAll(path,0700);return path}
+func (a *App) UserDataDirectory() string {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(base, "MeteorDesk")
+	_ = os.MkdirAll(path, 0700)
+	return path
+}
+
 // SaveExportFile 打开保存对话框，把界面已生成的导出内容写入用户选定路径。
 // 内容由前端生成，这里只校验格式、大小和建议文件名，不解析导出内容。
 func (a *App) SaveExportFile(suggestedName, format, content string) (string, error) {
@@ -423,6 +691,7 @@ func (a *App) SaveExportFile(suggestedName, format, content string) (string, err
 	_ = os.Chmod(path, 0600)
 	return path, nil
 }
+
 // exportFileName 只保留建议文件名的基名并清理路径分隔符，避免默认名带出完整路径。
 func exportFileName(suggestedName, format string) string {
 	name := strings.TrimSpace(suggestedName)
@@ -446,13 +715,13 @@ func exportFileName(suggestedName, format string) string {
 	}
 	return name
 }
+
 // GetRuntimeInfo 返回版本、Go 运行时、平台和配置目录，供界面「关于」面板展示。
 func (a *App) GetRuntimeInfo() RuntimeInfo {
 	return RuntimeInfo{
 		AppVersion: appVersion,
-		GoVersion: goruntime.Version(),
-		Platform: goruntime.GOOS+"/"+goruntime.GOARCH,
-		DataDir: a.UserDataDirectory(),
+		GoVersion:  goruntime.Version(),
+		Platform:   goruntime.GOOS + "/" + goruntime.GOARCH,
+		DataDir:    a.UserDataDirectory(),
 	}
 }
-

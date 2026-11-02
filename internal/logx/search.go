@@ -249,6 +249,13 @@ type SearchOptions struct {
 	EventBoundary string `json:"eventBoundary,omitempty"`
 	// EventBoundaryPattern 是 EventBoundary 为 custom 时使用的 Go 正则。
 	EventBoundaryPattern string `json:"eventBoundaryPattern,omitempty"`
+	// TimeWindowEnabled 为真时，只保留行首时间戳落在 [Start,End) 内的命中（阶段 6 批次 A）。
+	TimeWindowEnabled bool `json:"timeWindowEnabled,omitempty"`
+	// TimeWindowStartMs/EndMs 是窗口边界的 Unix 毫秒：下界含、上界不含；EndMs<=0 表示上界开放。
+	TimeWindowStartMs int64 `json:"timeWindowStartMs,omitempty"`
+	TimeWindowEndMs   int64 `json:"timeWindowEndMs,omitempty"`
+	// TimeWindowZone 指定无时区后缀（naive）日志时间戳与窗口边界的解释参照："local"（默认）或 "utc"。
+	TimeWindowZone string `json:"timeWindowZone,omitempty"`
 }
 
 // SearchResponse 是一次日志检索的结果摘要。
@@ -262,6 +269,8 @@ type SearchResponse struct {
 	Matches            []Match `json:"matches"`
 	ResultLimitReached bool    `json:"resultLimitReached"`
 	Canceled           bool    `json:"canceled"`
+	// TimeWindowSkipped 是启用时间窗时，因行首缺少可解析的完整日期时间戳而未计入结果的命中数。
+	TimeWindowSkipped int64 `json:"timeWindowSkipped"`
 }
 
 // SearchFile 保留简单调用入口。
@@ -364,6 +373,8 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		scanInput = transform.NewReader(rawCounter, decoder.NewDecoder())
 	}
 	reader := bufio.NewReaderSize(scanInput, readerBufferSize)
+	// 时间窗过滤器在三条匹配路径入口统一构造，未启用时 allows 恒通过。
+	window := newTimeWindowFilter(options)
 	response := SearchResponse{
 		FilePath:      path,
 		Encoding:      encodingName,
@@ -371,10 +382,10 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		Matches:       make([]Match, 0, min(maxResults, 128)),
 	}
 	if options.MultiLineJSON {
-		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, onProgress)
+		return searchMultiLineJSON(ctx, reader, response, query, matcher, maxResults, window, onProgress)
 	}
 	if options.EventContext {
-		return searchEventContext(ctx, reader, response, query, matcher, maxResults, eventRule, onProgress)
+		return searchEventContext(ctx, reader, response, query, matcher, maxResults, eventRule, window, onProgress)
 	}
 
 	var lineNumber int64
@@ -512,20 +523,31 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		}
 
 		if lineMatched {
-			before := append([]LineContext{}, history...)
-			response.Matches = append(response.Matches, Match{
-				LineNumber:     lineNumber,
-				Content:        content,
-				ContentClipped: clipped,
-				ContextBefore:  before,
-				ContextAfter:   []LineContext{},
-			})
-			if contextLines > 0 {
-				pendingContext = append(pendingContext, len(response.Matches)-1)
+			// 时间窗只限定哪些命中入选，不影响上下文历史：历史仍逐行累积。
+			inWindow := true
+			if window.enabled {
+				within, hasStamp := window.allows(preview)
+				if !hasStamp {
+					response.TimeWindowSkipped++
+				}
+				inWindow = within
 			}
-			if len(response.Matches) >= maxResults {
-				response.ResultLimitReached = true
-				reachedLimit = true
+			if inWindow {
+				before := append([]LineContext{}, history...)
+				response.Matches = append(response.Matches, Match{
+					LineNumber:     lineNumber,
+					Content:        content,
+					ContentClipped: clipped,
+					ContextBefore:  before,
+					ContextAfter:   []LineContext{},
+				})
+				if contextLines > 0 {
+					pendingContext = append(pendingContext, len(response.Matches)-1)
+				}
+				if len(response.Matches) >= maxResults {
+					response.ResultLimitReached = true
+					reachedLimit = true
+				}
 			}
 		}
 

@@ -149,7 +149,7 @@ func (c *eventCollector) context() EventContext {
 	return EventContext{StartLine: c.startLine, EndLine: c.endLine, Content: strings.ToValidUTF8(string(c.content), "�"), ContentClipped: c.clipped}
 }
 
-func searchEventContext(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, rule eventBoundaryRule, onProgress func(Progress)) (SearchResponse, error) {
+func searchEventContext(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, rule eventBoundaryRule, window timeWindowFilter, onProgress func(Progress)) (SearchResponse, error) {
 	collector := &eventCollector{}
 	budget := int64(maxEventTotalBytes)
 	var bytesScanned, lastProgressBytes int64
@@ -164,6 +164,16 @@ func searchEventContext(ctx context.Context, reader *bufio.Reader, response Sear
 		}
 		if !matched {
 			return
+		}
+		// 事件命中以起始行的时间戳落入时间窗为准；无时间戳的事件计入跳过数。
+		if window.enabled {
+			within, hasStamp := window.allows([]byte(event.Content))
+			if !hasStamp {
+				response.TimeWindowSkipped++
+			}
+			if !within {
+				return
+			}
 		}
 		preview := event.Content
 		contentClipped := len(preview) > maxPreviewBytes

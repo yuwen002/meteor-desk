@@ -29,7 +29,7 @@ func readBoundedLine(reader *bufio.Reader, limit int) ([]byte, error, error) {
 
 // searchMultiLineJSON 将跨行 JSON 对象/数组视为一个匹配单元。
 // 单个文档限制为 4 MiB，避免格式错误的输入无限占用内存。
-func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, onProgress func(Progress)) (SearchResponse, error) {
+func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response SearchResponse, query string, matcher *regexp.Regexp, maxResults int, window timeWindowFilter, onProgress func(Progress)) (SearchResponse, error) {
 	var document []byte
 	var documentStart int64
 	var depth int
@@ -65,6 +65,16 @@ func searchMultiLineJSON(ctx context.Context, reader *bufio.Reader, response Sea
 	// addMatch 记录一条命中；documentMatch 为 true 时额外附上完整 JSON 文档。
 	addMatch := func(start, end int64, text []byte, documentMatch bool) {
 		if matchText(text) {
+			// 文档/行命中以其起始文本的行首时间戳落入时间窗为准；无时间戳计入跳过数。
+			if window.enabled {
+				within, hasStamp := window.allows(text)
+				if !hasStamp {
+					response.TimeWindowSkipped++
+				}
+				if !within {
+					return
+				}
+			}
 			preview := text
 			clipped := len(preview) > maxPreviewBytes
 			if clipped {

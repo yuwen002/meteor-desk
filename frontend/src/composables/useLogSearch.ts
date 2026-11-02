@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { getBridge } from '../utils/bridge'
+import { resolveTimeWindow, type TimeWindowZone } from '../utils/timeWindow'
 import type { SearchExportMeta } from '../utils/exporters'
 
 // 进度轮询间隔：与 Wails 事件推送并存，两者共享同一个匹配项游标避免重复追加。
@@ -17,6 +18,12 @@ export interface LogSearchInput {
   eventContext: Ref<boolean>
   eventBoundary: Ref<string>
   eventBoundaryPattern: Ref<string>
+  // 时间窗（阶段 6 批次 A）：绝对起止、相对快捷项与解释参照。
+  timeWindowEnabled: Ref<boolean>
+  timeWindowPreset: Ref<string>
+  timeWindowStart: Ref<string>
+  timeWindowEnd: Ref<string>
+  timeWindowZone: Ref<TimeWindowZone>
 }
 
 /**
@@ -151,6 +158,22 @@ export function useLogSearch(options: {
       options.errorMessage.value = '请输入自定义事件边界正则。'
       return
     }
+    // 时间窗在后端扫描时过滤（结果有上限，不能等回传后再筛），输入非法要直接阻止检索。
+    const timeWindow = resolveTimeWindow(
+      {
+        enabled: options.input.timeWindowEnabled.value,
+        preset: options.input.timeWindowPreset.value,
+        start: options.input.timeWindowStart.value,
+        end: options.input.timeWindowEnd.value,
+        zone: options.input.timeWindowZone.value,
+      },
+      Date.now(),
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    )
+    if (timeWindow.error) {
+      options.errorMessage.value = timeWindow.error
+      return
+    }
     const input = {
       path: options.input.filePath.value,
       query: options.input.query.value,
@@ -177,7 +200,19 @@ export function useLogSearch(options: {
     searchProgress.value = { searchId: id, bytesScanned: 0, fileSizeBytes: 0, scannedLines: 0, matchesFound: 0, percent: 0, running: true, canceled: false }
     progressTimer = window.setInterval(() => void pollProgress(id), PROGRESS_POLL_INTERVAL_MS)
     try {
-      const completed = await a.SearchLogsAdvanced(id, input.path, input.query, input.useRegex, input.resultLimit, input.contextLines, input.encoding, input.multiLineJSON, input.eventContext, input.eventBoundary, input.eventBoundaryPattern)
+      const searchOptions: LogSearchOptions = {
+        contextLines: input.contextLines,
+        encoding: input.encoding,
+        multiLineJSON: input.multiLineJSON,
+        eventContext: input.eventContext,
+        eventBoundary: input.eventBoundary,
+        eventBoundaryPattern: input.eventBoundaryPattern,
+        timeWindowEnabled: timeWindow.enabled,
+        timeWindowStartMs: timeWindow.startMs,
+        timeWindowEndMs: timeWindow.endMs,
+        timeWindowZone: options.input.timeWindowZone.value,
+      }
+      const completed = await a.SearchLogsAdvanced(id, input.path, input.query, input.useRegex, input.resultLimit, searchOptions)
       options.response.value = completed
       if (lastSearchMeta.value) {
         lastSearchMeta.value = { ...lastSearchMeta.value, encoding: completed.encoding || lastSearchMeta.value.encoding, resultLimitReached: completed.resultLimitReached, canceled: completed.canceled }

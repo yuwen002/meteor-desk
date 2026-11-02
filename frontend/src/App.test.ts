@@ -91,7 +91,15 @@ describe('log search options', () => {
     await wrapper.get('button[type="submit"]').trigger('click')
     await flushPromises()
 
-    expect(bridge.SearchLogsAdvanced).toHaveBeenCalledWith(expect.any(String), 'C:/logs/app.log', 'boom', false, 500, 2, 'auto', false, true, 'custom', '^--- ')
+    expect(bridge.SearchLogsAdvanced).toHaveBeenCalledWith(expect.any(String), 'C:/logs/app.log', 'boom', false, 500, expect.objectContaining({
+      contextLines: 2,
+      encoding: 'auto',
+      multiLineJSON: false,
+      eventContext: true,
+      eventBoundary: 'custom',
+      eventBoundaryPattern: '^--- ',
+      timeWindowEnabled: false,
+    }))
     wrapper.unmount()
   })
 

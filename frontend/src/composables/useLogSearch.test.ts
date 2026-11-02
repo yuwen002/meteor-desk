@@ -45,6 +45,11 @@ function create(options: { filePath?: string; query?: string } = {}) {
     eventContext: ref(true),
     eventBoundary: ref('timestamp'),
     eventBoundaryPattern: ref(''),
+    timeWindowEnabled: ref(false),
+    timeWindowPreset: ref(''),
+    timeWindowStart: ref(''),
+    timeWindowEnd: ref(''),
+    timeWindowZone: ref<'local' | 'utc'>('local'),
   }
   const response = ref<LogSearchResponse | null>(null)
   const errorMessage = ref('')
@@ -104,10 +109,10 @@ describe('log search state machine', () => {
     search.input.multiLineJSON.value = true
     await search.runSearch()
 
-    const [id, path, query, useRegex, resultLimit, contextLines, encoding, multiLineJSON, eventContext, eventBoundary, pattern] = bridge.SearchLogsAdvanced.mock.calls[0]
-    expect([path, query, useRegex, resultLimit, contextLines, encoding]).toEqual(['C:/logs/app.log', 'boom', true, 500, 2, 'auto'])
-    // 多行 JSON 文档模式会强制关闭事件上下文。
-    expect([multiLineJSON, eventContext, eventBoundary, pattern]).toEqual([true, false, 'timestamp', ''])
+    const [id, path, query, useRegex, resultLimit, options] = bridge.SearchLogsAdvanced.mock.calls[0]
+    expect([path, query, useRegex, resultLimit]).toEqual(['C:/logs/app.log', 'boom', true, 500])
+    // 上下文、编码等改由选项结构体传递；多行 JSON 文档模式会强制关闭事件上下文。
+    expect([options.contextLines, options.encoding, options.multiLineJSON, options.eventContext, options.eventBoundary, options.eventBoundaryPattern]).toEqual([2, 'auto', true, false, 'timestamp', ''])
     expect(search.lastSearchMeta.value).toMatchObject({ filePath: path, query, useRegex: true, encoding: 'utf-8', eventContext: false, resultLimitReached: false, canceled: false })
     expect(search.searchID.value).toBe(id)
     expect(search.hooks.resetViewState).toHaveBeenCalledOnce()
@@ -116,6 +121,29 @@ describe('log search state machine', () => {
     expect(search.hooks.onSearchFinish).toHaveBeenCalledOnce()
     expect(search.busy.value).toBe(false)
     expect(search.searchProgress.value).toMatchObject({ percent: 100, running: false, matchesFound: 0 })
+  })
+
+  it('resolves the time window and forwards it to the backend options', async () => {
+    installBridge()
+    const search = create()
+    search.input.timeWindowEnabled.value = true
+    search.input.timeWindowPreset.value = '30m'
+    await search.runSearch()
+
+    const options = bridge.SearchLogsAdvanced.mock.calls[0][5]
+    expect(options.timeWindowEnabled).toBe(true)
+    expect(options.timeWindowZone).toBe('local')
+    expect(options.timeWindowEndMs - options.timeWindowStartMs).toBe(30 * 60_000)
+  })
+
+  it('blocks the search when the time window input is invalid', async () => {
+    installBridge()
+    const search = create()
+    search.input.timeWindowEnabled.value = true
+    search.input.timeWindowStart.value = '2026-13-45T99:99'
+    await search.runSearch()
+    expect(search.errorMessage.value).toBeTruthy()
+    expect(bridge.SearchLogsAdvanced).not.toHaveBeenCalled()
   })
 
   it('keeps partial results when the scan is cancelled or hits the limit', async () => {
