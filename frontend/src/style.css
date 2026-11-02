@@ -539,3 +539,59 @@ mark{background:rgba(230,190,112,.22);color:#ffdda0;border-radius:2px;padding:0 
 .process-owner-hint .button{margin-left:auto}
 .theme-light .process-owner-hint{background:#eef7f2;border-color:#bcd8c8;color:#2f6f52}
 
+/* 阶段 6 批次 D：命名检索式 */
+.named-searches .named-save-row{display:flex;align-items:center;gap:8px;margin:9px 0 4px}
+.named-searches .named-save-row input{flex:1;min-width:0;padding:6px 9px;border:1px solid #2a3442;border-radius:5px;background:#0d141d;color:#c6d3e0;font-size:10px}
+.named-hint{margin:2px 0 6px;color:#dcae7f;font-size:9px}
+.named-empty{margin:8px 0 0;color:#6f7d90;font-size:10px}
+.named-item{display:flex;align-items:center;gap:6px}
+.named-apply{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.named-apply>span{display:flex;flex-direction:column;min-width:0}
+.named-apply strong{color:#c6d3e0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.named-apply small{color:#7f8ea1;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.named-apply:hover strong{color:#86f7c5}
+.named-delete{flex-shrink:0}
+.theme-light .named-searches .named-save-row input{background:#f2f5f9;border-color:#dce3ec;color:#33445c}
+.theme-light .named-apply strong{color:#33445c}
+.theme-light .named-apply small{color:#6c7b90}
+
+/* 阶段 6 批次 D：两份日志逐行对比 */
+.log-compare{margin-top:16px}
+.compare-files{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.compare-file{display:inline-flex;align-items:center;gap:8px;min-width:0;padding:6px 10px;border:1px solid #2a3442;border-radius:6px;background:#101721}
+.compare-tag{color:#7cb8ff;font:9px ui-monospace,monospace;letter-spacing:.04em}
+.compare-file strong{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c6d3e0;font-size:10px}
+.compare-note{margin:8px 0 0;color:#dcae7f;font-size:9px}
+.compare-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:14px}
+.compare-stats{display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#9dacbd;font-size:10px}
+.compare-stat em{font-style:normal;color:#c2cedd}
+.compare-alerts{display:flex;flex-direction:column;gap:3px;margin-top:10px}
+.compare-alert{display:grid;grid-template-columns:16px 52px minmax(0,1fr);align-items:center;gap:8px;padding:3px 8px;border-radius:4px;background:rgba(20,27,38,.6);font:10px ui-monospace,monospace}
+.compare-alert b{text-align:center;font-weight:700}
+.compare-alert .alert-level{color:#8c9aad;font-size:9px}
+.compare-alert code{white-space:pre-wrap;overflow-wrap:anywhere;color:#c2cedd}
+.compare-alert.left{box-shadow:inset 2px 0 0 #d65d58}
+.compare-alert.right{box-shadow:inset 2px 0 0 #4db27d}
+.compare-alert.error .alert-level{color:#ffaaa1}
+.compare-alert.warn .alert-level{color:#eccb86}
+.compare-diff{margin-top:12px;max-height:420px;overflow:auto;border:1px solid #29313f;border-radius:6px;background:#0b1018;font:10px/1.65 ui-monospace,monospace}
+.compare-row{display:grid;grid-template-columns:22px minmax(0,1fr);padding:4px 8px}
+.compare-row b{color:#738398}
+.compare-row code{white-space:pre-wrap;overflow-wrap:anywhere;color:#bdc9d7}
+.compare-row.added{background:rgba(77,178,125,.12)}
+.compare-row.added b{color:#83edb2}
+.compare-row.removed{background:rgba(214,93,88,.12)}
+.compare-row.removed b{color:#ffaaa1}
+.compare-row.alert code{font-weight:600}
+.compare-row.alert.added{background:rgba(77,178,125,.22);box-shadow:inset 3px 0 0 #4db27d}
+.compare-row.alert.removed{background:rgba(214,93,88,.22);box-shadow:inset 3px 0 0 #d65d58}
+.compare-cap,.compare-empty{margin:8px 0 0;color:#6f7d90;font-size:9px}
+.compare-empty{margin-top:12px}
+.theme-light .compare-file{background:#f6f8fb;border-color:#dce3ec}
+.theme-light .compare-file strong{color:#33445c}
+.theme-light .compare-alert{background:#f7f9fc}
+.theme-light .compare-alert code{color:#425168}
+.theme-light .compare-alert .alert-level{color:#6c7b90}
+.theme-light .compare-diff{background:#f7f9fc;border-color:#dce3ec}
+.theme-light .compare-diff code{color:#425168}
+

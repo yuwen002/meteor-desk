@@ -530,6 +530,11 @@ func (a *App) ReadLogTail(path string, offset int64, encoding string) (logx.Tail
 	return logx.TailFile(path, logx.TailOptions{Offset: offset, Encoding: encoding})
 }
 
+// ReadLogFileHead 读取日志文件开头至多 maxBytes 原始字节并解码为 UTF-8 文本，供两份日志逐行对比使用（阶段 6 批次 D）。
+func (a *App) ReadLogFileHead(path string, encoding string, maxBytes int64) (logx.DecodedFileHead, error) {
+	return logx.ReadDecodedFileHead(path, encoding, maxBytes)
+}
+
 // updateSearchProgress 在锁内更新进度快照，并按到达顺序缓存新发现的匹配项。
 func (a *App) updateSearchProgress(id string, p logx.Progress) {
 	a.mu.Lock()

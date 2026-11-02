@@ -5,6 +5,7 @@ import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import AboutDialog from './components/AboutDialog.vue'
 import ShortcutsDialog from './components/ShortcutsDialog.vue'
+import LogComparePanel from './components/LogComparePanel.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { appVersion } from './appMeta'
 import { buildSearchExportCSV, buildSearchExportJSON, searchExportFileName, type ExportFormat } from './utils/exporters'
@@ -13,11 +14,13 @@ import { LEVEL_LABEL, summaryText } from './utils/aggregate'
 import { DEFAULT_SHORTCUTS, parseShortcutSettings, resolveShortcutAction, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
 import { getBridge } from './utils/bridge'
 import { TIME_WINDOW_PRESETS } from './utils/timeWindow'
-import { searchMetaFrom, useLogSearch } from './composables/useLogSearch'
+import { searchMetaFrom, useLogSearch, type LogSearchInput } from './composables/useLogSearch'
 import { useResultView } from './composables/useResultView'
 import { useJsonDetail } from './composables/useJsonDetail'
 import { useBookmarks } from './composables/useBookmarks'
 import { useLogTail } from './composables/useLogTail'
+import { useNamedSearches } from './composables/useNamedSearches'
+import type { NamedSearch } from './utils/namedSearches'
 
 type PageKey='logs'|'processes'|'toolkit'
 const activePage=ref<PageKey>('logs'), filePath=ref(''), query=ref(''), useRegex=ref(false), contextLines=ref(2), resultLimit=ref(500), encodingMode=ref('auto'), multiLineJSON=ref(false), eventContext=ref(true), eventBoundary=ref('timestamp'), eventBoundaryPattern=ref('')
@@ -47,12 +50,19 @@ const {
  selectTimelineBucket, timelineActive, timelineHeight, timelineTitle, timelineLabelVisible,
  updateScroll, showMatch, moveMatch, resetViewState,
 } = useResultView({ matches: () => response.value?.matches ?? [], filePath, bookmarkKeys })
+// 检索表单参数集中成一份引用，检索状态机与命名检索式共用，避免两处字段漂移。
+const searchInput: LogSearchInput = { filePath, query, useRegex, contextLines, resultLimit, encodingMode, multiLineJSON, eventContext, eventBoundary, eventBoundaryPattern, timeWindowEnabled, timeWindowPreset, timeWindowStart, timeWindowEnd, timeWindowZone }
 const { busy, cancelRequested, searchProgress, lastSearchMeta, runSearch, resumeSearch, canResume, cancelSearch, attachEventUpdates, dispose: disposeSearch } = useLogSearch({
- input: { filePath, query, useRegex, contextLines, resultLimit, encodingMode, multiLineJSON, eventContext, eventBoundary, eventBoundaryPattern, timeWindowEnabled, timeWindowPreset, timeWindowStart, timeWindowEnd, timeWindowZone },
+ input: searchInput,
  response, errorMessage, resetViewState, onSearchStart, recordSearch, onSearchFinish,
 })
 const { detailContent, detailContentClipped, detailEventLabel, detailHint, parsedJSON, prettyJSON, jsonFields } = useJsonDetail({ selectedMatch, jsonFilter })
 const { tailEnabled, tailLines, tailEncoding, tailError, tailTruncated, tailFollow, tailListElement, clearTail, startTail, stopTail, toggleTail, dispose: disposeTail } = useLogTail({ filePath, encodingMode, errorMessage })
+// 命名检索式：把当前检索参数存为本机预设（不含文件），可应用/覆盖/删除，上限 100 条。
+const namedSaveName=ref('')
+const { namedSearches, hasName: hasNamedSearch, capture: captureNamed, apply: applyNamed, remove: removeNamed } = useNamedSearches({ input: searchInput, errorMessage })
+function saveNamedSearch(){ if(captureNamed(namedSaveName.value)) namedSaveName.value='' }
+function applyNamedSearch(entry: NamedSearch){ applyNamed(entry); response.value=null; resetViewState() }
 
 const fileName=computed(()=>filePath.value.split(/[\\/]/).filter(Boolean).pop()||'')
 // 命中高亮使用实际执行检索时的关键词与模式，避免修改输入框后标错位置。
@@ -152,6 +162,12 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
       <div v-if="busy&&searchProgress" class="progress-wrap"><div class="progress-meta"><span>{{cancelRequested?'正在停止检索':'正在扫描文件'}} · {{searchProgress.scannedLines.toLocaleString()}} 行</span><span>{{searchProgress.percent}}% · {{fmtBytes(searchProgress.bytesScanned)}} / {{fmtBytes(searchProgress.fileSizeBytes)}}</span></div><div class="progress-track"><div class="progress-bar" :style="{width:searchProgress.percent+'%'}"></div></div></div>
      </form>
      <details v-if="appSettings.searchHistory.length" class="history-panel query-history"><summary><History :size="14"/>最近检索 <span class="history-count">{{appSettings.searchHistory.length}}</span></summary><div class="history-items"><button v-for="(r,i) in appSettings.searchHistory" :key="r.createdAt+r.query+i" class="history-item" :disabled="busy" @click="applyHistory(r)"><Search :size="13"/><span><strong>{{r.query}}</strong><small>{{r.path}} · {{r.useRegex?'正则':'文本'}} · {{!r.encoding||r.encoding==='auto'?'自动识别':r.encoding}}</small></span><ArrowRight :size="12"/></button></div></details>
+     <details class="history-panel named-searches"><summary><Star :size="14"/>命名检索式 <span class="history-count">{{namedSearches.length}}</span></summary>
+      <div class="named-save-row"><input v-model="namedSaveName" placeholder="为当前检索式命名（同名将覆盖）" spellcheck="false" autocomplete="off"/><button class="button button-quiet" type="button" :disabled="busy" @click="saveNamedSearch"><Star :size="13"/>保存当前</button></div>
+      <p v-if="namedSaveName&&hasNamedSearch(namedSaveName)" class="named-hint">已存在同名检索式，保存会覆盖其参数。</p>
+      <div v-if="namedSearches.length" class="history-items"><div v-for="ns in namedSearches" :key="ns.id" class="history-item named-item"><button type="button" class="named-apply" :disabled="busy" title="应用该检索式（保留当前文件）" @click="applyNamedSearch(ns)"><Search :size="13"/><span><strong>{{ns.name}}</strong><small>{{ns.query}} · {{ns.useRegex?'正则':'文本'}} · {{!ns.encoding||ns.encoding==='auto'?'自动识别':ns.encoding}}{{ns.timeWindowEnabled?' · 时间窗':''}}</small></span></button><button class="icon-button named-delete" type="button" aria-label="删除该检索式" title="删除该检索式" @click="removeNamed(ns.id)"><X :size="13"/></button></div></div>
+      <p v-else class="named-empty">尚未保存检索式；配置好关键字、编码、上下文与时间窗后在此命名保存。</p>
+     </details>
      <div v-if="errorMessage" class="notice notice-error"><span>!</span>{{errorMessage}}</div>
      <div v-if="filePath" class="tail-panel">
       <div v-if="processOwner" class="process-owner-hint"><Layers3 :size="14"/><span>该文件是服务“{{processOwner.name}}”的落盘输出</span><button class="button button-quiet" type="button" title="跳到进程管理并选中该服务" @click="jumpToProcess(processOwner.id)">在进程管理中查看 <ArrowRight :size="12"/></button></div>
@@ -216,6 +232,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
      </section>
      <div class="panel-footer"><span><span class="footer-led"></span>日志内容仅在本机处理</span><span>流式检索 <span class="footer-divider">/</span>单行预览最多 8 KiB</span></div>
     </section>
+    <LogComparePanel />
     <div class="bottom-note"><Braces :size="15"/><span>快捷键：{{shortcutLabel('openFile')}} 打开文件，{{shortcutLabel('focusSearch')}} 聚焦搜索，{{shortcutLabel('runSearch')}} 检索。</span><button @click="setPage('processes')">管理本地服务 <ArrowRight :size="13"/></button></div>
    </section>
 
