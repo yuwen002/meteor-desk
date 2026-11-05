@@ -1,0 +1,46 @@
+frontend/src/utils/hash.ts
+  h_a3f313f3d96276 1-59
+frontend/src/utils/regexTester.ts
+  h_a3f313f3d96276 1-77
+frontend/src/utils/random.test.ts
+  h_a3f313f3d96276 1-43
+frontend/src/components/DeveloperToolkit.vue
+  h_a3f313f3d96276 3,14-16,20,32-34,47-49
+frontend/src/components/toolkit/ToolkitRegex.vue
+  h_a3f313f3d96276 1-97
+frontend/src/utils/hash.test.ts
+  h_a3f313f3d96276 1-49
+frontend/package.json
+  h_a3f313f3d96276 5
+frontend/src/utils/random.ts
+  h_a3f313f3d96276 1-68
+docs/API.md
+  h_a3f313f3d96276 157,224
+frontend/src/utils/regexTester.test.ts
+  h_a3f313f3d96276 1-36
+CHANGELOG.md
+  h_a3f313f3d96276 3-10,237
+frontend/src/components/toolkit/ToolkitHash.vue
+  h_a3f313f3d96276 1-91
+docs/USER_GUIDE.md
+  h_a3f313f3d96276 52-61,111-112,215-216
+docs/ARCHITECTURE.md
+  h_a3f313f3d96276 50-51,132-138,175
+README.md
+  h_a3f313f3d96276 7,9-11,34-35,84,172,180,184
+docs/ROADMAP.md
+  h_a3f313f3d96276 74-75,134
+frontend/src/components/toolkit/ToolkitRandom.vue
+  h_a3f313f3d96276 1-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "93b0951b0f66f0060818d556dbd0e079ec173bbd",
+  "prompts": {},
+  "humans": {
+    "h_a3f313f3d96276": {
+      "author": "liuxingyu <yuwen002@163.com>"
+    }
+  }
+}
