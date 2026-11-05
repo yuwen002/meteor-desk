@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildFacetExportCSV,
   buildProcessLogExportCSV,
   buildProcessLogExportJSON,
   buildSearchExportCSV,
   buildSearchExportJSON,
+  facetExportFileName,
   processLogExportFileName,
   searchExportFileName,
   type SearchExportMeta,
 } from './exporters'
+import type { FieldFacet } from './fieldStats'
 
 const meta: SearchExportMeta = {
   filePath: 'C:/logs/app.log',
@@ -93,5 +96,72 @@ describe('export file names', () => {
   it('strips path separators and illegal characters from process names', () => {
     expect(processLogExportFileName('api/worker', 'csv', now)).toBe('meteordesk-process-api-worker-20261030-080509.csv')
     expect(processLogExportFileName('  ', 'json', now)).toBe('meteordesk-process-logs-20261030-080509.json')
+  })
+})
+
+describe('field facet export', () => {
+  const sample: FieldFacet = {
+    path: '$.code',
+    values: [
+      { value: '200', count: 150 },
+      { value: '404', count: 30 },
+      { value: '500', count: 20 },
+    ],
+    otherCount: 10,
+    otherDistinct: 10,
+    presentCount: 210,
+    missingCount: 20,
+    total: 230,
+  }
+
+  it('writes header, top values, other, missing, and summary row', () => {
+    const csv = buildFacetExportCSV(sample)
+    const rows = csv.split('\r\n').filter(Boolean)
+
+    expect(rows[0].startsWith('\uFEFFfield,value,count,percentage')).toBe(true)
+    expect(rows[1]).toBe('$.code,200,150,65.22%')
+    expect(rows[2]).toBe('$.code,404,30,13.04%')
+    expect(rows[3]).toBe('$.code,500,20,8.70%')
+    expect(rows[4]).toBe('$.code,(其他),10,4.35%')
+    expect(rows[5]).toBe('$.code,(缺失字段),20,8.70%')
+    expect(rows[6]).toBe('$.code,(总计),230,100.00%')
+    expect(rows).toHaveLength(7)
+  })
+
+  it('omits other and missing rows when counts are zero', () => {
+    const minimal: FieldFacet = {
+      ...sample,
+      otherCount: 0,
+      otherDistinct: 0,
+      missingCount: 0,
+      total: 210,
+    }
+    const csv = buildFacetExportCSV(minimal)
+    const rows = csv.split('\r\n').filter(Boolean)
+    expect(rows).toHaveLength(5)
+    expect(rows[rows.length - 1]).toBe('$.code,(总计),210,100.00%')
+  })
+
+  it('escapes values that contain commas or quotes', () => {
+    const tricky: FieldFacet = {
+      path: '$.msg',
+      values: [{ value: 'say "hello", world', count: 5 }],
+      otherCount: 0,
+      otherDistinct: 0,
+      presentCount: 5,
+      missingCount: 0,
+      total: 5,
+    }
+    const csv = buildFacetExportCSV(tricky)
+    const rows = csv.split('\r\n').filter(Boolean)
+    expect(rows[1]).toBe('$.msg,"say ""hello"", world",5,100.00%')
+  })
+
+  const now = new Date(2026, 9, 30, 8, 5, 9)
+
+  it('uses sanitized field path in file name', () => {
+    expect(facetExportFileName('$.response.code', 'csv', now)).toBe('meteordesk-facet-$.response.code-20261030-080509.csv')
+    expect(facetExportFileName('a/b:c', 'json', now)).toBe('meteordesk-facet-a-b-c-20261030-080509.json')
+    expect(facetExportFileName('', 'csv', now)).toBe('meteordesk-facet-facet-20261030-080509.csv')
   })
 })

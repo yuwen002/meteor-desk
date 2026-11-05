@@ -22,11 +22,20 @@ type SearchRecord struct {
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
+type WindowBounds struct {
+	X         int  `json:"x"`
+	Y         int  `json:"y"`
+	Width     int  `json:"width"`
+	Height    int  `json:"height"`
+	Maximised bool `json:"maximised,omitempty"`
+}
+
 type Settings struct {
 	RecentFiles   []string       `json:"recentFiles"`
 	SearchHistory []SearchRecord `json:"searchHistory"`
 	ContextLines  int            `json:"contextLines"`
 	ResultLimit   int            `json:"resultLimit"`
+	Window        WindowBounds   `json:"window,omitempty"`
 }
 
 // DefaultSettings 返回适合首次启动的默认偏好值。
@@ -130,6 +139,13 @@ func saveSettingsTo(path string, settings Settings) error {
 	return nil
 }
 
+const (
+	minWindowWidth  = 640
+	minWindowHeight = 480
+	maxWindowWidth  = 7680
+	maxWindowHeight = 4320
+)
+
 func normalize(settings *Settings) {
 	if settings.ContextLines < 0 {
 		settings.ContextLines = 0
@@ -142,6 +158,17 @@ func normalize(settings *Settings) {
 	}
 	if settings.ResultLimit > 5000 {
 		settings.ResultLimit = 5000
+	}
+	if settings.Window.Width != 0 || settings.Window.Height != 0 {
+		if settings.Window.Width < minWindowWidth || settings.Window.Width > maxWindowWidth {
+			settings.Window.Width = 0
+		}
+		if settings.Window.Height < minWindowHeight || settings.Window.Height > maxWindowHeight {
+			settings.Window.Height = 0
+		}
+	}
+	if settings.Window.Width == 0 || settings.Window.Height == 0 {
+		settings.Window = WindowBounds{}
 	}
 	settings.RecentFiles = dedupe(settings.RecentFiles, maxRecentFiles)
 	if settings.SearchHistory == nil {

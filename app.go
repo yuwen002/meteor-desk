@@ -90,6 +90,8 @@ func (a *App) startup(ctx context.Context) {
 		a.settings = settings
 	}
 	a.processes, a.startupErr = process.NewManager()
+	logx.WarmEncodingCache()
+	go startTray(a)
 	runtime.OnFileDrop(ctx, func(x, y int, paths []string) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -99,10 +101,24 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}
 	})
+	if w := a.settings.Window; w.Width > 0 && w.Height > 0 {
+		runtime.WindowSetSize(ctx, w.Width, w.Height)
+		runtime.WindowSetPosition(ctx, w.X, w.Y)
+		if w.Maximised {
+			runtime.WindowMaximise(ctx)
+		}
+	}
 }
 
-// shutdown 在窗口关闭时取消检索并停止本应用启动的本地服务。
+// shutdown 在窗口关闭时取消检索、记录窗口状态并停止本应用启动的本地服务。
 func (a *App) shutdown(ctx context.Context) {
+	maximised := runtime.WindowIsMaximised(ctx)
+	if maximised {
+		runtime.WindowUnmaximise(ctx)
+	}
+	x, y := runtime.WindowGetPosition(ctx)
+	w, h := runtime.WindowGetSize(ctx)
+
 	a.mu.Lock()
 	for _, job := range a.searches {
 		if job.cancel != nil {
@@ -111,11 +127,18 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	a.mu.Unlock()
 
+	a.mu.Lock()
+	a.settings.Window = config.WindowBounds{X: x, Y: y, Width: w, Height: h, Maximised: maximised}
+	settings := a.settings
+	a.mu.Unlock()
+	if err := config.SaveSettings(settings); err != nil {
+		runtime.LogError(ctx, "退出时保存窗口状态失败："+err.Error())
+	}
+
 	if a.processes != nil {
 		if err := a.processes.StopAll(); err != nil {
 			runtime.LogError(ctx, "退出时停止服务失败："+err.Error())
 		}
-		// StopAll 会在退出收尾时同步落盘时间线与运行历史，这里兜底捕获尚未落盘的变更。
 		if err := a.processes.FlushEvents(); err != nil {
 			runtime.LogError(ctx, "退出时保存时间线失败："+err.Error())
 		}
@@ -123,6 +146,8 @@ func (a *App) shutdown(ctx context.Context) {
 			runtime.LogError(ctx, "退出时保存运行历史失败："+err.Error())
 		}
 	}
+	logx.FlushEncodingIndex()
+	stopTray()
 }
 
 // SelectLogFile 打开系统文件选择器，返回用户选中的日志路径。
@@ -344,6 +369,12 @@ func (a *App) DeleteProcess(id string) error {
 		return errors.New("进程管理器尚未初始化")
 	}
 	return a.processes.Delete(id)
+}
+
+// GetProcessCommandPreview 把 Spec 渲染成用户可核对的命令行预览；
+// 仅做字符串渲染，不会真的执行。敏感环境变量名会自动清空取值为 ***。
+func (a *App) GetProcessCommandPreview(spec process.Spec) process.CommandPreview {
+	return process.RenderCommand(spec)
 }
 
 // StartProcess 启动单个服务及其尚未运行的上游依赖。

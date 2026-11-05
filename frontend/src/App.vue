@@ -8,7 +8,7 @@ import ShortcutsDialog from './components/ShortcutsDialog.vue'
 import LogComparePanel from './components/LogComparePanel.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { appVersion } from './appMeta'
-import { buildSearchExportCSV, buildSearchExportJSON, searchExportFileName, type ExportFormat } from './utils/exporters'
+import { buildFacetExportCSV, buildSearchExportCSV, buildSearchExportJSON, facetExportFileName, searchExportFileName, type ExportFormat } from './utils/exporters'
 import { highlightSegments } from './utils/highlight'
 import { LEVEL_LABEL, summaryText } from './utils/aggregate'
 import { DEFAULT_SHORTCUTS, parseShortcutSettings, resolveShortcutAction, type ShortcutAction, type ShortcutMap } from './utils/shortcuts'
@@ -96,6 +96,26 @@ async function exportResults(format:ExportFormat){
   const saved=await a.SaveExportFile(searchExportFileName(meta,format),format,content)
   if(saved)exportMessage.value='已导出 '+matches.length+' 条检索结果到 '+saved
  }catch(e){errorMessage.value='导出检索结果失败：'+String(e)}
+}
+async function exportFacetCSV(){
+ const a=getBridge(),facet=activeFacet.value
+ if(!a||!facet)return
+ exportMessage.value=''
+ try{
+  const csv=buildFacetExportCSV(facet)
+  const saved=await a.SaveExportFile(facetExportFileName(facet.path,'csv'),'csv',csv)
+  if(saved)exportMessage.value='已导出字段分布到 '+saved
+ }catch(e){errorMessage.value='导出字段分布失败：'+String(e)}
+}
+async function copyFacetCSV(){
+ const facet=activeFacet.value
+ if(!facet)return
+ try{
+  await navigator.clipboard.writeText(buildFacetExportCSV(facet))
+  summaryMessage.value='字段分布 CSV 已复制到剪贴板。'
+ }catch{
+  summaryMessage.value='复制失败，请检查剪贴板权限。'
+ }
 }
 
 const fmtBytes=(bytes:number)=>{if(bytes<1024)return bytes+' B';const u=['KB','MB','GB','TB'];let v=bytes/1024,i=0;while(v>=1024&&i<u.length-1){v/=1024;i++}return v.toFixed(v>=100?0:1)+' '+u[i]}
@@ -214,6 +234,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
         <button v-for="item in activeFacet.values" :key="item.value" type="button" class="facet-chip" :class="{active:facetValueActive(item.value)}" @click="selectFacetValue(item.value)">{{item.value}}<em>{{item.count}}</em></button>
         <span v-if="activeFacet.otherCount" class="facet-other">其他 {{activeFacet.otherDistinct}} 项 · {{activeFacet.otherCount}} 条</span>
         <p class="summary-muted">含该字段 {{activeFacet.presentCount}} 条，缺失 {{activeFacet.missingCount}} 条；共 {{activeFacet.values.length}} 个主要取值。</p>
+        <div class="facet-actions"><button class="button button-quiet" type="button" @click="exportFacetCSV"><FileDown :size="13"/>导出 CSV</button><button class="button button-quiet" type="button" @click="copyFacetCSV"><Copy :size="13"/>复制分布</button></div>
        </div>
        <p v-else-if="facetPath" class="summary-muted">该字段暂无可统计的取值。</p>
       </div>

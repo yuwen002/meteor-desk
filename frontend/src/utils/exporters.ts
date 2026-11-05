@@ -1,3 +1,5 @@
+import type { FieldFacet } from './fieldStats'
+
 // 搜索结果与进程日志的导出转换：只负责生成文本，文件写入交给桌面桥接。
 export type ExportFormat = 'csv' | 'json'
 
@@ -78,4 +80,28 @@ export function searchExportFileName(meta: SearchExportMeta, format: ExportForma
 
 export function processLogExportFileName(processName: string, format: ExportFormat, now = new Date()): string {
   return `meteordesk-process-${fileStem(processName, 'logs')}-${timestamp(now)}.${format}`
+}
+
+// 字段取值分布导出为 CSV：先列 Top N 主取值，再追加「其他」与「缺失」汇总行，末尾附总计。
+export function buildFacetExportCSV(facet: FieldFacet): string {
+  const rows = [csvRow(['field', 'value', 'count', 'percentage'])]
+  const total = Math.max(1, facet.total)
+  const percent = (count: number) => (Math.round(count * 10000 / total) / 100).toFixed(2) + '%'
+  for (const item of facet.values) {
+    rows.push(csvRow([facet.path, item.value, item.count, percent(item.count)]))
+  }
+  if (facet.otherCount > 0) {
+    rows.push(csvRow([facet.path, '(其他)', facet.otherCount, percent(facet.otherCount)]))
+  }
+  if (facet.missingCount > 0) {
+    rows.push(csvRow([facet.path, '(缺失字段)', facet.missingCount, percent(facet.missingCount)]))
+  }
+  rows.push(csvRow([facet.path, '(总计)', facet.total, '100.00%']))
+  return CSV_BOM + rows.join('\r\n') + '\r\n'
+}
+
+// 建议文件名用字段路径本身，超长时截断到安全长度。
+export function facetExportFileName(fieldPath: string, format: ExportFormat, now = new Date()): string {
+  const base = fileStem(fieldPath, 'facet').slice(0, 60)
+  return `meteordesk-facet-${base}-${timestamp(now)}.${format}`
 }

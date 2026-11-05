@@ -96,6 +96,19 @@ func resolveTextEncoding(sample []byte, requested string, wholeFileSample bool) 
 	}
 }
 
+func decoderForEncoding(name string) textencoding.Encoding {
+	switch name {
+	case "GB18030", "GBK":
+		return simplifiedchinese.GB18030
+	case "UTF-16LE":
+		return textunicode.UTF16(textunicode.LittleEndian, textunicode.IgnoreBOM)
+	case "UTF-16BE":
+		return textunicode.UTF16(textunicode.BigEndian, textunicode.IgnoreBOM)
+	default:
+		return nil
+	}
+}
+
 func encodingByName(name string, skip int64) (string, int64, textencoding.Encoding, error) {
 	switch name {
 	case "UTF-16LE":
@@ -360,19 +373,33 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		return SearchResponse{}, fmt.Errorf("读取日志文件信息失败：%w", err)
 	}
 
-	// 只抽样文件开头用于检测编码；大文件主体仍通过固定缓冲区流式读取。
-	sampleSize := min(info.Size(), int64(maxEncodingSampleBytes))
-	sample := make([]byte, int(sampleSize))
-	if len(sample) > 0 {
-		n, sampleErr := file.ReadAt(sample, 0)
-		if sampleErr != nil && sampleErr != io.EOF {
-			return SearchResponse{}, fmt.Errorf("读取日志编码样本失败：%w", sampleErr)
+	// 编码检测缓存：size+mtime 未变时复用上次检测结果，跳过 64KB 样本读取与启发式检测。
+	cachedEnc, cachedBom, cacheHit := defaultEncodingIndex.Lookup(path, info.Size(), info.ModTime())
+
+	var encodingName string
+	var bomBytes int64
+	var decoder textencoding.Encoding
+
+	if cacheHit && (options.Encoding == "" || strings.EqualFold(options.Encoding, "auto")) {
+		encodingName = cachedEnc
+		bomBytes = cachedBom
+		decoder = decoderForEncoding(encodingName)
+	} else {
+		sampleSize := min(info.Size(), int64(maxEncodingSampleBytes))
+		sample := make([]byte, int(sampleSize))
+		if len(sample) > 0 {
+			n, sampleErr := file.ReadAt(sample, 0)
+			if sampleErr != nil && sampleErr != io.EOF {
+				return SearchResponse{}, fmt.Errorf("读取日志编码样本失败：%w", sampleErr)
+			}
+			sample = sample[:n]
 		}
-		sample = sample[:n]
-	}
-	encodingName, bomBytes, decoder, err := resolveTextEncoding(sample, options.Encoding, int64(len(sample)) == info.Size())
-	if err != nil {
-		return SearchResponse{}, err
+		var encErr error
+		encodingName, bomBytes, decoder, encErr = resolveTextEncoding(sample, options.Encoding, int64(len(sample)) == info.Size())
+		if encErr != nil {
+			return SearchResponse{}, encErr
+		}
+		defaultEncodingIndex.Store(path, info.Size(), info.ModTime(), encodingName, bomBytes)
 	}
 	// 续扫只在无需字符解码器（UTF-8/ASCII）时按原始字节偏移定位；解码器文件从头扫描，
 	// 因为解码后的行边界无法映射回精确的原始偏移。
