@@ -47,6 +47,8 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - `utf-8`、`gb18030`、`utf-16le`、`utf-16be`：显式指定编码，覆盖自动判断。
 - 自动检测只是启发式策略。对于非中文传统编码或含二进制内容的混合日志，应手动选择；若文件本身是压缩或加密内容，需先转换为文本。
 
+编码检测的结果按三元组键（路径+大小+修改时间）缓存在 `internal/logx` 的 `encodingIndex` 中：同一文件未变化时后续 `auto` 检索直接复用上次结果，跳过再次读取 64 KiB 样本与启发式探测。缓存最多 50 个文件、24 小时过期、LRU 淘汰，原子落盘到 `file-indexes.json`；文件大小或修改时间一旦改变立即失效。这只影响自动识别路径，显式指定编码的检索不经过缓存。
+
 ## 工具箱 HTTP 请求
 
 - 前端将方法、URL、JSON 请求头和正文交给 `App.SendHTTPRequest`，只有在用户点击发送时才发起请求。
@@ -127,6 +129,13 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 边的方向是「被依赖 → 依赖方」，与启动顺序一致；同层节点按配置列表顺序纵向排列，坐标由常量间距推导，宽高随层数与行数增长，超宽时由面板横向滚动。
 - 节点只渲染状态颜色，不参与拓扑判定；真正决定启停顺序的仍是 `internal/process` 的拓扑排序与循环检测。
 
+## 系统托盘与后台常驻
+
+- Wails v2 无内置托盘支持，应用通过跨平台 `github.com/getlantern/systray` 在 `tray.go` 实现系统托盘；`app.go` 的 `startup` 以后台 goroutine 启动托盘，`shutdown` 调用 `stopTray` 收尾，托盘菜单的三个动作（显示主窗口、隐藏主窗口、退出）都经 Wails `runtime` 控制窗口生命周期。
+- 托盘图标由 `//go:embed build/appicon.png` 内嵌进二进制，随安装包分发、无需在运行时读取外部图片文件。
+- 「隐藏主窗口」只隐藏窗口而不结束进程，使应用保持常驻；只有托盘「退出 MeteorDesk」或操作系统关闭才会真正退出，退出路径仍走 `shutdown` 统一收尾（取消检索、保存窗口状态、回写编码缓存、停止本地服务）。
+- 托盘不引入网络桥接，仅作为本机窗口的显示/隐藏与退出控制点。
+
 ## 版本与构建信息
 
 - 版本号只在 `frontend/package.json` 维护：前端通过 `frontend/src/appMeta.ts` 读取它并展示在侧栏与「关于」面板，避免界面与发布版本不一致。
@@ -163,6 +172,7 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 
 - 用户偏好和检索历史位于当前用户配置目录下的 `MeteorDesk/settings.json`。
 - 服务配置位于同目录下的 `processes.json`；时间线、运行历史与分组分别持久化为同目录的 `process-events.json`（每服务 200 条）、`run-history.json`（每服务 100 次）与 `groups.json`；开启落盘的服务输出写入同目录 `logs/<服务名>.log`（单文件 64 MiB、最多保留 3 份）。这些文件都走 `writeJSONAtomic`（除日志文件本身为追加写）串行原子写入，删除服务时一并清理其时间线/运行历史/落盘文件。
+- 日志编码检测缓存同目录落盘为 `file-indexes.json`（最多 50 个文件、24 小时过期、LRU 淘汰），应用启动时由 `WarmEncodingCache` 载入、退出时由 `FlushEncodingIndex` 原子回写，避免重复检索时反复做启发式编码探测。
 - 搜索结果只保留在当前应用任务中；任务清理策略限制历史搜索状态的积累。
 - 结果收藏保存在前端 localStorage 的 `meteordesk.bookmarks.v1`，按文件路径与行号去重、上限 500 条；不属于后端配置，也不参与导入导出。
 - 项目没有默认遥测，也不会将日志内容上传到外部服务。

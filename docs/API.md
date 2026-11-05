@@ -154,6 +154,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `run-history.json`：按服务保留最近 100 次运行记录，进程退出时追加，启动时载入。
 - `groups.json`：服务分组定义，与进程配置同目录。
 - `logs/<服务名>.log`：开启 `logToDisk` 的服务输出，单文件上限 64 MiB，超出后按命名位移轮转（`name.log` → `name.log.1` → `name.log.2`），连同当前文件最多保留 3 份；服务名会被清理为安全文件名（去路径分隔符与非法字符，空名回退为 `service`）。
+- `file-indexes.json`：日志编码检测缓存，按三元组键（路径+大小+修改时间）记录检测结果，最多 50 个文件、24 小时过期、LRU 淘汰；应用启动时载入（`WarmEncodingCache`）、退出时回写（`FlushEncodingIndex`），检索自动识别前命中缓存可跳过重复抽样。
 
 ### RuntimeInfo
 
@@ -220,6 +221,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `SearchOptions.MultiLineJSON`：启用多行 JSON 文档检索；对象/数组以括号深度识别，字符串中的括号与转义引号不会结束文档，单个文档限制 4 MiB。混合日志中的普通行仍按行匹配，只有文档命中附带 `EventContext`。
 - `SearchOptions.EventContext`、`EventBoundary`、`EventBoundaryPattern`：启用事件上下文并按 `timestamp`（默认）、`blank` 或 `custom` 切分事件；`custom` 使用 Go 正则匹配去首尾空白后的整行，长度上限 512 字节，非法正则在打开文件前返回错误。空行模式下分隔空行不计入事件内容。
 - `SearchOptions.Encoding`：接受 `auto`、`utf-8`、`gb18030`、`utf-16le`、`utf-16be`；最终识别结果通过 `SearchResponse.Encoding` 返回。自动模式先检查 BOM，再尝试 UTF-8/无 BOM UTF-16 特征，最后对非 UTF-8 文本按 GB18030 解码。
+- 编码检测缓存（`internal/logx/index.go`）：`encodingIndex` 以三元组键（路径+大小+修改时间）缓存编码识别结果；`Lookup(path, size, mtime)` 命中则复用上次结果跳过 64 KiB 抽样，未命中走 `resolveTextEncoding` 后由 `Store` 写回。全局入口 `WarmEncodingCache()`（应用启动载入 `file-indexes.json`）与 `FlushEncodingIndex()`（退出原子落盘）。缓存最多 50 个文件、24 小时过期、LRU 淘汰；显式指定编码（非 `auto`）的检索不命中缓存。
 - `TailFile(path, TailOptions)`：按偏移增量读取新增完整行，返回行、下一次偏移、文件大小、实际编码与重置/截断标记，供实时跟踪使用；编码识别与检索共用同一套抽样逻辑，UTF-16 明确拒绝。
 - `EnumerateLogFiles(root, patterns, max)`：递归遍历目录，按 glob 模式（空则用默认日志扩展名）收集普通文件并按路径升序返回，最多 `max` 个（<=0 或超过 200 时按 `MaxMultiFiles`）；第二个返回值表示是否因超过文件数上限或访问条目上限（5 万）而截断；传入单个文件而非目录时报错。
 - `SearchFilesConcurrently(ctx, files, query, useRegex, maxResults, SearchOptions, onProgress)`：以 `min(NumCPU, 8, 文件数)` 个 goroutine 从原子索引领取文件、逐个复用 `SearchFileWithOptions`（每文件回调传 nil），把结果合并成一份全局有序结果集。`maxResults` 是所有文件合计的命中上限，预算耗尽后停止领取新文件并把剩余文件计为跳过；`ctx` 取消后停止领取并保留已扫描文件（含中途取消部分）的结果；单文件失败只记入 `FileSearchState`，不整体报错。`onProgress` 在每个文件完成时以文件粒度回调一次，携带该文件新增匹配与跨文件聚合进度。

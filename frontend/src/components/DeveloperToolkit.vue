@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, type Component } from 'vue'
-import { ArrowLeftRight, Braces, CheckCircle2, Clock3, FileJson, KeyRound, Link2, Send, ShieldAlert } from 'lucide-vue-next'
+import { ArrowLeftRight, Braces, CheckCircle2, Clock3, FileJson, KeyRound, Link2, Send, ShieldAlert, Activity, Dices, Fingerprint } from 'lucide-vue-next'
 import { useCopyFeedback } from '../composables/useCopyFeedback'
 import ToolkitTimestamp from './toolkit/ToolkitTimestamp.vue'
 import ToolkitJson from './toolkit/ToolkitJson.vue'
@@ -11,10 +11,13 @@ import ToolkitHttp from './toolkit/ToolkitHttp.vue'
 import ToolkitBase64 from './toolkit/ToolkitBase64.vue'
 import ToolkitJwt from './toolkit/ToolkitJwt.vue'
 import ToolkitUrl from './toolkit/ToolkitUrl.vue'
+import ToolkitHash from './toolkit/ToolkitHash.vue'
+import ToolkitRandom from './toolkit/ToolkitRandom.vue'
+import ToolkitRegex from './toolkit/ToolkitRegex.vue'
 
 // 工具箱只负责标签页调度、共享复制提示与页面级说明；
 // 每个面板的输入状态与换算逻辑都在 components/toolkit 下的独立组件里。
-type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'http' | 'base64' | 'jwt' | 'url'
+type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'http' | 'base64' | 'jwt' | 'url' | 'hash' | 'random' | 'regex'
 
 const toolTabs: { key: ToolKey; label: string; icon: Component }[] = [
   { key: 'timestamp', label: '时间戳 / 时区', icon: Clock3 },
@@ -26,6 +29,9 @@ const toolTabs: { key: ToolKey; label: string; icon: Component }[] = [
   { key: 'base64', label: 'Base64', icon: FileJson },
   { key: 'jwt', label: 'JWT 载荷', icon: KeyRound },
   { key: 'url', label: 'URL / 参数', icon: Link2 },
+  { key: 'hash', label: '哈希 / HMAC', icon: Fingerprint },
+  { key: 'random', label: '随机 / UUID', icon: Dices },
+  { key: 'regex', label: '正则调试', icon: Activity },
 ]
 
 const panelComponents: Record<ToolKey, Component> = {
@@ -38,6 +44,9 @@ const panelComponents: Record<ToolKey, Component> = {
   base64: ToolkitBase64,
   jwt: ToolkitJwt,
   url: ToolkitUrl,
+  hash: ToolkitHash,
+  random: ToolkitRandom,
+  regex: ToolkitRegex,
 }
 
 const activeTool = ref<ToolKey>('timestamp')
