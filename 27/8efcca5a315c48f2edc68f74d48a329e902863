@@ -1,0 +1,32 @@
+internal/process/preview_test.go
+  h_a3f313f3d96276 1-117
+internal/process/preview.go
+  h_a3f313f3d96276 1-71
+internal/config/settings.go
+  h_a3f313f3d96276 25-32,38,142-148,162-171
+frontend/src/utils/exporters.test.ts
+  h_a3f313f3d96276 3,8,13,101-166
+frontend/src/utils/exporters.ts
+  h_a3f313f3d96276 1-2,84-106
+internal/logx/index.go
+  h_a3f313f3d96276 1-222
+internal/logx/search.go
+  h_a3f313f3d96276 99-111,376-387,397-402
+frontend/src/App.vue
+  h_a3f313f3d96276 11,100-119,237
+app.go
+  h_a3f313f3d96276 93-94,104-110,113,115-121,130-132,134-136,149-150,374-379
+internal/config/settings_test.go
+  h_a3f313f3d96276 138-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "278efcca5a315c48f2edc68f74d48a329e902863",
+  "prompts": {},
+  "humans": {
+    "h_a3f313f3d96276": {
+      "author": "liuxingyu <yuwen002@163.com>"
+    }
+  }
+}
