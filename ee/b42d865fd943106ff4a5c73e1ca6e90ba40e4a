@@ -1,0 +1,86 @@
+frontend/src/i18n/en.ts
+  h_a3f313f3d96276 1-301
+internal/logx/search_cache.go
+  h_a3f313f3d96276 1-503
+frontend/src/utils/numberBase.test.ts
+  h_a3f313f3d96276 1-61
+frontend/src/utils/color.test.ts
+  h_a3f313f3d96276 1-44
+frontend/src/i18n/index.ts
+  h_a3f313f3d96276 1-31
+frontend/src/i18n/zh.ts
+  h_a3f313f3d96276 1-296
+internal/logx/parallel_search.go
+  h_a3f313f3d96276 1-263,265-609
+frontend/src/types.d.ts
+  h_a3f313f3d96276 8,33-34,54-57
+frontend/src/components/toolkit/ToolkitColor.vue
+  h_a3f313f3d96276 1-115
+frontend/src/utils/exporters.ts
+  h_a3f313f3d96276 4,65-69
+internal/logx/search.go
+  h_a3f313f3d96276 292-293,406-412
+docs/ROADMAP.md
+  h_a3f313f3d96276 131-132,152-159,162
+frontend/src/components/toolkit/ToolkitNumberBase.vue
+  h_a3f313f3d96276 1-104
+frontend/src/utils/color.ts
+  h_a3f313f3d96276 1-126
+internal/logx/search_cache_test.go
+  h_a3f313f3d96276 1-240
+README.md
+  h_a3f313f3d96276 12-13,38-39
+frontend/src/components/toolkit/ToolkitCompress.vue
+  h_a3f313f3d96276 1-76
+.gitignore
+  h_a3f313f3d96276 6-7
+frontend/src/components/toolkit/ToolkitRegex.vue
+  h_a3f313f3d96276 23-43,61-67
+frontend/src/style.css
+  h_a3f313f3d96276 14-16,160-161,606-608,631-632,638
+frontend/src/components/DeveloperToolkit.vue
+  h_a3f313f3d96276 3,17-23,27,42-48,64-70
+frontend/src/components/toolkit/ToolkitYaml.vue
+  h_a3f313f3d96276 1-74
+internal/logx/parallel_search_test.go
+  h_a3f313f3d96276 1-246
+frontend/src/components/toolkit/ToolkitSql.vue
+  h_a3f313f3d96276 1-67
+frontend/src/utils/sqlFormat.ts
+  h_a3f313f3d96276 1-195
+frontend/src/App.vue
+  h_a3f313f3d96276 3,8,33-34,39,77,133,136,149,153-155,173-176,178-179,182,185,216,265,281,289
+frontend/src/components/CacheManagerDialog.vue
+  h_a3f313f3d96276 1-201
+frontend/src/components/AboutDialog.vue
+  h_a3f313f3d96276 2-3,6,8,11,21-23,26-29,32-33,40,42-43,45-47,49-56,58,62-69
+frontend/src/utils/compress.ts
+  h_a3f313f3d96276 1-74
+frontend/src/components/toolkit/ToolkitByteSize.vue
+  h_a3f313f3d96276 1-102
+frontend/src/components/ProcessManagement.vue
+  h_a3f313f3d96276 2-4,6,13-14,19,21,53-56,68-69,78-80,84,95,103,106,111,113-114,117,124,126-127,129-131,134,139-140,148-150,175,179,181-183,187,191,193,196,203,206,209-210,212,215-217,221-224,230,232,234-235,237-238,240-241,244-246,248,250,252-254,257
+frontend/src/components/toolkit/ToolkitXml.vue
+  h_a3f313f3d96276 1-147
+frontend/src/utils/numberBase.ts
+  h_a3f313f3d96276 1-116
+app.go
+  h_a3f313f3d96276 19,95-96,117-120,126-127,157,209-236,249-253,926-954
+frontend/src/main.ts
+  h_a3f313f3d96276 5,7-9
+internal/tray/tray.go
+  h_a3f313f3d96276 1,4,11,28-29,31,35,42,45,47
+tray_icon.go
+  h_a3f313f3d96276 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "eeb42d865fd943106ff4a5c73e1ca6e90ba40e4a",
+  "prompts": {},
+  "humans": {
+    "h_a3f313f3d96276": {
+      "author": "liuxingyu <yuwen002@163.com>"
+    }
+  }
+}
