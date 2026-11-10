@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, type Component } from 'vue'
-import { ArrowLeftRight, Braces, CheckCircle2, Clock3, FileJson, KeyRound, Link2, Send, ShieldAlert, Activity, Dices, Fingerprint } from 'lucide-vue-next'
+import { ArrowLeftRight, Braces, CheckCircle2, Clock3, FileJson, FileText, Files, KeyRound, Link2, Send, ShieldAlert, Activity, Dices, Fingerprint, Calculator, Palette, Database, Archive, Code2 } from 'lucide-vue-next'
 import { useCopyFeedback } from '../composables/useCopyFeedback'
 import ToolkitTimestamp from './toolkit/ToolkitTimestamp.vue'
 import ToolkitJson from './toolkit/ToolkitJson.vue'
@@ -14,10 +14,17 @@ import ToolkitUrl from './toolkit/ToolkitUrl.vue'
 import ToolkitHash from './toolkit/ToolkitHash.vue'
 import ToolkitRandom from './toolkit/ToolkitRandom.vue'
 import ToolkitRegex from './toolkit/ToolkitRegex.vue'
+import ToolkitNumberBase from './toolkit/ToolkitNumberBase.vue'
+import ToolkitColor from './toolkit/ToolkitColor.vue'
+import ToolkitByteSize from './toolkit/ToolkitByteSize.vue'
+import ToolkitCompress from './toolkit/ToolkitCompress.vue'
+import ToolkitSql from './toolkit/ToolkitSql.vue'
+import ToolkitYaml from './toolkit/ToolkitYaml.vue'
+import ToolkitXml from './toolkit/ToolkitXml.vue'
 
 // 工具箱只负责标签页调度、共享复制提示与页面级说明；
 // 每个面板的输入状态与换算逻辑都在 components/toolkit 下的独立组件里。
-type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'http' | 'base64' | 'jwt' | 'url' | 'hash' | 'random' | 'regex'
+type ToolKey = 'timestamp' | 'json' | 'redact' | 'cron' | 'diff' | 'http' | 'base64' | 'jwt' | 'url' | 'hash' | 'random' | 'regex' | 'numberBase' | 'color' | 'byteSize' | 'compress' | 'sql' | 'yaml' | 'xml'
 
 const toolTabs: { key: ToolKey; label: string; icon: Component }[] = [
   { key: 'timestamp', label: '时间戳 / 时区', icon: Clock3 },
@@ -32,6 +39,13 @@ const toolTabs: { key: ToolKey; label: string; icon: Component }[] = [
   { key: 'hash', label: '哈希 / HMAC', icon: Fingerprint },
   { key: 'random', label: '随机 / UUID', icon: Dices },
   { key: 'regex', label: '正则调试', icon: Activity },
+  { key: 'numberBase', label: '进制转换', icon: Calculator },
+  { key: 'color', label: '颜色工具', icon: Palette },
+  { key: 'byteSize', label: '字节换算', icon: Database },
+  { key: 'compress', label: '压缩 / 解压', icon: Archive },
+  { key: 'sql', label: 'SQL 格式化', icon: FileText },
+  { key: 'yaml', label: 'YAML ↔ JSON', icon: Files },
+  { key: 'xml', label: 'XML ↔ JSON', icon: Code2 },
 ]
 
 const panelComponents: Record<ToolKey, Component> = {
@@ -47,6 +61,13 @@ const panelComponents: Record<ToolKey, Component> = {
   hash: ToolkitHash,
   random: ToolkitRandom,
   regex: ToolkitRegex,
+  numberBase: ToolkitNumberBase,
+  color: ToolkitColor,
+  byteSize: ToolkitByteSize,
+  compress: ToolkitCompress,
+  sql: ToolkitSql,
+  yaml: ToolkitYaml,
+  xml: ToolkitXml,
 }
 
 const activeTool = ref<ToolKey>('timestamp')

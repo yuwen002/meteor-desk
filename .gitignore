@@ -3,6 +3,8 @@
 /build/
 /dist/
 /*.syso
+*.exe
+*.exe~
 # 测试覆盖率输出（由 go test -coverprofile 生成，CI 与本地下游脚本重新生成即可）
 /coverage.out
 /coverage*.out
@@ -31,8 +33,3 @@ Thumbs.db
 # Wails/Vite build output (keep the directory placeholder)
 /frontend/dist/*
 !/frontend/dist/.gitkeep
-
-# 本地一次性辅助脚本与临时草稿（含机器绝对路径，不入库）
-/gofmt-fix.ps1
-/lint-lf-check.ps1
-*.tmp

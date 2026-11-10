@@ -16,6 +16,7 @@ import (
 	"github.com/yuwen002/meteor-desk/internal/httpx"
 	"github.com/yuwen002/meteor-desk/internal/logx"
 	"github.com/yuwen002/meteor-desk/internal/process"
+	"github.com/yuwen002/meteor-desk/internal/tray"
 )
 
 // appVersion 由发布构建通过 -ldflags "-X main.appVersion=..." 注入；本地运行显示 dev。
@@ -91,7 +92,8 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.processes, a.startupErr = process.NewManager()
 	logx.WarmEncodingCache()
-	go startTray(a)
+	logx.WarmCacheIndex()
+	go tray.Start(ctx, LoadTrayIcon())
 	runtime.OnFileDrop(ctx, func(x, y int, paths []string) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -112,12 +114,17 @@ func (a *App) startup(ctx context.Context) {
 
 // shutdown 在窗口关闭时取消检索、记录窗口状态并停止本应用启动的本地服务。
 func (a *App) shutdown(ctx context.Context) {
-	maximised := runtime.WindowIsMaximised(ctx)
-	if maximised {
-		runtime.WindowUnmaximise(ctx)
-	}
-	x, y := runtime.WindowGetPosition(ctx)
-	w, h := runtime.WindowGetSize(ctx)
+	var x, y, w, h int
+	var maximised bool
+	func() {
+		defer func() { recover() }()
+		maximised = runtime.WindowIsMaximised(ctx)
+		if maximised {
+			runtime.WindowUnmaximise(ctx)
+		}
+		x, y = runtime.WindowGetPosition(ctx)
+		w, h = runtime.WindowGetSize(ctx)
+	}()
 
 	a.mu.Lock()
 	for _, job := range a.searches {
@@ -147,7 +154,7 @@ func (a *App) shutdown(ctx context.Context) {
 		}
 	}
 	logx.FlushEncodingIndex()
-	stopTray()
+	tray.Stop()
 }
 
 // SelectLogFile 打开系统文件选择器，返回用户选中的日志路径。
@@ -199,6 +206,34 @@ func (a *App) SearchLogsAdvanced(searchID, path, query string, useRegex bool, ma
 	if searchID == "" {
 		return logx.SearchResponse{}, errors.New("缺少检索任务编号")
 	}
+
+	info, statErr := os.Stat(path)
+	if statErr == nil {
+		fileSize := info.Size()
+		fileMtime := info.ModTime().Unix()
+		if hit, cached := logx.CheckCacheHit(path, query, useRegex, options.Encoding, fileSize, fileMtime, options.ContextLines, options); hit {
+			cached.FromCache = true
+			a.mu.Lock()
+			a.pruneSearchesLocked()
+			if _, exists := a.searches[searchID]; !exists {
+				a.searches[searchID] = &searchJob{
+					progress: LogSearchProgress{
+						SearchID:      searchID,
+						BytesScanned:  cached.BytesScanned,
+						FileSizeBytes: cached.FileSizeBytes,
+						ScannedLines:  cached.ScannedLines,
+						MatchesFound:  len(cached.Matches),
+						Percent:       100,
+						Running:       false,
+					},
+					completedAt: time.Now(),
+				}
+			}
+			a.mu.Unlock()
+			return cached, nil
+		}
+	}
+
 	a.mu.Lock()
 	a.pruneSearchesLocked()
 	if _, exists := a.searches[searchID]; exists {
@@ -211,6 +246,11 @@ func (a *App) SearchLogsAdvanced(searchID, path, query string, useRegex bool, ma
 	response, err := logx.SearchFileWithOptions(searchCtx, path, query, useRegex, maxResults, options, func(p logx.Progress) { a.updateSearchProgress(searchID, p) })
 	a.finishSearchJob(searchID, path, response, err)
 	cancel()
+
+	if err == nil && !response.Canceled && statErr == nil {
+		_ = logx.PutCachedSearch(path, query, useRegex, response.Encoding, info.Size(), info.ModTime().Unix(), options.ContextLines, options, response)
+	}
+
 	return response, err
 }
 
@@ -883,4 +923,33 @@ func (a *App) GetRuntimeInfo() RuntimeInfo {
 		Platform:   goruntime.GOOS + "/" + goruntime.GOARCH,
 		DataDir:    a.UserDataDirectory(),
 	}
+}
+
+// GetLogCacheEntries 返回最近访问的搜索缓存条目元数据，供前端列出会话恢复选项。
+func (a *App) GetLogCacheEntries(limit int) []logx.CacheEntryMeta {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	return logx.ListCacheEntries(limit)
+}
+
+// ClearLogCache 清空全部搜索缓存；返回清空后的统计快照。
+func (a *App) ClearLogCache() (logx.CacheStatistics, error) {
+	if err := logx.ClearAllCache(); err != nil {
+		return logx.CacheStatistics{}, err
+	}
+	return logx.GetCacheStatistics(), nil
+}
+
+// DeleteLogCacheEntry 按缓存键删除单条搜索结果；键为空时返回无错误的空操作。
+func (a *App) DeleteLogCacheEntry(key string) error {
+	if key == "" {
+		return nil
+	}
+	return logx.DeleteCacheEntryByKey(key)
+}
+
+// GetLogCacheStatistics 返回当前搜索缓存的条目数、总大小与容量上限。
+func (a *App) GetLogCacheStatistics() logx.CacheStatistics {
+	return logx.GetCacheStatistics()
 }

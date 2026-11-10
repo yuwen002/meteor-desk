@@ -20,6 +20,27 @@ const flagOptions = [
   { value: 'gim', label: 'gim 多行 + 忽略大小写' },
   { value: 'gu', label: 'gu Unicode 模式' },
 ]
+
+const presetRegexes = [
+  { label: '自定义', pattern: '', flags: 'gi', sample: '' },
+  { label: '邮箱地址', pattern: '[\\w.+-]+@[\\w-]+\\.[\\w.-]+', flags: 'gi', sample: 'contact@meteordesk.cn\nno-reply@github.com\ninvalid@@bad' },
+  { label: 'URL（http/https）', pattern: 'https?://[\\w-._~:/?#\\[\\]@!$&\'()*+,;=%]+', flags: 'gi', sample: 'https://github.com/meteor-desk\nhttp://localhost:8080/api?x=1' },
+  { label: 'IPv4 地址', pattern: '(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]?\\d)){3}', flags: 'g', sample: 'server: 192.168.1.100\ngateway 10.0.0.1\ninvalid 256.1.1.1' },
+  { label: '端口号（1-65535）', pattern: '(?:\\[[a-fA-F0-9:]+\]:)?(?:localhost|\\d{1,3}(?:\\.\\d{1,3}){3}|[\\w.-]+):(\\d{1,5})', flags: 'g', sample: 'http://localhost:8080\nlisten 192.168.0.1:3000' },
+  { label: 'ISO 日期时间', pattern: '\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?', flags: 'g', sample: '2025-11-06T14:30:00Z\n2025-11-06 14:30:00.123 +0800' },
+  { label: '十六进制颜色', pattern: '#(?:[0-9a-fA-F]{3}){1,2}\\b', flags: 'gi', sample: 'primary: #ff5733\naccent: #1abc9c\nbad: #gggggg' },
+  { label: 'UUID v4', pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}', flags: 'g', sample: 'token: 550e8400-e29b-41d4-a716-446655440000' },
+  { label: '中文字符', pattern: '[\\u4e00-\\u9fa5]+', flags: 'g', sample: '这是中文hello world再一段' },
+  { label: '日志级别', pattern: '\\b(DEBUG|INFO|WARN|WARNING|ERROR|FATAL|TRACE)\\b', flags: 'gi', sample: '[2025-11-06 14:30:00] INFO server started\n[2025-11-06 14:30:01] ERROR connection refused' },
+]
+const selectedPreset = ref(0)
+function applyPreset(index: number) {
+  if (!index) return
+  const p = presetRegexes[index]
+  pattern.value = p.pattern
+  flags.value = p.flags
+  inputText.value = p.sample
+}
 </script>
 
 <template>
@@ -36,6 +57,13 @@ const flagOptions = [
       <select class="toolkit-select" :value="flags" @change="flags = ($event.target as HTMLSelectElement).value" aria-label="快捷标记">
         <option v-for="opt in flagOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
       </select>
+    </div>
+    <div class="toolkit-input-row regex-preset-row">
+      <label class="toolkit-label" for="regex-preset">常用模板</label>
+      <select id="regex-preset" class="toolkit-select" :value="selectedPreset" @change="selectedPreset = Number(($event.target as HTMLSelectElement).value); applyPreset(selectedPreset)" aria-label="常用正则模板">
+        <option v-for="(p, idx) in presetRegexes" :key="idx" :value="idx">{{ p.label }}</option>
+      </select>
+      <span class="toolkit-help">点击填充预定义正则、标记与示例文本</span>
     </div>
 
     <label class="toolkit-label" for="regex-input">测试文本</label>

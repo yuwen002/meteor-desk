@@ -5,7 +5,7 @@ declare global {
   interface LogEventContext { startLine:number; endLine:number; content:string; contentClipped:boolean; kind?:'event'|'document' }
   interface LogMatch extends LogLineContext { filePath?:string; contextBefore:LogLineContext[]; contextAfter:LogLineContext[]; event?:LogEventContext }
   interface LogFileSearchState { path:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; done:boolean; failed:boolean; error?:string }
-  interface LogSearchResponse { filePath:string; encoding:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean; timeWindowSkipped?:number; resumeOffset?:number; resumeLine?:number; files?:LogFileSearchState[]; filesTotal?:number; filesSucceeded?:number; filesFailed?:number; filesSkipped?:number; filesTruncated?:boolean }
+  interface LogSearchResponse { filePath:string; encoding:string; fileSizeBytes:number; bytesScanned:number; scannedLines:number; matches:LogMatch[]; resultLimitReached:boolean; canceled:boolean; fromCache?:boolean; timeWindowSkipped?:number; resumeOffset?:number; resumeLine?:number; files?:LogFileSearchState[]; filesTotal?:number; filesSucceeded?:number; filesFailed?:number; filesSkipped?:number; filesTruncated?:boolean }
   interface LogSearchOptions { contextLines:number; encoding?:string; multiLineJSON?:boolean; eventContext?:boolean; eventBoundary?:string; eventBoundaryPattern?:string; timeWindowEnabled?:boolean; timeWindowStartMs?:number; timeWindowEndMs?:number; timeWindowZone?:'local'|'utc'; startOffset?:number; startLine?:number }
   interface LogSearchProgress { searchId:string; bytesScanned:number; fileSizeBytes:number; scannedLines:number; matchesFound:number; percent:number; running:boolean; canceled:boolean; error?:string; filesTotal?:number; filesDone?:number; filesFailed?:number; currentFile?:string }
   interface SearchMatchesEvent { searchId:string; progress:LogSearchProgress; matches?:LogMatch[] }
@@ -30,6 +30,8 @@ declare global {
   interface LogTailResult { lines:string[]; offset:number; fileSizeBytes:number; encoding:string; reset:boolean; truncated:boolean }
   interface LogDecodedFileHead { text:string; encoding:string; sizeBytes:number; truncated:boolean }
   interface RuntimeInfo { appVersion:string; goVersion:string; platform:string; dataDir:string }
+  interface CacheStatistics { cacheDir:string; entries:number; sizeBytes:number; maxEntries:number; maxSizeBytes:number }
+  interface CacheEntryMeta { path:string; query:string; useRegex:boolean; encoding:string; fileSize:number; fileMtime:number; matches:number; resultLimitReached:boolean; createdAt:string; accessedAt:string }
   interface Window { runtime?:{EventsOn:(eventName:string,callback:(event:SearchMatchesEvent)=>void)=>()=>void}; go?:{main?:{App?:{
     SelectLogFile:()=>Promise<string>; PollDroppedFiles:()=>Promise<string[]>;
     SelectLogDirectory:()=>Promise<string>;
@@ -49,6 +51,10 @@ declare global {
     ExportProcessConfigs:(redactSensitive:boolean)=>Promise<string>; ImportProcessConfigs:()=>Promise<ProcessView[]>;
     SendHTTPRequest:(request:HttpRequest)=>Promise<HttpResponse>;
     GetRuntimeInfo:()=>Promise<RuntimeInfo>;
+    GetLogCacheEntries:(limit:number)=>Promise<CacheEntryMeta[]>;
+    GetLogCacheStatistics:()=>Promise<CacheStatistics>;
+    ClearLogCache:()=>Promise<CacheStatistics>;
+    DeleteLogCacheEntry:(key:string)=>Promise<void>;
     SaveExportFile:(suggestedName:string,format:string,content:string)=>Promise<string>;
     ReadLogTail:(path:string,offset:number,encoding:string)=>Promise<LogTailResult>;
     ReadLogFileHead:(path:string,encoding:string,maxBytes:number)=>Promise<LogDecodedFileHead>;

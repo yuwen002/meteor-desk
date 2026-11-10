@@ -1,7 +1,7 @@
 import type { FieldFacet } from './fieldStats'
 
 // 搜索结果与进程日志的导出转换：只负责生成文本，文件写入交给桌面桥接。
-export type ExportFormat = 'csv' | 'json'
+export type ExportFormat = 'csv' | 'json' | 'txt'
 
 export interface SearchExportMeta {
   filePath: string
@@ -60,6 +60,11 @@ export function buildProcessLogExportCSV(lines: ProcessOutput[]): string {
 
 export function buildProcessLogExportJSON(processId: string, processName: string, lines: ProcessOutput[], exportedAt = new Date().toISOString()): string {
   return JSON.stringify({ exportedAt, processId, processName, total: lines.length, lines }, null, 2)
+}
+
+export function buildProcessLogExportTXT(lines: ProcessOutput[]): string {
+  const streamLabel = (s: ProcessOutput['stream']) => s === 'stdout' ? 'OUT' : s === 'stderr' ? 'ERR' : 'SYS'
+  return lines.map(l => `[${l.time}] [${streamLabel(l.stream)}] ${l.text}`).join('\r\n') + '\r\n'
 }
 
 function timestamp(date: Date): string {

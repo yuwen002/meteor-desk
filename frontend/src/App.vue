@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Activity, ArrowDownUp, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, Copy, FileDown, FileSearch, FolderOpen, FolderSearch, Gauge, HardDrive, History, Layers3, PieChart, Regex, Search, ShieldCheck, Star, Sun, Moon, TerminalSquare, Wrench, X } from 'lucide-vue-next'
+import { Activity, ArrowDownUp, ArrowRight, Braces, CheckCircle2, ChevronRight, CircleHelp, Command, Copy, FileDown, FileSearch, FolderOpen, FolderSearch, Gauge, HardDrive, History, Layers3, PieChart, Regex, Search, ShieldCheck, Star, Sun, Moon, TerminalSquare, Wrench, X, Zap } from 'lucide-vue-next'
 import DeveloperToolkit from './components/DeveloperToolkit.vue'
 import ProcessManagement from './components/ProcessManagement.vue'
 import AboutDialog from './components/AboutDialog.vue'
 import ShortcutsDialog from './components/ShortcutsDialog.vue'
+import CacheManagerDialog from './components/CacheManagerDialog.vue'
 import LogComparePanel from './components/LogComparePanel.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { appVersion } from './appMeta'
@@ -29,10 +30,13 @@ const timeWindowEnabled=ref(false), timeWindowPreset=ref(''), timeWindowStart=re
 // 多文件目录检索（阶段 6 批次 E）：开关、根目录与通配模式（分号/逗号分隔）。
 const multiFile=ref(false), rootDir=ref(''), rootPattern=ref('*.log;*.txt;*.out;*.json;*.ndjson')
 const errorMessage=ref(''), response=ref<LogSearchResponse|null>(null), inputRef=ref<HTMLInputElement|null>(null)
+let _searchStartedAt=0
+const lastSearchDurationMs=ref<number|null>(null)
 const appSettings=ref<AppSettings>({recentFiles:[],searchHistory:[],contextLines:2,resultLimit:500})
 const shortcutsConfig=ref<ShortcutMap>({...DEFAULT_SHORTCUTS})
 const shortcutsDialogOpen=ref(false)
 const aboutDialogOpen=ref(false)
+const cacheDialogOpen=ref(false)
 const exportMessage=ref('')
 const summaryOpen=ref(false), summaryMessage=ref('')
 const themeMode=ref<'dark'|'light'>('dark')
@@ -70,6 +74,7 @@ function applyNamedSearch(entry: NamedSearch){ applyNamed(entry); response.value
 const fileName=computed(()=>filePath.value.split(/[\\/]/).filter(Boolean).pop()||'')
 // fileBase 取路径基名，用于多文件结果的来源文件标签与文件总览。
 function fileBase(path:string){return path.split(/[\\/]/).filter(Boolean).pop()||path}
+function formatDuration(ms:number):string{if(ms<1000)return ms+'ms';const s=(ms/1000).toFixed(1);return s+'s'}
 // 命中高亮使用实际执行检索时的关键词与模式，避免修改输入框后标错位置。
 function displaySegments(text:string){const meta=lastSearchMeta.value;return highlightSegments(text,meta?.query??query.value,meta?.useRegex??useRegex.value)}
 function toggleResultSort(){resultSort.value=resultSort.value==='asc'?'desc':'asc'}
@@ -125,10 +130,10 @@ let dropTimer:number|undefined
 let pendingDroppedPaths:string[]=[]
 const enqueueSettingsSave=createSerialTaskQueue()
 
-function onSearchStart(){exportMessage.value='';summaryMessage.value=''}
+function onSearchStart(){exportMessage.value='';summaryMessage.value='';_searchStartedAt=Date.now();lastSearchDurationMs.value=null}
 // 历史去重与落盘属于页面职责：检索状态机只交出这次成功执行的参数。
 async function recordSearch(record:SearchRecord){appSettings.value.searchHistory=[record,...appSettings.value.searchHistory.filter(x=>!(x.query===record.query&&x.path===record.path&&x.useRegex===record.useRegex&&x.contextLines===record.contextLines&&x.encoding===record.encoding))].slice(0,30);addRecent(record.path);await persistSettings()}
-function onSearchFinish(){if(!pendingDroppedPaths.length)return;const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}
+function onSearchFinish(){if(_searchStartedAt)lastSearchDurationMs.value=Date.now()-_searchStartedAt;_searchStartedAt=0;if(!pendingDroppedPaths.length){const paths=(response.value?.matches??[]).map(m=>m.filePath).filter((p):p is string=>!!p);if(paths.length)void primeFileOwners(paths)}else{const paths=pendingDroppedPaths;pendingDroppedPaths=[];openDroppedFiles(paths)}}
 
 async function persistSettings(){const a=getBridge();if(!a)return;const settings:AppSettings={recentFiles:appSettings.value.recentFiles.slice(0,12),searchHistory:appSettings.value.searchHistory.slice(0,30),contextLines:contextLines.value,resultLimit:resultLimit.value};appSettings.value=settings;try{await enqueueSettingsSave(()=>a.SaveAppSettings(settings))}catch(e){errorMessage.value='保存本地设置失败：'+String(e)}}
 function addRecent(path:string){if(!path)return;appSettings.value.recentFiles=[path,...appSettings.value.recentFiles.filter(x=>x.toLowerCase()!==path.toLowerCase())].slice(0,12);void persistSettings()}
@@ -141,9 +146,13 @@ async function pollDrop(){const a=getBridge();if(!a)return;try{const paths=await
 function applyHistory(r:SearchRecord){if(busy.value)return;stopTail();clearTail();filePath.value=r.path;query.value=r.query;useRegex.value=r.useRegex;contextLines.value=r.contextLines;encodingMode.value=r.encoding??'auto';multiLineJSON.value=false;activePage.value='logs';response.value=null;resetViewState()}
 // 把进程落盘文件交给日志分析页：切页、载入文件并直接开始实时跟踪，复用 ReadLogTail 偏移增量读取。
 function openProcessLog(path:string){if(!path)return;stopTail();clearTail();filePath.value=path;response.value=null;resetViewState();activePage.value='logs';addRecent(path);void nextTick(()=>startTail())}
+function searchProcessLog(payload:{path:string;query:string;useRegex:boolean}){if(!payload.path||!payload.query)return;stopTail();clearTail();filePath.value=payload.path;query.value=payload.query;useRegex.value=payload.useRegex;multiLineJSON.value=false;response.value=null;resetViewState();activePage.value='logs';addRecent(payload.path);void nextTick(()=>runSearch())}
 // 按当前文件路径反查它是否属于某个已配置服务；命中时提供跳回进程管理的入口。
 async function lookupProcessOwner(){const a=getBridge();if(!a||!filePath.value){processOwner.value=null;return}try{const snap=await a.FindServiceByLogPath(filePath.value);processOwner.value=snap&&snap.id?snap:null}catch{processOwner.value=null}}
 function jumpToProcess(id?:string){if(!id)return;setPage('processes');processFocusId.value=id}
+const fileOwnerCache=ref<Record<string,ProcessStatus>>({}),fileOwnerPending=new Set<string>()
+async function lookupFileOwner(path?:string){if(!path)return null;if(fileOwnerCache.value[path])return fileOwnerCache.value[path];if(fileOwnerPending.has(path))return null;fileOwnerPending.add(path);try{const a=getBridge();if(!a)return null;const snap=await a.FindServiceByLogPath(path);if(snap&&snap.id){fileOwnerCache.value[path]=snap;return snap}}catch{}finally{fileOwnerPending.delete(path)}return null}
+async function primeFileOwners(paths:string[]){const uniq=[...new Set(paths.filter(Boolean))];for(const p of uniq){await lookupFileOwner(p)}}
 // 切换打开文件时都重新反查一次归属服务。
 watch(filePath,()=>void lookupProcessOwner())
 
@@ -161,19 +170,19 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
 <div class="app-shell" :class="{'theme-light':themeMode==='light'}" style="--wails-drop-target: drop">
  <aside class="sidebar">
   <div class="brand"><div class="brand-mark"><Activity :size="20"/></div><div class="brand-copy"><span class="brand-name">Meteor<span>Desk</span></span><span class="brand-caption">本地开发工作台</span></div></div>
-  <div class="workspace-label">工作空间</div><nav class="nav-list" aria-label="主导航">
-   <button class="nav-item" :class="{active:activePage==='logs'}" @click="setPage('logs')"><FileSearch :size="17"/><span>日志分析</span><kbd>1</kbd></button>
-   <button class="nav-item" :class="{active:activePage==='processes'}" @click="setPage('processes')"><TerminalSquare :size="17"/><span>进程管理</span><kbd>2</kbd></button>
-   <button class="nav-item" :class="{active:activePage==='toolkit'}" @click="setPage('toolkit')"><Wrench :size="17"/><span>开发工具</span><kbd>3</kbd></button>
+  <div class="workspace-label">{{ $t('app.workspace') }}</div><nav class="nav-list" aria-label="主导航">
+   <button class="nav-item" :class="{active:activePage==='logs'}" @click="setPage('logs')"><FileSearch :size="17"/><span>{{ $t('nav.logs') }}</span><kbd>1</kbd></button>
+   <button class="nav-item" :class="{active:activePage==='processes'}" @click="setPage('processes')"><TerminalSquare :size="17"/><span>{{ $t('nav.processes') }}</span><kbd>2</kbd></button>
+   <button class="nav-item" :class="{active:activePage==='toolkit'}" @click="setPage('toolkit')"><Wrench :size="17"/><span>{{ $t('nav.toolkit') }}</span><kbd>3</kbd></button>
   </nav>
-  <div class="sidebar-divider"></div><div class="workspace-label">运行方式</div><div class="local-card"><div class="local-icon"><ShieldCheck :size="16"/></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
-  <div class="sidebar-bottom"><div class="version-row"><span>当前版本</span><button class="version-tag" type="button" title="查看版本信息" @click="aboutDialogOpen=true">v{{appVersion}}</button></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><button class="help-icon-button" type="button" aria-label="关于 MeteorDesk" title="关于 MeteorDesk" @click="aboutDialogOpen=true"><CircleHelp :size="17" class="help-icon"/></button></div></div>
+  <div class="sidebar-divider"></div><div class="workspace-label">{{ $t('app.runningMode') }}</div><div class="local-card"><div class="local-icon"><ShieldCheck :size="16"/></div><div><div class="local-title">本地优先</div><div class="local-description">文件仅在本机处理</div></div><span class="status-dot"></span></div>
+  <div class="sidebar-bottom"><div class="version-row"><span>{{ $t('app.currentVersion') }}</span><button class="version-tag" type="button" title="查看版本信息" @click="aboutDialogOpen=true">v{{appVersion}}</button></div><div class="profile-row"><div class="avatar">MD</div><div class="profile-copy"><strong>MeteorDesk</strong><span>开发与运维工作台</span></div><button class="help-icon-button" type="button" aria-label="关于 MeteorDesk" title="关于 MeteorDesk" @click="aboutDialogOpen=true"><CircleHelp :size="17" class="help-icon"/></button></div></div>
  </aside>
  <main class="main-content">
-  <header class="topbar"><div class="breadcrumbs"><span>工作空间</span><ChevronRight :size="14"/><strong>{{activePage==='logs'?'日志分析':activePage==='processes'?'进程管理':'开发工具'}}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><button class="theme-toggle" type="button" :aria-label="themeMode==='dark'?'切换浅色主题':'切换深色主题'" :title="themeMode==='dark'?'切换浅色主题':'切换深色主题'" @click="toggleTheme"><Sun v-if="themeMode==='dark'" :size="15"/><Moon v-else :size="15"/></button><button class="shortcut-hint" type="button" title="配置快捷键" @click="shortcutsDialogOpen=true"><Command :size="13"/><span>快捷键</span></button></div></header>
+  <header class="topbar"><div class="breadcrumbs"><span>{{ $t('app.workspace') }}</span><ChevronRight :size="14"/><strong>{{ activePage==='logs' ? $t('nav.logs') : activePage==='processes' ? $t('nav.processes') : $t('nav.toolkit') }}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><button class="theme-toggle" type="button" :aria-label="themeMode==='dark'?'切换浅色主题':'切换深色主题'" :title="themeMode==='dark'?'切换浅色主题':'切换深色主题'" @click="toggleTheme"><Sun v-if="themeMode==='dark'" :size="15"/><Moon v-else :size="15"/></button><button class="shortcut-hint" type="button" title="配置快捷键" @click="shortcutsDialogOpen=true"><Command :size="13"/><span>快捷键</span></button><button class="shortcut-hint" type="button" title="搜索缓存管理与会话恢复" @click="cacheDialogOpen=true"><HardDrive :size="13"/><span>{{ $t('cache.title') }}</span></button></div></header>
   <div class="page-wrap">
    <section v-if="activePage==='logs'" class="page-content">
-    <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>可观测性 / 文件分析</div><h1>日志分析<span class="title-period">。</span></h1><p class="page-subtitle">逐块读取大体积日志，支持关键字、正则、上下文、跨行 JSON 文档检索、字段过滤和常见文本编码。</p></div><button class="button button-secondary" :disabled="busy" @click="chooseFile"><FolderOpen :size="16"/>选择日志</button></div>
+    <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>{{ $t('breadcrumb.logs') }}</div><h1>{{ $t('logs.title') }}<span class="title-period">。</span></h1><p class="page-subtitle">逐块读取大体积日志，支持关键字、正则、上下文、跨行 JSON 文档检索、字段过滤和常见文本编码。</p></div><button class="button button-secondary" :disabled="busy" @click="chooseFile"><FolderOpen :size="16"/>选择日志</button></div>
     <div class="metric-grid">
      <div class="metric-card"><div class="metric-top"><span class="metric-icon mint"><Gauge :size="16"/></span><span class="metric-kicker">检索方式</span></div><div class="metric-value">流式扫描</div><div class="metric-foot"><CheckCircle2 :size="12"/>固定大小缓冲区</div></div>
      <div class="metric-card"><div class="metric-top"><span class="metric-icon blue"><HardDrive :size="16"/></span><span class="metric-kicker">数据处理</span></div><div class="metric-value">仅限本地</div><div class="metric-foot"><CheckCircle2 :size="12"/>不上传日志内容</div></div>
@@ -204,7 +213,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
       <div v-if="tailTruncated" class="tail-note">单次增量达到上限，部分行已跳过或截断；可清空后重新开始。</div>
       <div v-if="tailEnabled||tailLines.length" ref="tailListElement" class="tail-output"><div v-for="(line,i) in tailLines" :key="i" class="tail-line"><code>{{line}}</code></div><div v-if="!tailLines.length" class="tail-empty">{{tailEnabled?'等待新的日志行……':'上次跟踪的内容已清空。'}}</div></div>
      </div>
-     <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{filteredMatches.length}}</span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（CSV，含上下文）" @click="exportResults('csv')"><FileDown :size="13"/>CSV</button><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（JSON，含上下文）" @click="exportResults('json')"><FileDown :size="13"/>JSON</button><span v-if="response.timeWindowSkipped" class="limit-pill" title="启用时间窗后，行首缺少可解析日期时间戳的命中未计入结果">时间窗跳过 {{response.timeWindowSkipped}} 条无时间戳</span><button v-if="response.resultLimitReached&&canResume" class="button button-quiet resume-button" type="button" :disabled="busy" title="从上次截断的位置继续扫描剩余内容，保留已有结果" @click="resumeSearch"><ArrowRight :size="13"/>从这里继续</button><span v-else-if="response.resultLimitReached" class="limit-pill" title="该编码或检索模式暂不支持续扫；可提高结果上限或缩小时间窗后重新检索">已达到结果上限</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
+     <div class="results-header"><div><h3>检索结果 <span v-if="response" class="result-count">{{filteredMatches.length}}</span><span v-if="response?.fromCache" class="cache-badge" title="本次结果来自搜索缓存，未重新扫描文件"><Zap :size="10"/>缓存</span></h3><p>{{response?'已扫描 '+response.scannedLines.toLocaleString()+' 行 · '+fileSize+' · 编码 '+response.encoding:'检索结果会显示在这里。'}}</p></div><div v-if="response" class="results-actions"><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（CSV，含上下文）" @click="exportResults('csv')"><FileDown :size="13"/>CSV</button><button v-if="response.matches.length" class="button button-quiet" type="button" :disabled="busy" title="导出当前检索结果（JSON，含上下文）" @click="exportResults('json')"><FileDown :size="13"/>JSON</button><span v-if="response.timeWindowSkipped" class="limit-pill" title="启用时间窗后，行首缺少可解析日期时间戳的命中未计入结果">时间窗跳过 {{response.timeWindowSkipped}} 条无时间戳</span><button v-if="response.resultLimitReached&&canResume" class="button button-quiet resume-button" type="button" :disabled="busy" title="从上次截断的位置继续扫描剩余内容，保留已有结果" @click="resumeSearch"><ArrowRight :size="13"/>从这里继续</button><span v-else-if="response.resultLimitReached" class="limit-pill" title="该编码或检索模式暂不支持续扫；可提高结果上限或缩小时间窗后重新检索">已达到结果上限</span><span v-if="lastSearchDurationMs!=null" class="result-elapsed" :title="response?.fromCache?'从缓存加载耗时':'本次扫描耗时'">{{formatDuration(lastSearchDurationMs)}}</span><span v-if="response.canceled" class="result-state">已取消</span><span v-else class="result-state"><span class="status-dot"></span>已完成</span></div></div>
      <div v-if="response&&response.matches.length" class="results-toolbar"><div class="result-filter"><Search :size="13"/><input v-model="resultFilter" placeholder="在当前结果中过滤：内容或行号" aria-label="过滤检索结果" spellcheck="false" autocomplete="off"/><button v-if="resultFilter" type="button" class="filter-clear" aria-label="清除过滤" @click="clearResultFilter"><X :size="12"/></button></div><label class="toolbar-toggle"><input v-model="bookmarkOnly" type="checkbox"/><span class="custom-checkbox"><Star v-if="bookmarkOnly" :size="11"/></span><span>仅看收藏</span><em>{{fileBookmarks}}</em></label><button class="button button-quiet sort-button" type="button" :title="resultSort==='asc'?'当前按行号升序，点击改为降序':'当前按行号降序，点击改为升序'" @click="toggleResultSort"><ArrowDownUp :size="13"/>{{resultSort==='asc'?'行号升序':'行号降序'}}</button><button class="button button-quiet summary-toggle" :class="{active:summaryOpen}" type="button" :title="summaryOpen?'收起聚合统计':'按日志级别与错误签名聚合当前结果'" @click="summaryOpen=!summaryOpen"><PieChart :size="13"/>统计</button><button v-if="timeFilter" class="button button-quiet time-filter-chip" type="button" title="清除时间段过滤" @click="clearTimeFilter">时间段 {{timeFilter.label}} <X :size="11"/></button><button v-if="facetFilter" class="button button-quiet facet-filter-chip" type="button" title="清除字段取值过滤" @click="clearFacet">{{facetFilter.path}}={{facetFilter.value}} <X :size="11"/></button><button v-if="fileFilter" class="button button-quiet file-filter-chip" type="button" title="清除来源文件过滤" @click="clearFileFilter">{{fileBase(fileFilter)}} <X :size="11"/></button><span class="filter-summary">{{filteredMatches.length}} / {{response.matches.length}} 条</span></div>
      <div v-if="response&&response.files&&response.files.length" class="file-overview">
       <div class="file-overview-head"><strong>来源文件 <em>{{response.filesSucceeded||0}}/{{response.filesTotal||response.files.length}}</em><span v-if="response.filesFailed" class="file-failed-count"> · 失败 {{response.filesFailed}}</span><span v-if="response.filesSkipped" class="file-skipped-count"> · 已跳过 {{response.filesSkipped}}</span></strong><span v-if="response.filesTruncated" class="file-truncated-note" title="目录内匹配文件超过 200 个，仅检索排序后的前 200 个">仅检索前 200 个文件</span><span v-else class="file-overview-tip">点击文件可把结果收窄到该来源，再次点击取消。</span></div>
@@ -253,7 +262,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
       <p v-if="summaryMessage" class="summary-note" role="status">{{summaryMessage}}</p>
      </div>
      <div v-if="exportMessage" class="notice notice-success"><span>✓</span>{{exportMessage}}</div>
-     <div v-if="response&&filteredMatches.length" ref="resultListElement" class="result-list" @scroll="updateScroll"><div class="result-spacer" :style="{height:virtualTop+'px'}"></div><div v-for="(m,i) in visibleMatches" :key="matchKey(m)" class="result-row" :class="{selected:!!selectedMatch&&matchKey(selectedMatch)===matchKey(m)}" role="button" tabindex="0" :title="m.content" @click="showMatch(m)" @keydown.enter="showMatch(m)"><span class="line-number">{{String(m.lineNumber).padStart(5,'0')}}</span><span v-if="m.filePath" class="file-tag" :title="m.filePath">{{fileBase(m.filePath)}}</span><span class="result-marker" :class="{first:virtualStart+i===0}"></span><code><template v-for="(seg,si) in displaySegments(m.content)" :key="si"><mark v-if="seg.hit">{{seg.text}}</mark><template v-else>{{seg.text}}</template></template><span v-if="m.contentClipped" class="clipped-note"> [预览已截断]</span></code><button class="bookmark-button" :class="{active:isBookmarked(m)}" type="button" :aria-label="(isBookmarked(m)?'取消收藏第 ':'收藏第 ')+m.lineNumber+' 行'" :title="isBookmarked(m)?'取消收藏':'收藏该行'" @click.stop="toggleMatchBookmark(m)"><Star :size="12"/></button><ArrowRight :size="13" class="row-chevron"/></div><div class="result-spacer" :style="{height:virtualBottom+'px'}"></div></div>
+     <div v-if="response&&filteredMatches.length" ref="resultListElement" class="result-list" @scroll="updateScroll"><div class="result-spacer" :style="{height:virtualTop+'px'}"></div><div v-for="(m,i) in visibleMatches" :key="matchKey(m)" class="result-row" :class="{selected:!!selectedMatch&&matchKey(selectedMatch)===matchKey(m)}" role="button" tabindex="0" :title="m.content" @click="showMatch(m)" @keydown.enter="showMatch(m)"><span class="line-number">{{String(m.lineNumber).padStart(5,'0')}}</span><span v-if="m.filePath" class="file-tag" :title="m.filePath">{{fileBase(m.filePath)}}</span><span v-if="m.filePath && fileOwnerCache[m.filePath]" class="owner-tag" :title="'该文件属于服务「'+fileOwnerCache[m.filePath].name+'」· 点击跳转进程管理'" @click.stop="jumpToProcess(fileOwnerCache[m.filePath].id)"><Layers3 :size="11"/>{{fileOwnerCache[m.filePath].name}}</span><span class="result-marker" :class="{first:virtualStart+i===0}"></span><code><template v-for="(seg,si) in displaySegments(m.content)" :key="si"><mark v-if="seg.hit">{{seg.text}}</mark><template v-else>{{seg.text}}</template></template><span v-if="m.contentClipped" class="clipped-note"> [预览已截断]</span></code><button class="bookmark-button" :class="{active:isBookmarked(m)}" type="button" :aria-label="(isBookmarked(m)?'取消收藏第 ':'收藏第 ')+m.lineNumber+' 行'" :title="isBookmarked(m)?'取消收藏':'收藏该行'" @click.stop="toggleMatchBookmark(m)"><Star :size="12"/></button><ArrowRight :size="13" class="row-chevron"/></div><div class="result-spacer" :style="{height:virtualBottom+'px'}"></div></div>
      <div v-else-if="response&&response.matches.length" class="empty-results filtered-empty"><div class="empty-icon"><Search :size="20"/></div><strong>没有符合过滤条件的结果</strong><span>调整过滤关键字，或关闭「仅看收藏」。</span><button class="button button-quiet" type="button" @click="clearResultFilters">清除过滤</button></div>
      <div v-else-if="response" class="empty-results"><div class="empty-icon"><Search :size="20"/></div><strong>没有找到匹配内容</strong><span>尝试更换关键字，或启用正则表达式。</span></div>
      <div v-else class="empty-results initial-empty"><div class="empty-illustration"><div class="empty-orbit orbit-one"></div><div class="empty-orbit orbit-two"></div><div class="empty-center"><FileSearch :size="24"/></div><span class="orbit-dot dot-a"></span><span class="orbit-dot dot-b"></span></div><strong>准备就绪</strong><span>选择本地日志文件并输入搜索内容，即可开始分析。</span></div>
@@ -269,13 +278,14 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
     <div class="bottom-note"><Braces :size="15"/><span>快捷键：{{shortcutLabel('openFile')}} 打开文件，{{shortcutLabel('focusSearch')}} 聚焦搜索，{{shortcutLabel('runSearch')}} 检索。</span><button @click="setPage('processes')">管理本地服务 <ArrowRight :size="13"/></button></div>
    </section>
 
-   <ProcessManagement :active="activePage==='processes'" :focus-id="processFocusId" @open-log="openProcessLog" @focus-handled="processFocusId=''" />
+   <ProcessManagement :active="activePage==='processes'" :focus-id="processFocusId" @open-log="openProcessLog" @search-log="searchProcessLog" @focus-handled="processFocusId=''" />
 
    <DeveloperToolkit v-if="activePage==='toolkit'" />
   </div>
   <footer class="app-footer"><span>METEORDESK <span class="footer-divider">/</span>本地开发与运维工作台</span><span>专注效率 <span class="footer-divider">·</span>数据留在本机</span></footer>
  </main>
  <ShortcutsDialog v-if="shortcutsDialogOpen" :config="shortcutsConfig" @close="shortcutsDialogOpen=false" @change="shortcutsConfig=$event"/>
- <AboutDialog v-if="aboutDialogOpen" @close="aboutDialogOpen=false"/>
+  <AboutDialog v-if="aboutDialogOpen" @close="aboutDialogOpen=false"/>
+  <CacheManagerDialog v-if="cacheDialogOpen" @close="cacheDialogOpen=false"/>
 </div>
 </template>

@@ -289,6 +289,8 @@ type SearchResponse struct {
 	Matches            []Match `json:"matches"`
 	ResultLimitReached bool    `json:"resultLimitReached"`
 	Canceled           bool    `json:"canceled"`
+	// FromCache 为 true 表示本次结果命中了搜索缓存，直接从落盘 JSON 加载，未重新扫描文件。
+	FromCache bool `json:"fromCache"`
 	// TimeWindowSkipped 是启用时间窗时，因行首缺少可解析的完整日期时间戳而未计入结果的命中数。
 	TimeWindowSkipped int64 `json:"timeWindowSkipped"`
 	// ResumeOffset 是达到结果上限后可续扫的原始字节偏移；-1 表示当前不可续扫
@@ -401,6 +403,13 @@ func SearchFileWithOptions(ctx context.Context, path, query string, useRegex boo
 		}
 		defaultEncodingIndex.Store(path, info.Size(), info.ModTime(), encodingName, bomBytes)
 	}
+	if isParallelizable(path, useRegex, options, decoder != nil, info.Size()) {
+		if err := file.Close(); err != nil {
+			return SearchResponse{}, fmt.Errorf("关闭日志文件失败：%w", err)
+		}
+		return parallelSearchFile(ctx, path, query, maxResults, encodingName, info.Size(), bomBytes, options, onProgress)
+	}
+
 	// 续扫只在无需字符解码器（UTF-8/ASCII）时按原始字节偏移定位；解码器文件从头扫描，
 	// 因为解码后的行边界无法映射回精确的原始偏移。
 	resumable := decoder == nil

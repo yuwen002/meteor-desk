@@ -1,27 +1,14 @@
-﻿package main
+package tray
 
 import (
-	"embed"
+	"context"
 	"os"
 
 	"github.com/getlantern/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-//go:embed build/appicon.png
-var trayIconFS embed.FS
-
-func loadTrayIcon() []byte {
-	data, err := trayIconFS.ReadFile("build/appicon.png")
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
-func startTray(app *App) {
-	icon := loadTrayIcon()
-
+func Start(ctx context.Context, icon []byte) {
 	onReady := func() {
 		if len(icon) > 0 {
 			systray.SetIcon(icon)
@@ -38,25 +25,23 @@ func startTray(app *App) {
 			for {
 				select {
 				case <-mShow.ClickedCh:
-					runtime.WindowShow(app.ctx)
-					runtime.WindowUnminimise(app.ctx)
+					runtime.WindowShow(ctx)
+					runtime.WindowUnminimise(ctx)
 				case <-mHide.ClickedCh:
-					runtime.WindowHide(app.ctx)
+					runtime.WindowHide(ctx)
 				case <-mQuit.ClickedCh:
 					systray.Quit()
 					os.Exit(0)
-				case <-app.ctx.Done():
+				case <-ctx.Done():
 					return
 				}
 			}
 		}()
 	}
 
-	onExit := func() {}
-
-	systray.Run(onReady, onExit)
+	systray.Run(onReady, func() {})
 }
 
-func stopTray() {
+func Stop() {
 	systray.Quit()
 }
