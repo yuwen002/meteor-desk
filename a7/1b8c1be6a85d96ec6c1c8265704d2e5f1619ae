@@ -1,0 +1,18 @@
+docs/ROADMAP.md
+  h_a3f313f3d96276 160-168,171
+README.md
+  h_a3f313f3d96276 113,116,119,185-188,190-200
+docs/ARCHITECTURE.md
+  h_a3f313f3d96276 29-35,142-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "a71b8c1be6a85d96ec6c1c8265704d2e5f1619ae",
+  "prompts": {},
+  "humans": {
+    "h_a3f313f3d96276": {
+      "author": "liuxingyu <yuwen002@163.com>"
+    }
+  }
+}
