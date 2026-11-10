@@ -26,6 +26,13 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - `components/AboutDialog.vue` 与 `components/ShortcutsDialog.vue` 是自包含对话框：前者挂载时读取运行信息，后者持有快捷键草稿并在校验通过后写入本地存储，通过 `close` / `change` 事件回传给 `App.vue`。
 - 单元测试与组件测试与源码同目录（`*.test.ts`），用 `@vue/test-utils` 挂载组件并 mock `window.go.main.App` 桥接。
 
+## 国际化（i18n）
+
+- 前端使用 vue-i18n@9 组合式 API 模式（`legacy: false`），配置在 `frontend/src/i18n/index.ts`，默认语言由 `localStorage` 持久化并自动检测浏览器语言。
+- locale 文件按命名空间组织：`frontend/src/i18n/zh.ts` 与 `en.ts` 各包含 `process` 命名空间（~110 个 key），覆盖 ProcessManagement.vue 的全部 UI 字符串——标签、占位符、按钮、状态/退出原因/端口状态映射、确认/错误提示等。
+- 组件内的翻译调用：脚本层 `const { t } = useI18n()` 后用 `t('process.actionStart')`，模板层直接用 `$t('process.actionStart')`。需要格式化参数时用 `t('process.exportTitle', { n: 5 })`，支持 `{n}`、`{name}`、`{count}`、`{pid}` 等占位符。
+- 后端 `app.go` 中的硬编码中文（`SelectLogFile` 的对话框标题、`shutdown` 的错误日志等）在 Wails 桥接层保持中文——这些字符串要么由系统对话框直接渲染（不受前端语言影响），要么写入后端日志供开发者调试。前端展示用的文本全部在前端处理，不回传语言信息给后端。
+
 ## 工程门禁
 
 - Go 侧以 `gofmt -s` 与 golangci-lint（`default: standard`，含 errcheck、govet、ineffassign、staticcheck、unused）作为阻断检查，配置集中在仓库根目录的 `.golangci.yml`，本地与 CI 共用。
@@ -132,8 +139,9 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 
 ## 系统托盘与后台常驻
 
-- Wails v2 无内置托盘支持，应用通过跨平台 `github.com/getlantern/systray` 在 `tray.go` 实现系统托盘；`app.go` 的 `startup` 以后台 goroutine 启动托盘，`shutdown` 调用 `stopTray` 收尾，托盘菜单的三个动作（显示主窗口、隐藏主窗口、退出）都经 Wails `runtime` 控制窗口生命周期。
-- 托盘图标由 `//go:embed build/appicon.png` 内嵌进二进制，随安装包分发、无需在运行时读取外部图片文件。
+- Wails v2 无内置托盘支持，应用通过跨平台 `github.com/getlantern/systray` 在 `internal/tray/tray.go` 实现系统托盘；对外只暴露 `Start(ctx, iconBytes)` 和 `Stop()` 两个函数，由 `app.go` 的 `startup` 以后台 goroutine 调用 `tray.Start`、`shutdown` 调用 `tray.Stop` 收尾。
+- 托盘图标由根目录 `tray_icon.go` 同时 `//go:embed build/appicon.ico build/appicon.png` 内嵌二进制，运行时用 `runtime.GOOS` 判断平台选择 `.ico`（Windows）或 `.png`（其他系统）。Windows 的 `systray.SetIcon` 只接受 `.ico` 格式，传入 PNG 会静默失败并在退出时 panic，因此嵌入两种格式按需分发。
+- 托盘菜单的三个动作（显示主窗口、隐藏主窗口、退出 MeteorDesk）都经 Wails `runtime` 控制窗口生命周期；`tray.Start` 会传入 `app.ctx`，`ctx.Done()` 时托盘自动退出 goroutine。
 - 「隐藏主窗口」只隐藏窗口而不结束进程，使应用保持常驻；只有托盘「退出 MeteorDesk」或操作系统关闭才会真正退出，退出路径仍走 `shutdown` 统一收尾（取消检索、保存窗口状态、回写编码缓存、停止本地服务）。
 - 托盘不引入网络桥接，仅作为本机窗口的显示/隐藏与退出控制点。
 

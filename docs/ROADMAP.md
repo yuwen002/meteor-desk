@@ -157,9 +157,18 @@
 - [x] 缓存命中标记与缓存管理面板：后端返回 `fromCache` 字段告知前端是否命中缓存；结果摘要显示缓存徽章与本次检索耗时；TopBar 提供缓存管理面板（统计概览、单条删除、全部清空、手动刷新）。
 - [x] 进程-日志双向联动增强：多文件搜索结果每条带归属服务标签（搜索完成后批量预查 `FindServiceByLogPath`）；进程详情"用当前 Grep 词检索落盘文件"一键跳转到日志分析页并自动发起搜索。
 
+## 阶段 9：国际化与工程收尾
+
+- [x] 前端引入 vue-i18n@9 组合式 API，`ProcessManagement.vue` 全量国际化（`process` 命名空间 ~110 key，模板层 `$t()` + 脚本层 `useI18n().t()`，覆盖标签/占位符/按钮/状态映射/确认提示）。
+- [x] `AboutDialog.vue` 与 `CacheManagerDialog.vue` 同步接入 i18n，后端硬编码中文保留在 Wails 桥接层（系统对话框与开发者日志不受前端语言影响）。
+- [x] 系统托盘从根目录 `tray.go` 重构为 `internal/tray` 独立包，对外暴露 `Start(ctx, icon)` / `Stop()`；图标加载统一为根目录 `tray_icon.go`，运行时按 `runtime.GOOS` 选择 `.ico`（Windows 的 `systray.SetIcon` 只接受 `.ico`）或 `.png`。
+- [x] Wails v2.10.2 升级到 v2.16.0，补齐 build tag 语义（`dev`/`production`/`bindings`，GoLand 需显式指定 `-tags=dev` 或 `-tags=production`）。
+- [x] `shutdown()` 中 `runtime.WindowGetSize`/`WindowGetPosition` 调用包裹 `recover` 保护，避免窗口句柄已销毁时 panic。
+- [x] 清理根目录编译产物与临时 PowerShell 脚本，`.gitignore` 新增 `*.exe`；README、架构文档、路线图同步更新。
+
 ## 未排期候选
 
-以下条目记录讨论结果但不进入当前阶段，需要明确需求后再立项：英文界面（i18n）、自动更新检查（与"默认不联网上报"的工程原则冲突，需单独决策）。
+以下条目记录讨论结果但不进入当前阶段，需要明确需求后再立项：自动更新检查（与"默认不联网上报"的工程原则冲突，需单独决策）。
 
 ## 工程原则
 

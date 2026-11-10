@@ -110,13 +110,13 @@ MeteorDesk 是一款使用 Go、Wails v2 和 Vue 3 构建的本地桌面工具�
 
 ## 环境准备
 
-请先安装 Go、Node.js LTS、npm，以及对应操作系统的桌面开发依赖。参见 [Wails v2 官方安装文档](https://wails.io/docs/gettingstarted/installation)。仓库依赖固定为 Wails v2.10.2，建议本地 CLI 也使用相同版本，避免本地生成与 CI 构建行为不一致：
+请先安装 Go、Node.js LTS、npm，以及对应操作系统的桌面开发依赖。参见 [Wails v2 官方安装文档](https://wails.io/docs/gettingstarted/installation)。仓库依赖固定为 Wails v2.16.0，建议本地 CLI 也使用相同版本，避免本地生成与 CI 构建行为不一致：
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
 ```
 
-确保 Go 的 bin 目录位于 PATH 中；Windows 通常是 `%USERPROFILE%\\go\\bin`，macOS/Linux 通常是 `$(go env GOPATH)/bin`。CI 通过固定版本的 `go run ...@v2.10.2` 构建，不依赖开发者机器上的全局 CLI 版本。
+确保 Go 的 bin 目录位于 PATH 中；Windows 通常是 `%USERPROFILE%\\go\\bin`，macOS/Linux 通常是 `$(go env GOPATH)/bin`。CI 通过固定版本的 `go run ...@v2.16.0` 构建，不依赖开发者机器上的全局 CLI 版本。
 
 ## 开发启动
 
@@ -182,17 +182,22 @@ go test ./internal/logx -run '^$' -bench BenchmarkSearchFileLargeLog -benchtime=
 
 ```text
 .
-├── app.go
-├── main.go
-├── tray.go         # 系统托盘与后台常驻
+├── app.go                    # NewApp() 与全部 Wails 桥接方法
+├── app_test.go
+├── main.go                   # Wails 入口，embed frontend/dist
+├── tray_icon.go              # 系统托盘图标加载（运行时按 GOOS 选 .ico/.png）
 ├── internal/
-│   ├── config/       # 本地偏好与检索历史
-│   ├── httpx/        # 开发工具箱的受限本地 HTTP 请求
-│   ├── logx/         # 流式日志检索、事件聚合、编码检测缓存、测试与性能基准
-│   └── process/      # 进程配置、生命周期和输出采集
-├── frontend/src/     # Vue 中文桌面界面
-├── scripts/          # 覆盖率汇总等开发辅助脚本
-├── docs/             # 使用手册、API、架构与路线图
+│   ├── config/               # 本地偏好、窗口状态与检索历史持久化
+│   ├── httpx/                # 开发工具箱的受限本地 HTTP 请求
+│   ├── logx/                 # 流式日志检索、事件聚合、编码检测与结果缓存
+│   ├── process/              # 进程配置、生命周期、资源采样与输出采集
+│   └── tray/                 # 跨平台系统托盘封装（Start/Stop、systray 菜单）
+├── frontend/src/
+│   ├── i18n/                 # vue-i18n 国际化（zh/en locale，process 命名空间）
+│   ├── components/
+│   └── utils/
+├── scripts/                  # 覆盖率汇总等开发辅助脚本
+├── docs/                     # 使用手册、API、架构与路线图
 ├── CHANGELOG.md
 └── CONTRIBUTING.md
 ```
