@@ -22,6 +22,12 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 | `GetLogSearchMatches(id, afterIndex)` | 任务 ID、已收到的匹配数量 | `LogMatch[]` | 只返回游标之后新发现的匹配，供前端增量展示；负游标按 0 处理，超出当前结果长度时返回空数组。取消任务会在保留期内保留已发现结果。 |
 | `CancelLogSearch(id)` | 任务 ID | `boolean` | 请求取消仍在运行的搜索；返回 false 表示任务不存在或已结束。 |
 | `ReadLogTail(path, offset, encoding)` | 路径、上次偏移、编码模式 | `TailResult` | 增量读取日志新增行；`offset` 为负时从文件末尾回退（默认 256 KiB）开始跟踪。只返回到最后一个换行符为止的完整行，支持 `auto`、`utf-8`、`gb18030`，UTF-16 直接返回错误。 |
+| `ReadLogFileHead(path, encoding, maxBytes)` | 路径、编码模式、最大字节数 | `DecodedFileHead` | 读取日志文件开头并解码为 UTF-8，供「两份日志逐行对比」面板快速预览文件头部内容。`encoding` 同检索接口（`auto` / `utf-8` / `gb18030` / `utf-16le` / `utf-16be`）；单侧上限 4 MiB，超过即截断并把 `truncated` 标记为 `true`。自动识别复用 `file-indexes.json` 编码缓存。 |
+| `ScanLogTimeline(files, options)` | `TimelineFileSpec[]`、`TimelineScanOptions` | `TimelineScanResponse` | 并发扫描多份日志，按每行可解析的日期时间戳合并成统一时间线视图（阶段 9）。每个文件返回一个 `entries` 数组（时间戳升序），全局 `entries` 按时间戳合并去重；单文件最多 5 万行、整体硬上限 20 万行，超出时 `truncated` 置 `true` 并在 `truncatedFiles` 列出文件名。`TimelineScanOptions` 含 `levelDetect: true` 时自动识别每行级别（`error`/`warn`/`info`/`debug`/`trace`），级别词匹配逻辑同聚合工具函数。进度通过 `log-timeline:update` 事件推送（事件含 `files`, `progress`, `entries` 增量），也可按 `scanID` 轮询 `GetLogSearchProgress` 复用同一任务登记通道。 |
+| `GetLogCacheEntries(limit)` | 数量上限（默认 20，上限 50） | `CacheEntryMeta[]` | 返回最近访问的搜索缓存条目元数据，按访问时间降序（阶段 8）。每条含 `key`（路径+查询+正则+编码+上下文行数+时间窗的 SHA-256 前 16 位）、`filePath`、`query`、`useRegex`、`encoding`、`hitCount`、`bytesScanned`、`resultCount`、`createdAt`、`accessedAt`、`entrySizeBytes`。 |
+| `GetLogCacheStatistics()` | 无 | `CacheStatistics` | 返回当前缓存统计快照：`entries` 条目数、`totalBytes` 总大小、`cacheDir` 落盘目录、`maxEntries`（默认 128）、`maxBytes`（默认 500 MiB）、`hitCount` 累计命中次数、`missCount` 累计未命中次数、`evictedCount` LRU 淘汰累计。 |
+| `DeleteLogCacheEntry(key)` | 缓存键 | 无 | 按缓存键删除单条搜索结果并同步更新索引。键不存在时返回 `error`。 |
+| `ClearLogCache()` | 无 | `CacheStatistics` | 清空全部搜索缓存条目并返回清空前的统计快照。 |
 
 前端建议先生成唯一的 `searchID`，在调用 `SearchLogsAdvanced` 的同时监听 Wails `log-search:update` 事件以低延迟接收进度和新增匹配；轮询进度/增量接口仍作为兼容回退。事件包含 `searchId`、`progress` 和可选的 `matches`，前端必须按任务 ID 过滤并与轮询共用游标，防止重复追加。最终 Promise 返回后，以最终响应替换临时快照。取消是协作式操作：底层扫描会在检查点停止，并返回已累计结果。
 
@@ -33,6 +39,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 |---|---|---|---|
 | `GetProcesses()` | 无 | `ProcessView[]` | 返回服务定义和运行状态。 |
 | `SaveProcess(spec)` | `ProcessSpec` | `ProcessView` | 新增或更新配置；不启动服务。 |
+| `GetProcessCommandPreview(spec)` | `ProcessSpec` | `CommandPreview` | 把尚未保存或正在编辑的 `ProcessSpec` 渲染成用户可核对的命令行预览（阶段 9）。返回 `command`（完整 shell 命令字符串，含环境变量前缀和可执行文件+参数）、`workingDir`、`env`、`warnings`；敏感环境变量值会自动清空为 `***` 防止泄露到日志。可执行文件不是绝对路径或 `%PATH%` 找不到时在 `warnings` 中给出提示，不阻止预览。 |
 | `DeleteProcess(id)` | 服务 ID | 无 | 仅允许删除已停止且没有被其他服务依赖的服务。 |
 | `StartProcess(id)` | 服务 ID | 无 | 启动服务和所需上游依赖。 |
 | `StopProcess(id)` | 服务 ID | 无 | 先停依赖它的下游服务，再停止目标。 |
@@ -82,9 +89,15 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
   "scannedLines": 12000,
   "matches": [],
   "resultLimitReached": false,
-  "canceled": false
+  "canceled": false,
+  "fromCache": false,
+  "timeWindowSkipped": 0,
+  "resumeOffset": -1,
+  "resumeLine": -1
 }
 ```
+
+`fromCache` 为 `true` 表示本次结果命中了搜索缓存（见阶段 8「搜索结果缓存」），直接从落盘 JSON 加载，未重新扫描文件；`timeWindowSkipped` 仅在启用时间窗时填写，表示行首缺少可解析的完整日期时间戳而未计入结果的命中数；`resumeOffset`/`resumeLine` 在结果被硬上限截断时填写，前端用它们调用下一次 `SearchLogsAdvanced` 时分别作为 `startOffset`/`startLine` 传入续扫剩余内容，`-1` 表示当前不可续扫（已到文件末尾、被取消、或 UTF-16/GB18030 编码需要字符解码器时不支持）。
 
 ### LogSearchProgress
 
@@ -93,6 +106,102 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 ### TailResult
 
 字段包括 `lines`（新增行，按文件顺序）、`offset`（下一次读取的起点）、`fileSizeBytes`、`encoding`（实际编码）、`reset`（首次跟踪或文件被截断/替换，前端应清空已有行）和 `truncated`（达到单次上限、跳过超长行或回退点残行）。单次读取默认上限 256 KiB / 500 行，硬上限 2 MiB / 5,000 行；偏移只前进到最后一个完整换行之后，未写完的行留到下一次调用。
+
+### DecodedFileHead
+
+`ReadLogFileHead` 的返回值，供两份日志逐行对比面板预览文件头部：
+
+```json
+{
+  "text": "2026-01-01 00:00:00 INFO Server starting...",
+  "encoding": "UTF-8",
+  "fileSizeBytes": 2048576,
+  "headBytes": 65536,
+  "truncated": false
+}
+```
+
+`text` 是 UTF-8 解码后的文件头部文本；`headBytes` 是实际读取的原始字节数；`truncated` 为 `true` 时表示因超过 `maxBytes` 参数而截断。
+
+### Timeline 系列结构
+
+`ScanLogTimeline` 使用以下结构（阶段 9）：
+
+```jsonc
+// 输入：每个文件的扫描规格
+{
+  "path": "/path/to/app.log",
+  "encoding": "auto"          // 可选，默认 auto
+}
+```
+
+`TimelineScanOptions` 字段：`levelDetect`（是否自动识别每行级别，默认 `true`）、`timeZone`（时间戳解析时区，`local` 或 `utc`，默认 `local`）、`perFileMaxLines`（单文件上限，默认 50,000）、`globalMaxLines`（全局硬上限，默认 200,000）。
+
+`TimelineScanResponse`：
+
+```jsonc
+{
+  "fileEntries": [
+    {
+      "filePath": "/path/to/app.log",
+      "entries": [
+        {
+          "timestamp": 1735689600000,   // 毫秒时间戳，无时间戳的行用 Long.MAX
+          "originalTime": "2026-01-01 00:00:00",
+          "lineNumber": 1,
+          "level": "info",               // error / warn / info / debug / trace / unknown
+          "content": "Server starting..."
+        }
+      ],
+      "linesScanned": 12000,
+      "truncated": false
+    }
+  ],
+  "globalEntries": [ /* 按 timestamp 合并去重后的跨文件时间线 */ ],
+  "truncated": false,
+  "truncatedFiles": []
+}
+```
+
+### 搜索缓存系列结构
+
+阶段 8 引入的搜索结果落盘缓存，相关结构如下。
+
+`CacheEntryMeta`（列表返回）：
+
+```jsonc
+{
+  "key": "a1b2c3d4e5f6a7b8",             // 路径+查询+正则+编码+上下文+时间窗的 SHA-256 前 16 位
+  "filePath": "/path/to/app.log",
+  "query": "ERROR",
+  "useRegex": false,
+  "encoding": "UTF-8",
+  "contextLines": 2,
+  "hitCount": 15,                         // 累计命中次数
+  "bytesScanned": 1048576,
+  "resultCount": 42,
+  "createdAt": "2026-01-01T10:00:00Z",
+  "accessedAt": "2026-01-02T15:30:00Z",
+  "entrySizeBytes": 128500
+}
+```
+
+`CacheStatistics`（统计快照）：
+
+```jsonc
+{
+  "entries": 42,
+  "totalBytes": 536870912,
+  "cacheDir": "C:/Users/.../search-cache",
+  "maxEntries": 128,
+  "maxBytes": 524288000,                 // 500 MiB
+  "hitCount": 128,
+  "missCount": 350,
+  "evictedCount": 5
+}
+```
+
+缓存键生成规则（Go 层 `buildCacheKey`）：`sha256(filePath + "|" + query + "|" + strconv.FormatBool(useRegex) + "|" + encoding + "|" + contextLines + "|" + timeWindowStartMs + "|" + timeWindowEndMs + "|" + timeZone)[:16]`。只有当文件的大小和修改时间与记录匹配时缓存才命中（`file-modernity` 校验），否则视为未命中，不触发回源。
 
 ### EventContext
 
@@ -146,6 +255,26 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 
 服务分组（场景），只按 ID 引用已有服务，不复制服务配置。字段包括 `id`、`name`、可选的 `description` 和 `memberIds`（服务 ID 数组）。整组启停时按依赖顺序复用批量启停逻辑；已删除的成员在启停时被跳过，删除分组不影响服务本身。
 
+### CommandPreview
+
+`GetProcessCommandPreview` 的返回值，供前端在用户编辑 `ProcessSpec` 时实时展示将要执行的命令行（阶段 9）：
+
+```json
+{
+  "command": "set MY_VAR=hello&& set DB_PASSWORD=***&& \"C:\\tools\\myapp.exe\" --config prod.yaml",
+  "workingDir": "C:\\tools",
+  "env": {
+    "MY_VAR": "hello",
+    "DB_PASSWORD": "***"
+  },
+  "warnings": [
+    "可执行文件路径 C:\\tools\\myapp.exe 不是绝对路径，启动时会从 %PATH% 查找"
+  ]
+}
+```
+
+`command` 是按当前平台拼接的 shell 命令字符串（Windows 用 `set VAR=value&&` 前缀，POSIX 用 `VAR=value` 前缀）；`env` 中值为 `***` 的键表示被识别为敏感变量名（密码、token、key、secret 等子串大小写不敏感匹配），返回时已脱敏；`warnings` 收集非致命问题（可执行文件相对路径、workingDir 不存在等），不阻止预览。
+
 ### 内部持久化文件与保留上限
 
 与 `processes.json` 同目录（应用配置目录）维护以下本机文件，写入都通过临时文件加重命名的原子方式（`writeJSONAtomic`）串行完成，避免并发追写出半行或乱序；删除服务时一并清理其时间线、运行历史与落盘文件：
@@ -155,6 +284,8 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `groups.json`：服务分组定义，与进程配置同目录。
 - `logs/<服务名>.log`：开启 `logToDisk` 的服务输出，单文件上限 64 MiB，超出后按命名位移轮转（`name.log` → `name.log.1` → `name.log.2`），连同当前文件最多保留 3 份；服务名会被清理为安全文件名（去路径分隔符与非法字符，空名回退为 `service`）。
 - `file-indexes.json`：日志编码检测缓存，按三元组键（路径+大小+修改时间）记录检测结果，最多 50 个文件、24 小时过期、LRU 淘汰；应用启动时载入（`WarmEncodingCache`）、退出时回写（`FlushEncodingIndex`），检索自动识别前命中缓存可跳过重复抽样。
+- `search-cache/cache-index.json`：搜索结果缓存索引（阶段 8），每个条目含键、路径、查询、正则、编码、上下文行数、文件大小+修改时间、命中/访问时间与缓存文件路径；最多 128 条、总大小上限 500 MiB，LRU 淘汰。应用启动时载入（`WarmCacheIndex`）、退出时原子落盘。
+- `search-cache/<key>.json`：单条缓存的完整 `SearchResponse` JSON（不含 `FromCache` 标志），由 `PutCachedSearch` 写入、`CheckCacheHit` 读回；键为 SHA-256 前 16 位，与索引一一对应。删除索引条目时同步删除对应文件；缓存面板清空/淘汰时一并清理。
 
 ### RuntimeInfo
 
@@ -225,6 +356,18 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `TailFile(path, TailOptions)`：按偏移增量读取新增完整行，返回行、下一次偏移、文件大小、实际编码与重置/截断标记，供实时跟踪使用；编码识别与检索共用同一套抽样逻辑，UTF-16 明确拒绝。
 - `EnumerateLogFiles(root, patterns, max)`：递归遍历目录，按 glob 模式（空则用默认日志扩展名）收集普通文件并按路径升序返回，最多 `max` 个（<=0 或超过 200 时按 `MaxMultiFiles`）；第二个返回值表示是否因超过文件数上限或访问条目上限（5 万）而截断；传入单个文件而非目录时报错。
 - `SearchFilesConcurrently(ctx, files, query, useRegex, maxResults, SearchOptions, onProgress)`：以 `min(NumCPU, 8, 文件数)` 个 goroutine 从原子索引领取文件、逐个复用 `SearchFileWithOptions`（每文件回调传 nil），把结果合并成一份全局有序结果集。`maxResults` 是所有文件合计的命中上限，预算耗尽后停止领取新文件并把剩余文件计为跳过；`ctx` 取消后停止领取并保留已扫描文件（含中途取消部分）的结果；单文件失败只记入 `FileSearchState`，不整体报错。`onProgress` 在每个文件完成时以文件粒度回调一次，携带该文件新增匹配与跨文件聚合进度。
+- 并行分块扫描（`internal/logx/parallel_search.go`）：`SearchFileWithOptions` 在满足 `isParallelizable` 条件时自动切换到分块并行模式（阶段 8）。判定条件：UTF-8 纯文本、非正则、无字符解码器、无多文件 JSON/事件/时间窗/续扫起点、文件大小 >= 64 MiB。文件被切成 64 MiB chunk，最多 `min(NumCPU, 8)` 个 worker 并发扫描；相邻 chunk 之间有 16 KiB 重叠窗口，避免行被截断；单行跨块时按行号顺序归并。每个 chunk 独立统计 `bytesScanned`、`scannedLines` 与 `matches`，最终按原始偏移排序合并回单份 `SearchResponse`。正则模式、需要 GB18030/UTF-16 解码、启用多文件 JSON 文档/事件上下文/时间窗过滤的检索强制走单线程流式扫描。
+- 搜索结果缓存（`internal/logx/search_cache.go`，阶段 8）：
+  - `WarmCacheIndex()`：应用启动时载入 `search-cache/cache-index.json`；缓存索引维护键到文件路径的映射与元数据。
+  - `CheckCacheHit(ctx, filePath, query, useRegex, encoding, contextLines, timeWindowStartMs, timeWindowEndMs, timeZone)`：按 8 元组生成 SHA-256 键，命中后校验文件大小与修改时间是否与索引一致（`file-modernity`），一致则直接读回落盘 JSON 并返回带 `FromCache: true` 的 `SearchResponse`；不一致或键不存在返回 `hit=false`。
+  - `PutCachedSearch(resp, timeWindowStartMs, timeWindowEndMs, timeZone)`：把成功检索结果（命中数 > 0）写入 `search-cache/<key>.json` 并更新索引，自动淘汰超过 128 条或总大小超过 500 MiB 的 LRU 冷条目。
+  - `ListCacheEntries(limit)`：返回最近访问的 `CacheEntryMeta` 元数据列表，按访问时间降序；`limit` 默认 20，硬上限 50。
+  - `DeleteCacheEntryByKey(key)` / `ClearAllCache()`：删除单条或全部缓存条目并同步更新索引。
+  - `GetCacheStatistics()`：返回条目数、总大小、容量上限、命中/未命中/淘汰累计的 `CacheStatistics` 快照。
+- 多文件时间线扫描（`internal/logx/timeline.go`，阶段 9）：
+  - `ScanTimeline(ctx, files []TimelineFileSpec, opts TimelineScanOptions, onProgress)`：并发扫描多份日志，按每行可解析的日期时间戳合并成统一时间线。每个文件返回独立的 `entries`（时间戳升序），同时按时间戳合并去重生成全局 `entries`。默认每文件 5 万行、全局 20 万行硬上限，超出时 `truncated=true` 并在 `truncatedFiles` 列出文件。`levelDetect` 开启时自动识别每行级别；`timeZone` 控制时间戳解析时区。
+- 日志文件头读取（`internal/logx/diff.go`，阶段 6 批次 D）：
+  - `ReadDecodedFileHead(path, encoding, maxBytes)`：读取日志文件开头并解码为 UTF-8 返回 `DecodedFileHead`；编码识别复用 `resolveTextEncoding` 与 `file-indexes.json` 缓存；单侧 4 MiB 硬上限，超出截断并标记 `truncated`；编码不可解码时返回 error。
 
 约束：普通文本按固定缓冲区流式扫描；结果上限为 5,000；结果预览 8 KiB；上下文预览 1 KiB；正则模式单行限制 4 MiB。
 
@@ -238,6 +381,7 @@ MeteorDesk 是 Wails v2 桌面应用，不提供供外部客户端调用的 REST
 - `ListGroups()` / `SaveGroup(Group)` / `DeleteGroup(id)` / `StartGroup(id)` / `StopGroup(id)`：服务分组（场景）的增删改查与整组启停，分组只存 ID 引用，启停复用 `StartBatch`/`StopBatch` 并过滤已删除成员。
 - `FindServiceByLogPath(path)`：按落盘文件绝对路径反查所属服务，未命中返回 `ok=false`（`App.FindServiceByLogPath` 把它包装为单返回值快照，未命中时 `id` 为空）。
 - `ExportConfig(redactSensitive)` / `ImportConfig(data)`：在 Go 层处理配置迁移；文件选择和写入由 Wails 的 `App` 方法处理。
+- `RenderCommand(spec Spec)`：把尚未保存的 `Spec` 渲染成命令行预览（阶段 9），返回 `CommandPreview{ command, workingDir, env, warnings }`。按当前平台拼接：Windows 用 `set VAR=value&&` 前缀、POSIX 用 `VAR=value` 前缀；敏感变量名（`password`、`token`、`key`、`secret` 等子串，大小写不敏感）的值自动清空为 `***`。可执行文件不是绝对路径且不在 `%PATH%` 时在 `warnings` 列出提示，不阻止预览。`App.GetProcessCommandPreview` 直接调用此函数作为前端桥接入口。
 - 自动重启：`Spec.Restart` 为 `on-failure` 且进程以非零码退出或收到信号时，按指数退避（1 秒起步、翻倍、上限 30 秒）调度重启，次数受 `MaxAttempts` 限制；定时器保存在管理器内部，手动停止、修改配置、删除服务、`Restart` 或再次启动都会取消待执行的重启。正常退出与启动失败（可执行文件创建失败）不触发重启。
 - 健康检查：`health.go` 中的 `startHealthProbe` 在进程启动成功后起一个探测协程，按间隔执行 `probeHealth`（TCP `DialTimeout` 或 HTTP `Client.Get`，只读取 32 KiB 正文后丢弃）；探测结果写回快照，仅在健康状态变化时追加一条 `system` 输出。探测失败只标记状态，不触发重启；进程退出或实例被替换时通过 `probeStop` 结束协程。
 - 依赖就绪：`readiness.go` 的 `waitReady` 在批量启动中等待上游健康。只有本次启动顺序里被下游依赖、且 `Health != nil`、`ReadyTimeoutSeconds > 0` 的服务才等待；每 50 ms 读取一次快照，`healthy` 后继续启动下游，`unhealthy`、实例被替换、进程停止或超时会阻断下游并把原因写入运行输出。

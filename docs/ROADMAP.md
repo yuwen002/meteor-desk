@@ -165,6 +165,8 @@
 - [x] Wails v2.10.2 升级到 v2.16.0，补齐 build tag 语义（`dev`/`production`/`bindings`，GoLand 需显式指定 `-tags=dev` 或 `-tags=production`）。
 - [x] `shutdown()` 中 `runtime.WindowGetSize`/`WindowGetPosition` 调用包裹 `recover` 保护，避免窗口句柄已销毁时 panic。
 - [x] 清理根目录编译产物与临时 PowerShell 脚本，`.gitignore` 新增 `*.exe`；README、架构文档、路线图同步更新。
+- [x] 多文件时间线扫描：并发扫描多份日志按每行时间戳合并成统一时间线，自动识别日志级别，每文件上限 5 万行、全局 20 万行硬上限，进度通过 `log-timeline:update` 事件推送。
+- [x] 命令预览：配置表单实时展示尚未保存的 `ProcessSpec` 将要执行的命令行，敏感环境变量值自动脱敏为 `***`，可执行文件相对路径等问题以 warnings 形式而非阻断提示。
 
 ## 未排期候选
 

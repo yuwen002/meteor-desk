@@ -7,8 +7,16 @@ Vue 3 / TypeScript (frontend/src)
         │ Wails JS bridge: window.go.main.App
         ▼
 App (app.go)
-  ├── logx     流式日志读取、编码解码、匹配、上下文与增量回调
-  ├── process  本地进程生命周期、依赖排序、输出缓存与落盘、时间线/运行历史/分组持久化
+  ├── logx
+  │     ├── 流式日志读取、编码解码、匹配、上下文与增量回调
+  │     ├── parallel_search 大文件（>64 MiB UTF-8）自动并行分块扫描，最多 8 worker
+  │     ├── search_cache    搜索结果落盘缓存（128 条 / 500 MiB / LRU），索引原子落盘
+  │     ├── timeline        多文件并发按时间戳合并成统一时间线视图
+  │     └── diff            日志文件头读取，供「两份日志逐行对比」面板
+  ├── process
+  │     ├── 本地进程生命周期、依赖排序、输出缓存与落盘
+  │     ├── 时间线/运行历史/分组持久化
+  │     └── RenderCommand 命令预览（敏感环境变量脱敏）
   ├── httpx    受限的本机 HTTP 请求（开发工具箱）
   └── config   本地偏好、最近文件与搜索历史
         │
@@ -42,12 +50,13 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 ## 日志检索数据流
 
 1. 前端生成唯一任务 ID，调用 `SearchLogsAdvanced`；Wails `log-search:update` 事件优先推送进度和新增匹配，250 ms 轮询保留为兼容回退。
-2. `App` 创建可取消的上下文，将请求转给 `internal/logx`。
+2. `App` 创建可取消的上下文，将请求转给 `internal/logx`；入口先经 `CheckCacheHit` 检查搜索缓存——文件大小与修改时间与索引一致时直接回回落盘 JSON，返回 `FromCache=true` 跳过后续所有文件扫描。
 3. `logx` 只抽样文件头部（最多 64 KiB）识别编码，再通过固定缓冲读取全文。非 UTF-8 编码由流式解码器转换为 UTF-8；不会把整个文件读入内存。
-4. 搜索器按行匹配。普通文本模式不会缓存整行；预览、上下文、结果数和正则模式整行大小都有上限。
-5. 可选上下文模式：多行 JSON 按括号深度把文档聚合成整体，事件上下文按时间戳、空行或自定义正则切分事件；两者均为单条 512 KiB、单次检索 32 MiB 的内容预算。未闭合 JSON 内部不按事件边界拆分。
-6. 进度回调只携带新增匹配，前端按游标追加。最终 `SearchResponse` 是完整结果和上下文的权威快照。
-7. 取消通过 `context.Context` 传递；程序返回已经找到的结果，而不是丢弃已有结果。
+4. 满足 `isParallelizable`（UTF-8 纯文本、非正则、无多文件 JSON/事件/时间窗/续扫起点、文件 >= 64 MiB）时自动切到 `parallel_search.go` 的分块并行模式：文件切成 64 MiB chunk、最多 `min(NumCPU, 8)` 个 worker、相邻 chunk 有 16 KiB 重叠窗口防跨行截断；每个 chunk 独立统计后按原始偏移归并。正则模式、需要 GB18030/UTF-16 解码或启用高级选项的检索强制走单线程流式扫描。
+5. 搜索器按行匹配。普通文本模式不会缓存整行；预览、上下文、结果数和正则模式整行大小都有上限。
+6. 可选上下文模式：多行 JSON 按括号深度把文档聚合成整体，事件上下文按时间戳、空行或自定义正则切分事件；两者均为单条 512 KiB、单次检索 32 MiB 的内容预算。未闭合 JSON 内部不按事件边界拆分。
+7. 进度回调只携带新增匹配，前端按游标追加。最终 `SearchResponse` 是完整结果和上下文的权威快照；命中数 > 0 时由 `PutCachedSearch` 异步写入搜索缓存。
+8. 取消通过 `context.Context` 传递；程序返回已经找到的结果，而不是丢弃已有结果。
 
 ### 编码模式
 
@@ -56,6 +65,39 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 自动检测只是启发式策略。对于非中文传统编码或含二进制内容的混合日志，应手动选择；若文件本身是压缩或加密内容，需先转换为文本。
 
 编码检测的结果按三元组键（路径+大小+修改时间）缓存在 `internal/logx` 的 `encodingIndex` 中：同一文件未变化时后续 `auto` 检索直接复用上次结果，跳过再次读取 64 KiB 样本与启发式探测。缓存最多 50 个文件、24 小时过期、LRU 淘汰，原子落盘到 `file-indexes.json`；文件大小或修改时间一旦改变立即失效。这只影响自动识别路径，显式指定编码的检索不经过缓存。
+
+### 搜索结果缓存
+
+阶段 8 引入的落盘搜索缓存（`internal/logx/search_cache.go`）把完整 `SearchResponse` JSON 持久化到配置目录 `search-cache/`，避免对稳定不变的大日志重复全文件扫描：
+
+- 键生成：`sha256(filePath + "|" + query + "|" + useRegex + "|" + encoding + "|" + contextLines + "|" + timeWindowStartMs + "|" + timeWindowEndMs + "|" + timeZone)[:16]`，单条缓存一个完整的 `SearchResponse` JSON（不含 `FromCache` 字段）。
+- 命中判定：入口先 `CheckCacheHit` 查索引、读取缓存条目的 `fileSizeBytes` 与 `mtime` 跟当前文件比对（`file-modernity` 校验），一致则直接返回 `FromCache=true` 的完整结果，跳过后续所有编码检测和文件扫描；文件一经修改立即失效。
+- 写入时机：`SearchFileWithOptions` 成功返回且 `len(matches) > 0` 时异步 `PutCachedSearch`，不阻塞前端。
+- 淘汰策略：索引维护 `lastAccessedAt` 指针，超过 128 条或总大小超过 500 MiB 时按访问时间 LRU 淘汰，被淘汰条对应的 `search-cache/<key>.json` 同步删除。
+- 持久化：索引 `cache-index.json` 由 `WarmCacheIndex()` 在应用启动时载入、退出时由 `FlushCacheIndex()` 原子回写（临时文件加重命名），应用重启后缓存立即可用。
+- 缓存管理面板桥接：`GetLogCacheEntries(limit)`、`GetLogCacheStatistics()`、`DeleteLogCacheEntry(key)`、`ClearLogCache()` 提供前端直接查看命中列表、统计快照、单条删除或一键清空的入口，便于用户释放磁盘空间或在检索模式改变时重置。
+
+### 多文件时间线扫描
+
+阶段 9 引入的统一时间线视图（`internal/logx/timeline.go`）让用户可以同时打开多份日志（如不同服务的落盘输出或不同环境的同一份服务日志）并按时间戳合并查看：
+
+- 并发扫描：`ScanTimeline` 接收 `TimelineFileSpec[]`，以 `min(NumCPU, 8, 文件数)` 个 goroutine 并发扫描，每个文件独立走 `bufio.Scanner` 逐行读取、解析可识别的日期时间戳并写入 `TimelineEntry`。
+- 时间戳解析复用前端 `utils/timeDistribution.ts` 的启发式逻辑（`YYYY-MM-DD HH:mm:ss`、ISO 毫秒、`HH:mm:ss`），时间线级别识别与 `detectLevel` 单词边界逻辑保持一致。
+- 合并策略：每个文件内部按时间戳升序，跨文件按时间戳合并归并；无时间戳的行时间戳设为 `math.MaxInt64` 并排在该文件末尾。
+- 上限：每文件默认 5 万行、全局 20 万行硬上限，超出时 `truncated=true` 并在 `truncatedFiles` 列出文件名，前端据此提示用户。
+- 进度推送：沿用任务登记机制，扫描进度通过 `log-timeline:update` 事件推送（含文件数、进度百分比与增量 entries），前端也可按 `scanID` 复用 `GetLogSearchProgress` 轮询。
+
+### 日志文件头读取（两份日志对比）
+
+阶段 6 批次 D 的「两份日志逐行对比」面板需要快速展示两个文件开头以供用户确认内容：`ReadDecodedFileHead(path, encoding, maxBytes)` 按 `resolveTextEncoding`（与检索共用）识别编码、读取并解码文件开头返回 `DecodedFileHead{ text, encoding, fileSizeBytes, headBytes, truncated }`。单侧 4 MiB 硬上限避免加载超大文件；编码缓存命中时跳过重复检测。编码不可解码（如压缩二进制）时直接返回 error，前端据此提示用户。
+
+### 命令预览
+
+阶段 9 的 `RenderCommand(spec)`（`internal/process` 包）把尚未保存的 `ProcessSpec` 渲染成命令行预览，供前端在配置表单中实时展示：
+
+- 平台相关拼接：Windows 用 `set VAR=value&&` 前缀，POSIX 用 `VAR=value` 前缀，最后拼可执行文件绝对路径和参数数组。
+- 敏感变量脱敏：环境变量名包含 `password`、`token`、`key`、`secret` 等子串（大小写不敏感）时值替换为 `***`，防止用户把环境变量值展示给日志或他人。
+- 非致命提示：可执行文件不是绝对路径且不在 `%PATH%` 时、workingDir 不存在时，都只在 `warnings` 数组记录，不阻止预览。
 
 ## 工具箱 HTTP 请求
 
@@ -182,7 +224,8 @@ MeteorDesk 不启动供远端访问的 REST API。Wails 暴露的 Go 方法是�
 - 用户偏好和检索历史位于当前用户配置目录下的 `MeteorDesk/settings.json`。
 - 服务配置位于同目录下的 `processes.json`；时间线、运行历史与分组分别持久化为同目录的 `process-events.json`（每服务 200 条）、`run-history.json`（每服务 100 次）与 `groups.json`；开启落盘的服务输出写入同目录 `logs/<服务名>.log`（单文件 64 MiB、最多保留 3 份）。这些文件都走 `writeJSONAtomic`（除日志文件本身为追加写）串行原子写入，删除服务时一并清理其时间线/运行历史/落盘文件。
 - 日志编码检测缓存同目录落盘为 `file-indexes.json`（最多 50 个文件、24 小时过期、LRU 淘汰），应用启动时由 `WarmEncodingCache` 载入、退出时由 `FlushEncodingIndex` 原子回写，避免重复检索时反复做启发式编码探测。
-- 搜索结果只保留在当前应用任务中；任务清理策略限制历史搜索状态的积累。
+- 搜索结果缓存落盘到同目录 `search-cache/`（阶段 8）：`cache-index.json` 维护索引，每条缓存单独一个 `<sha256-16>.json` 文件；最多 128 条、总大小上限 500 MiB、LRU 淘汰。应用启动时由 `WarmCacheIndex` 载入、退出时由 `FlushCacheIndex` 原子回写。文件一经修改相关缓存条目自动失效（`file-modernity` 校验）。
+- 搜索任务登记只保留在当前应用任务中；任务清理策略限制历史搜索状态的积累；但任务结果被写入搜索缓存后跨应用启动仍可命中。
 - 结果收藏保存在前端 localStorage 的 `meteordesk.bookmarks.v1`，按文件路径与行号去重、上限 500 条；不属于后端配置，也不参与导入导出。
 - 项目没有默认遥测，也不会将日志内容上传到外部服务。
 
