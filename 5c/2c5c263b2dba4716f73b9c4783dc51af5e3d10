@@ -1,0 +1,28 @@
+internal/logx/timeline.go
+  h_a3f313f3d96276 1-466
+frontend/src/style.css
+  h_a3f313f3d96276 638-642
+internal/logx/timeline_test.go
+  h_a3f313f3d96276 1-304
+frontend/src/types.d.ts
+  h_a3f313f3d96276 30-44,55
+frontend/src/components/TimelinePanel.vue
+  h_a3f313f3d96276 1-530
+frontend/src/composables/useTimeline.ts
+  h_a3f313f3d96276 1-150
+frontend/src/App.vue
+  h_a3f313f3d96276 10,44,187,292
+app.go
+  h_a3f313f3d96276 955-967
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "5c2c5c263b2dba4716f73b9c4783dc51af5e3d10",
+  "prompts": {},
+  "humans": {
+    "h_a3f313f3d96276": {
+      "author": "liuxingyu <yuwen002@163.com>"
+    }
+  }
+}
