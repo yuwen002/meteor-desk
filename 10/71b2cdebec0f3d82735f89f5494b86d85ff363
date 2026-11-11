@@ -1,0 +1,22 @@
+docs/ROADMAP.md
+  h_a3f313f3d96276 168-169
+docs/USER_GUIDE.md
+  h_a3f313f3d96276 276-300,307,314-316,318
+docs/API.md
+  h_a3f313f3d96276 25-30,42,92-96,100-101,110-205,258-277,287-288,359-370,384
+docs/ARCHITECTURE.md
+  h_a3f313f3d96276 10-19,53,55-59,69-101,227-228
+docs/PERFORMANCE.md
+  h_a3f313f3d96276 69-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "26.9.9",
+  "base_commit_sha": "1071b2cdebec0f3d82735f89f5494b86d85ff363",
+  "prompts": {},
+  "humans": {
+    "h_a3f313f3d96276": {
+      "author": "liuxingyu <yuwen002@163.com>"
+    }
+  }
+}
