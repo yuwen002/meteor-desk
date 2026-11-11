@@ -27,6 +27,21 @@ declare global {
   interface JsonField { path:string; value:unknown }
   interface HttpRequest { method:string; url:string; headers:Record<string,string>; body:string; timeoutMs?:number; followRedirects?:boolean; insecureSkipVerify?:boolean }
   interface HttpResponse { status:number; statusText:string; headers:Record<string,string>; body:string; bodyTruncated:boolean; sizeBytes:number; durationMs:number; finalUrl?:string; redirects?:number; binary?:boolean }
+  interface TimelineEntry {
+    timestampMs:number; sourceLabel:string; filePath:string; lineNumber:number;
+    level:string; content:string; contentClipped:boolean; dateOnly:string; timeOnly:string;
+  }
+  interface TimelineFileSpec { path:string; sourceLabel?:string; encoding?:string }
+  interface TimelineFileResult {
+    path:string; sourceLabel:string; encoding:string;
+    totalBytes:number; scannedLines:number; entriesCollected:number;
+    durationMs:number; failed:boolean; error?:string;
+  }
+  interface TimelineScanOptions { maxEntries?:number; maxFileBytes?:number; encoding?:string }
+  interface TimelineScanResponse {
+    entries:TimelineEntry[]; files:TimelineFileResult[];
+    totalEntries:number; durationMs:number; limitReached:boolean; canceled:boolean;
+  }
   interface LogTailResult { lines:string[]; offset:number; fileSizeBytes:number; encoding:string; reset:boolean; truncated:boolean }
   interface LogDecodedFileHead { text:string; encoding:string; sizeBytes:number; truncated:boolean }
   interface RuntimeInfo { appVersion:string; goVersion:string; platform:string; dataDir:string }
@@ -37,6 +52,7 @@ declare global {
     SelectLogDirectory:()=>Promise<string>;
     SearchLogsAdvanced:(id:string,path:string,query:string,useRegex:boolean,maxResults:number,options:LogSearchOptions)=>Promise<LogSearchResponse>;
     SearchLogsMultiFile:(id:string,rootDir:string,pattern:string,query:string,useRegex:boolean,maxResults:number,options:LogSearchOptions)=>Promise<LogSearchResponse>;
+    ScanLogTimeline:(files:TimelineFileSpec[],options:TimelineScanOptions)=>Promise<TimelineScanResponse>;
     GetLogSearchProgress:(id:string)=>Promise<LogSearchProgress>; GetLogSearchMatches:(id:string,afterIndex:number)=>Promise<LogMatch[]>; CancelLogSearch:(id:string)=>Promise<boolean>;
     GetAppSettings:()=>Promise<AppSettings>; SaveAppSettings:(settings:AppSettings)=>Promise<void>;
     GetProcesses:()=>Promise<ProcessView[]>; SaveProcess:(spec:ProcessSpec)=>Promise<ProcessView>; DeleteProcess:(id:string)=>Promise<void>;

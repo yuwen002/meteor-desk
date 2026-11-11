@@ -636,3 +636,7 @@ mark{background:rgba(230,190,112,.22);color:#ffdda0;border-radius:2px;padding:0 
 .theme-light .file-overview-item{background:#f6f8fb;border-color:#dce3ec}
 .theme-light .file-overview-item .fo-name{color:#33445c}
 .theme-light .file-overview-item.active{background:#eef4fc;border-color:#8bb8ee}
+.timeline-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn 0.15s ease}
+.timeline-overlay>.timeline-panel{width:min(1200px,100%);height:min(85vh,900px);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5);border:1px solid #1e293b;animation:slideUp 0.2s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}

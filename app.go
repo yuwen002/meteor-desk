@@ -953,3 +953,16 @@ func (a *App) DeleteLogCacheEntry(key string) error {
 func (a *App) GetLogCacheStatistics() logx.CacheStatistics {
 	return logx.GetCacheStatistics()
 }
+
+// ScanLogTimeline 并发扫描多份日志文件并按时间戳合并成统一时间线视图。
+// 扫描过程是同步完成的，适合本地调试时快速拉起跨服务的统一日志时间线。
+// files 每项可独立指定来源标签（不填时自动取文件名）。
+func (a *App) ScanLogTimeline(files []logx.TimelineFileSpec, options logx.TimelineScanOptions) (logx.TimelineScanResponse, error) {
+	if a.ctx == nil {
+		return logx.TimelineScanResponse{}, errors.New("桌面运行环境尚未就绪")
+	}
+	if len(files) == 0 {
+		return logx.TimelineScanResponse{}, errors.New("未指定任何日志文件")
+	}
+	return logx.ScanTimeline(a.ctx, files, options, nil)
+}

@@ -7,6 +7,7 @@ import AboutDialog from './components/AboutDialog.vue'
 import ShortcutsDialog from './components/ShortcutsDialog.vue'
 import CacheManagerDialog from './components/CacheManagerDialog.vue'
 import LogComparePanel from './components/LogComparePanel.vue'
+import TimelinePanel from './components/TimelinePanel.vue'
 import { createSerialTaskQueue } from './utils/serialTaskQueue'
 import { appVersion } from './appMeta'
 import { buildFacetExportCSV, buildSearchExportCSV, buildSearchExportJSON, facetExportFileName, searchExportFileName, type ExportFormat } from './utils/exporters'
@@ -40,6 +41,7 @@ const cacheDialogOpen=ref(false)
 const exportMessage=ref('')
 const summaryOpen=ref(false), summaryMessage=ref('')
 const themeMode=ref<'dark'|'light'>('dark')
+const timelineOpen=ref(false)
 // 跨模块协同：进程详情把落盘文件交给日志分析（openProcessLog）；日志分析按文件路径反查所属服务并跳回进程管理。
 // processOwner 保存当前打开文件反查到的服务快照（非本工作台落盘文件时为空），processFocusId 请求进程管理页选中某个服务。
 const processOwner=ref<ProcessStatus|null>(null), processFocusId=ref('')
@@ -182,7 +184,7 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
   <header class="topbar"><div class="breadcrumbs"><span>{{ $t('app.workspace') }}</span><ChevronRight :size="14"/><strong>{{ activePage==='logs' ? $t('nav.logs') : activePage==='processes' ? $t('nav.processes') : $t('nav.toolkit') }}</strong></div><div class="topbar-right"><div class="runtime-status"><span class="status-dot"></span>本机运行</div><div class="topbar-divider"></div><button class="theme-toggle" type="button" :aria-label="themeMode==='dark'?'切换浅色主题':'切换深色主题'" :title="themeMode==='dark'?'切换浅色主题':'切换深色主题'" @click="toggleTheme"><Sun v-if="themeMode==='dark'" :size="15"/><Moon v-else :size="15"/></button><button class="shortcut-hint" type="button" title="配置快捷键" @click="shortcutsDialogOpen=true"><Command :size="13"/><span>快捷键</span></button><button class="shortcut-hint" type="button" title="搜索缓存管理与会话恢复" @click="cacheDialogOpen=true"><HardDrive :size="13"/><span>{{ $t('cache.title') }}</span></button></div></header>
   <div class="page-wrap">
    <section v-if="activePage==='logs'" class="page-content">
-    <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>{{ $t('breadcrumb.logs') }}</div><h1>{{ $t('logs.title') }}<span class="title-period">。</span></h1><p class="page-subtitle">逐块读取大体积日志，支持关键字、正则、上下文、跨行 JSON 文档检索、字段过滤和常见文本编码。</p></div><button class="button button-secondary" :disabled="busy" @click="chooseFile"><FolderOpen :size="16"/>选择日志</button></div>
+    <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>{{ $t('breadcrumb.logs') }}</div><h1>{{ $t('logs.title') }}<span class="title-period">。</span></h1><p class="page-subtitle">逐块读取大体积日志，支持关键字、正则、上下文、跨行 JSON 文档检索、字段过滤和常见文本编码。</p></div><div style="display:flex;gap:8px;"><button class="button button-secondary" :disabled="busy" @click="chooseFile"><FolderOpen :size="16"/>选择日志</button><button class="button button-secondary" @click="timelineOpen=true"><Activity :size="16"/>统一时间线</button></div></div>
     <div class="metric-grid">
      <div class="metric-card"><div class="metric-top"><span class="metric-icon mint"><Gauge :size="16"/></span><span class="metric-kicker">检索方式</span></div><div class="metric-value">流式扫描</div><div class="metric-foot"><CheckCircle2 :size="12"/>固定大小缓冲区</div></div>
      <div class="metric-card"><div class="metric-top"><span class="metric-icon blue"><HardDrive :size="16"/></span><span class="metric-kicker">数据处理</span></div><div class="metric-value">仅限本地</div><div class="metric-foot"><CheckCircle2 :size="12"/>不上传日志内容</div></div>
@@ -287,5 +289,6 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',shortcuts);disposeSear
  <ShortcutsDialog v-if="shortcutsDialogOpen" :config="shortcutsConfig" @close="shortcutsDialogOpen=false" @change="shortcutsConfig=$event"/>
   <AboutDialog v-if="aboutDialogOpen" @close="aboutDialogOpen=false"/>
   <CacheManagerDialog v-if="cacheDialogOpen" @close="cacheDialogOpen=false"/>
+ <div v-if="timelineOpen" class="timeline-overlay" @click.self="timelineOpen=false"><TimelinePanel @close="timelineOpen=false"/></div>
 </div>
 </template>
